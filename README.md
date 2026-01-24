@@ -1,18 +1,18 @@
 # zivAI (zivai-web)
 
-zivAI is an AI Teacher Assistant for O-Level education, built by **Team ZWASCEND** (University of Zimbabwe) for the Huawei ICT Competition 2025–2026. The goal is to deliver adaptive teaching, automated grading, mastery tracking, and offline-friendly operations across classroom, homework, and revision flows.
+zivAI is an AI Teacher Assistant for O-Level/High School subjects, built by **Team ZWASCEND** (University of Zimbabwe) for the Huawei ICT Competition 2025–2026. It targets overcrowded classes with automated marking, mastery tracking on subject/topic/skill graphs, and offline-friendly delivery.
 
-This repository currently contains the working prototype (React + Node/Express + MongoDB). The next phase will align to the Huawei stack outlined in the competition entry: MindSpore/ModelArts for training and deployment, CANN on Ascend hardware (Orange Pi AIpro) for edge inference, and GaussDB (openGauss + NoSQL) for core storage and high-throughput logs/OCR.
+The repo currently holds a prototype (React + Express + MongoDB). The target architecture is defined in the latest GaussDB (openGauss) + GaussDB NoSQL DDL with edge/cloud sync (Orange Pi AIpro + Ascend), MindSpore/ModelArts for AI, and RAG-friendly KB tables.
 
 ## Current vs target architecture
 
-- **Current (prototype)**: Vite + React front-end, Express/Node API, MongoDB, Socket.io, local uploads, cron jobs for resource sync.
-- **Target (Huawei stack)**:
-  - AI/ML: Huawei MindSpore (training/fine-tuning), ModelArts (full lifecycle), CANN for Ascend acceleration, MindSpore Lite for offline edge inference.
-  - Edge: Orange Pi AIpro (Ascend 310) running lightweight openGauss for continuity and local inference.
-  - Databases: GaussDB (openGauss) for relational core; GaussDB (NoSQL, Mongo-compatible) for interaction logs/OCR payloads.
-  - Services: Huawei Cloud CCE (containerized backend), ECS, Huawei Cloud OCR.
-  - Frontend/Backend: React/Angular on the web tier; Python FastAPI services for AI workers (in addition to the existing Node API while migrating).
+- **Current (prototype)**: Vite + React, Express/Node, MongoDB, Socket.io, local uploads, cron.
+- **Target (Huawei stack per new DDL)**:
+  - Data: GaussDB (openGauss) relational core with UUIDs, sync_version, soft deletes; GaussDB (NoSQL/Mongo) for interaction logs, OCR payloads, event queues.
+  - Domain: schools, classes, subjects → topics → skills; resources; rubric-aware questions; unified assessments (quiz/test/assignment/project/exam); attempts/answers with OCR + AI traces; mastery snapshots; KB chunks/embeddings; edge nodes/outbox/inbox for store-and-forward.
+  - AI/ML: MindSpore/ModelArts, CANN on Ascend, MindSpore Lite on Orange Pi AIpro; AI model registry + versions + inference traces (as per DDL).
+  - Infra: Huawei Cloud CCE/ECS, Huawei OCR, edge openGauss for continuity; RAG-ready KB tables (kb_versions/documents/chunks/embeddings).
+  - APIs/Workers: Express gateway (current) plus FastAPI/ModelArts workers during migration.
 
 ## Tech stack (today)
 - Frontend: React, TypeScript, Vite, Tailwind CSS
@@ -56,8 +56,8 @@ npm run server
 ## API surface (current)
 - `/api/auth` — login/register/profile
 - `/api/students` — student CRUD
-- `/api/courses` — course listing/teaching
-- `/api/assessments` — create/list/update/delete, results
+- `/api/courses` — course listing/teaching (to be renamed to subjects in upcoming refactor)
+- `/api/assessments` — create/list/update/delete, results (will align to unified assessments)
 - `/api/submissions` — student submissions, teacher review, stats
 - `/api/development` — attributes, plans, assignments
 - `/api/resources` — upload/list/download/reorder/delete
@@ -65,17 +65,34 @@ npm run server
 - `/api/notifications` — list/mark/read counts
 - `/api/ai` — question generation (additional AI endpoints to be added)
 
-## Data highlights
-- Users, Students, Courses, Assessments, Results, Submissions, Development Plans/Attributes, Resources, Messages, Notifications, Calendar Events.
-- See `server/models/` for the current Mongoose schemas; these will be migrated to openGauss (relational) and GaussDB NoSQL for logs/OCR.
+## Data highlights (from the new DDL)
+- Schools and school users (multi-school).
+- Subjects → topics → skills + prerequisites (high school syllabus graph).
+- Classes, enrolments, class teachers (subject-scoped).
+- Resources (school/subject), with status and ordering.
+- Questions + rubric-aware marking schemes; question↔skill mapping.
+- Unified assessments with assignments/enrollments/attempts; answers with OCR fields, AI traces, attachments, and grading overrides.
+- Interaction events and mastery snapshots (DKT-friendly).
+- Development plans/steps and student plans/attributes (by subject).
+- Chat (chats/members/messages), notifications, calendar events.
+- KB/RAG tables (kb_versions/documents/chunks/embeddings) without pgvector dependency.
+- AI model registry, versions, inference runs, retrieval traces.
+- Edge nodes, deployments, sync outbox/inbox for store-and-forward.
+- Audit event log (append-only).
 
-## Migration roadmap (Huawei stack)
-1) Move core schema to GaussDB (openGauss) and refactor ORM layer.  
-2) Add GaussDB (NoSQL) for interaction logs, OCR payloads, AI traces.  
-3) Shift AI services to MindSpore/ModelArts with Ascend acceleration and MindSpore Lite on Orange Pi AIpro.  
-4) Containerize backend on CCE; introduce FastAPI workers for AI pipelines.  
-5) Replace local uploads with Huawei Object Storage and integrate Huawei Cloud OCR.  
-6) Add offline/edge sync between Orange Pi and cloud (store-and-forward).  
+## Migration roadmap (aligned to new DDL)
+1) Rename “courses” → “subjects” in the codebase and map to the GaussDB schema (UUID primary keys, sync_version, soft delete).
+2) Introduce GaussDB (NoSQL) for interaction_logs/OCR/event_queue; wire edge outbox/inbox for store-and-forward.
+3) Move grading/OCR/AI traces to the ai_* tables; hook inference runs to ModelArts/MindSpore.
+4) Containerize services on CCE; add FastAPI workers for AI, keep Express gateway for REST/Socket.io.
+5) Shift storage to Huawei Object Storage; connect Huawei OCR for scans.
+6) Implement KB ingestion to kb_* tables and retrieval traces for RAG-based copilots.
+
+## Project status snapshot
+- **Current prototype**: Auth, class/enrolment, assessments/submissions, resources, chat, notifications, basic AI question generation on Mongo/Express/React.
+- **Environment**: PORT 5000, CLIENT_URL http://localhost:5173, MongoDB local, uploads served from `/uploads`.
+- **Transition plan**: openGauss/NoSQL migration, ModelArts/MindSpore pipelines, Ascend edge, CCE/ECS containerization, Huawei OCR/object storage, edge sync (outbox/inbox).
+- **Risks/next actions**: finalize schema mapping in code, add integration/load tests pre-CCE, wire AI traces to ai_inference_runs, implement KB ingestion and retrieval traces.
 
 ## Team (ZWASCEND, University of Zimbabwe)
 - Instructor: Mr. Bernad Mapako  
