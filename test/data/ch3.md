@@ -3,7 +3,7 @@
 
 ## 3.1 Introduction
 
-This chapter gives the system analysis and the design blueprint for the AI-Driven Adaptive Teaching and Learning System (KundAI). It translates the problem definition and requirements (Chapter 2 and the project proposal) into a structured, implementable architecture and design. The chapter covers stakeholder-driven requirements, functional and non-functional requirements, high-level architecture, data schema summaries, API and sequence designs, UI considerations, security, scalability, deployment and testing strategies.
+This chapter gives the system analysis and the design blueprint for the AI-Driven Adaptive Teaching and Learning System (zivAI). It translates the problem definition and requirements (Chapter 2 and the project proposal) into a structured, implementable architecture and design. The chapter covers stakeholder-driven requirements, functional and non-functional requirements, high-level architecture, data schema summaries, API and sequence designs, UI considerations, security, scalability, deployment and testing strategies.
 
 ## 3.2 Stakeholders and Goals
 
@@ -225,7 +225,7 @@ Open issues / decisions to resolve:
 
 ## 3.15 Conclusion
 
-This chapter formalizes the analysis and design of KundAI into a practical, implementation-ready blueprint. The architecture separates concerns between a high-throughput API gateway, specialized ML workers, and a persistent document database. The design prioritizes teacher workload reduction, student personalization, and system maintainability. The next chapter (Chapter 4) should implement the prioritized features in an incremental manner, starting with secure auth, submission upload + OCR pipeline, persistent chat, and basic plan generation.
+This chapter formalizes the analysis and design of zivAI into a practical, implementation-ready blueprint. The architecture separates concerns between a high-throughput API gateway, specialized ML workers, and a persistent document database. The design prioritizes teacher workload reduction, student personalization, and system maintainability. The next chapter (Chapter 4) should implement the prioritized features in an incremental manner, starting with secure auth, submission upload + OCR pipeline, persistent chat, and basic plan generation.
 
 ---
 

@@ -1,7 +1,7 @@
 {
-  "name": "kundai-server",
+  "name": "zivai-server",
   "version": "1.0.0",
-  "description": "Kundai server",
+  "description": "zivAI server",
   "main": "index.js",
   "type": "module",
   "scripts": {
