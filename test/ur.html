@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Assessment Flowchart</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background: white;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .flowchart {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h2 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #000;
+        }
+
+        svg {
+            display: block;
+            margin: 0 auto;
+        }
+
+        .start-end {
+            fill: white;
+            stroke: black;
+            stroke-width: 2;
+        }
+
+        .process {
+            fill: white;
+            stroke: black;
+            stroke-width: 2;
+        }
+
+        .decision {
+            fill: white;
+            stroke: black;
+            stroke-width: 2;
+        }
+
+        .text {
+            font-family: Arial, sans-serif;
+            font-size: 12px;
+            text-anchor: middle;
+            fill: black;
+        }
+
+        .arrow {
+            stroke: black;
+            stroke-width: 2;
+            fill: none;
+            marker-end: url(#arrowhead);
+        }
+
+        .label-text {
+            font-family: Arial, sans-serif;
+            font-size: 11px;
+            fill: black;
+        }
+    </style>
+</head>
+<body>
+    <div class="flowchart">
+        <h2>Assessment-to-Plan Workflow Flowchart</h2>
+        
+        <svg width="1200" height="1600" viewBox="0 0 1200 1600">
+            <defs>
+                <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                    <polygon points="0 0, 10 3, 0 6" fill="black" />
+                </marker>
+            </defs>
+
+            <!-- START (Rounded Rectangle) -->
+            <rect x="500" y="20" width="200" height="60" rx="30" class="start-end"/>
+            <text x="600" y="55" class="text">START</text>
+
+            <!-- Arrow -->
+            <line x1="600" y1="80" x2="600" y2="120" class="arrow"/>
+
+            <!-- Process: Teacher Login -->
+            <rect x="500" y="120" width="200" height="60" class="process"/>
+            <text x="600" y="155" class="text">Teacher Login</text>
+
+            <!-- Arrow -->
+            <line x1="600" y1="180" x2="600" y2="220" class="arrow"/>
+
+            <!-- Decision: Assessment Method -->
+            <polygon points="600,220 750,290 600,360 450,290" class="decision"/>
+            <text x="600" y="285" class="text">Assessment</text>
+            <text x="600" y="300" class="text">Method?</text>
+
+            <!-- Left Branch: Physical -->
+            <line x1="450" y1="290" x2="250" y2="290" class="arrow"/>
+            <text x="350" y="280" class="label-text">Paper-Based</text>
+
+            <!-- Physical Process 1 -->
+            <rect x="150" y="380" width="200" height="60" class="process"/>
+            <text x="250" y="405" class="text">Student Submits</text>
+            <text x="250" y="420" class="text">Paper</text>
+            <line x1="250" y1="290" x2="250" y2="380" class="arrow"/>
+
+            <!-- Physical Process 2 -->
+            <rect x="150" y="480" width="200" height="60" class="process"/>
+            <text x="250" y="505" class="text">Teacher Captures</text>
+            <text x="250" y="520" class="text">Photo</text>
+            <line x1="250" y1="440" x2="250" y2="480" class="arrow"/>
+
+            <!-- Physical Process 3 -->
+            <rect x="150" y="580" width="200" height="60" class="process"/>
+            <text x="250" y="605" class="text">OCR Processing</text>
+            <text x="250" y="620" class="text">(AI)</text>
+            <line x1="250" y1="540" x2="250" y2="580" class="arrow"/>
+
+            <!-- Physical Decision: Validation -->
+            <polygon points="250,680 350,740 250,800 150,740" class="decision"/>
+            <text x="250" y="740" class="text">Valid?</text>
+            <line x1="250" y1="640" x2="250" y2="680" class="arrow"/>
+
+            <!-- No Loop -->
+            <line x1="350" y1="740" x2="400" y2="740" class="arrow"/>
+            <text x="380" y="730" class="label-text">No</text>
+            <line x1="400" y1="740" x2="400" y2="510" class="arrow"/>
+            <line x1="400" y1="510" x2="350" y2="510" class="arrow"/>
+
+            <!-- Yes Path -->
+            <line x1="250" y1="800" x2="250" y2="840" class="arrow"/>
+            <text x="270" y="820" class="label-text">Yes</text>
+
+            <!-- Physical Process 4 -->
+            <rect x="150" y="840" width="200" height="60" class="process"/>
+            <text x="250" y="875" class="text">Store Data</text>
+
+            <!-- Right Branch: Digital -->
+            <line x1="750" y1="290" x2="950" y2="290" class="arrow"/>
+            <text x="850" y="280" class="label-text">Digital-Based</text>
+
+            <!-- Digital Process 1 -->
+            <rect x="850" y="380" width="200" height="60" class="process"/>
+            <text x="950" y="405" class="text">AI Generates</text>
+            <text x="950" y="420" class="text">Assessment</text>
+            <line x1="950" y1="290" x2="950" y2="380" class="arrow"/>
+
+            <!-- Digital Process 2 -->
+            <rect x="850" y="480" width="200" height="60" class="process"/>
+            <text x="950" y="505" class="text">Teacher Reviews</text>
+            <text x="950" y="520" class="text">Questions</text>
+            <line x1="950" y1="440" x2="950" y2="480" class="arrow"/>
+
+            <!-- Digital Process 3 -->
+            <rect x="850" y="580" width="200" height="60" class="process"/>
+            <text x="950" y="615" class="text">Finalize</text>
+            <line x1="950" y1="540" x2="950" y2="580" class="arrow"/>
+
+            <!-- Merge Point -->
+            <line x1="250" y1="900" x2="250" y2="950" class="arrow"/>
+            <line x1="950" y1="640" x2="950" y2="950" class="arrow"/>
+            <line x1="250" y1="950" x2="600" y2="950" class="arrow"/>
+            <line x1="950" y1="950" x2="600" y2="950" class="arrow"/>
+            <line x1="600" y1="950" x2="600" y2="990" class="arrow"/>
+
+            <!-- Process: Automatic Grading -->
+            <rect x="500" y="990" width="200" height="60" class="process"/>
+            <text x="600" y="1015" class="text">Automatic Grading</text>
+            <text x="600" y="1030" class="text">(AI)</text>
+
+            <!-- Arrow -->
+            <line x1="600" y1="1050" x2="600" y2="1090" class="arrow"/>
+
+            <!-- Process: Skill Analysis -->
+            <rect x="500" y="1090" width="200" height="60" class="process"/>
+            <text x="600" y="1115" class="text">Skill Analysis</text>
+            <text x="600" y="1130" class="text">(AI)</text>
+
+            <!-- Arrow -->
+            <line x1="600" y1="1150" x2="600" y2="1190" class="arrow"/>
+
+            <!-- Process: Update Profile -->
+            <rect x="500" y="1190" width="200" height="60" class="process"/>
+            <text x="600" y="1215" class="text">Update Student</text>
+            <text x="600" y="1230" class="text">Profile</text>
+
+            <!-- Arrow -->
+            <line x1="600" y1="1250" x2="600" y2="1290" class="arrow"/>
+
+            <!-- Decision: Proficiency Check -->
+            <polygon points="600,1290 750,1360 600,1430 450,1360" class="decision"/>
+            <text x="600" y="1355" class="text">Proficiency</text>
+            <text x="600" y="1370" class="text">&lt; 60%?</text>
+
+            <!-- Yes Path: Generate Plan -->
+            <line x1="450" y1="1360" x2="250" y2="1360" class="arrow"/>
+            <text x="350" y="1350" class="label-text">Yes</text>
+
+            <rect x="150" y="1450" width="200" height="60" class="process"/>
+            <text x="250" y="1475" class="text">Generate Plan</text>
+            <text x="250" y="1490" class="text">(AI/RAG)</text>
+            <line x1="250" y1="1360" x2="250" y2="1450" class="arrow"/>
+
+            <rect x="150" y="1530" width="200" height="60" class="process"/>
+            <text x="250" y="1555" class="text">Teacher Reviews</text>
+            <text x="250" y="1570" class="text">Plan</text>
+            <line x1="250" y1="1510" x2="250" y2="1530" class="arrow"/>
+
+            <!-- END (Left) -->
+            <rect x="150" y="1630" width="200" height="60" rx="30" class="start-end"/>
+            <text x="250" y="1665" class="text">END</text>
+            <line x1="250" y1="1590" x2="250" y2="1630" class="arrow"/>
+
+            <!-- No Path: Direct to End -->
+            <line x1="750" y1="1360" x2="950" y2="1360" class="arrow"/>
+            <text x="850" y="1350" class="label-text">No</text>
+
+            <!-- END (Right) -->
+            <rect x="850" y="1450" width="200" height="60" rx="30" class="start-end"/>
+            <text x="950" y="1485" class="text">END</text>
+            <line x1="950" y1="1360" x2="950" y2="1450" class="arrow"/>
+
+        </svg>
+
+        <!-- Legend -->
+        <div style="margin-top: 30px; padding: 20px; border: 1px solid #ccc;">
+            <h3>Flowchart Symbols</h3>
+            <div style="margin: 10px 0;">
+                <svg width="60" height="40" style="display: inline-block; vertical-align: middle;">
+                    <rect x="5" y="5" width="50" height="30" rx="15" fill="white" stroke="black" stroke-width="2"/>
+                </svg>
+                <span style="margin-left: 10px;">Start/End (Terminal)</span>
+            </div>
+            <div style="margin: 10px 0;">
+                <svg width="60" height="40" style="display: inline-block; vertical-align: middle;">
+                    <rect x="5" y="5" width="50" height="30" fill="white" stroke="black" stroke-width="2"/>
+                </svg>
+                <span style="margin-left: 10px;">Process</span>
+            </div>
+            <div style="margin: 10px 0;">
+                <svg width="60" height="40" style="display: inline-block; vertical-align: middle;">
+                    <polygon points="30,5 55,20 30,35 5,20" fill="white" stroke="black" stroke-width="2"/>
+                </svg>
+                <span style="margin-left: 10px;">Decision</span>
+            </div>
+            <div style="margin: 10px 0;">
+                <svg width="60" height="20" style="display: inline-block; vertical-align: middle;">
+                    <defs>
+                        <marker id="arrow2" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+                            <polygon points="0 0, 10 3, 0 6" fill="black" />
+                        </marker>
+                    </defs>
+                    <line x1="5" y1="10" x2="55" y2="10" stroke="black" stroke-width="2" marker-end="url(#arrow2)"/>
+                </svg>
+                <span style="margin-left: 10px;">Flow Direction</span>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

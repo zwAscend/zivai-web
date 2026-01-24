@@ -1,0 +1,88 @@
+  {
+    "courses": [
+      {
+        "_id": "6860f6a027ba52e409848b48",
+        "code": "HCC101",
+        "name": "Introduction to Computer Science",
+        "description": "Introduction to Computer Science course covering core and advanced concepts.",
+        "teacher": "6860f6a0983951713b6f5b01"
+      },
+      {
+        "_id": "6860f6a0581a519f6d2b6627",
+        "code": "HCC301",
+        "name": "Network Security",
+        "description": "Network Security course covering core and advanced concepts.",
+        "teacher": "6860f6a0fa3f123f10aed93d"
+      },
+      {
+        "_id": "6860f6a0931befe127fcdfba",
+        "code": "HCC201",
+        "name": "Data Structures and Algorithms",
+        "description": "Data Structures and Algorithms course covering core and advanced concepts.",
+        "teacher": "6860f6a08f26286745ef172d"
+      },
+      {
+        "_id": "6860f6a08eba710cd86a1829",
+        "code": "HCC401",
+        "name": "Machine Learning",
+        "description": "Machine Learning course covering core and advanced concepts.",
+        "teacher": "6860f6a07b2675bb526b1614"
+      },
+      {
+        "_id": "6860f6a0e631d8d00285df48",
+        "code": "HCC202",
+        "name": "Database Systems",
+        "description": "Database Systems course covering core and advanced concepts.",
+        "teacher": "6860f6a057555664055e97d5"
+      },
+      {
+        "_id": "6860f6a040225bf5a74c162a",
+        "code": "HCC302",
+        "name": "Operating Systems",
+        "description": "Operating Systems course covering core and advanced concepts.",
+        "teacher": "6860f6a0426aa89caa186f73"
+      },
+      {
+        "_id": "6860f6a008bc2e09b3e73441",
+        "code": "HCC303",
+        "name": "Web Development",
+        "description": "Web Development course covering core and advanced concepts.",
+        "teacher": "6860f6a052a79f8f24624da6"
+      },
+      {
+        "_id": "6860f6a0cf58b77bd8540fc7",
+        "code": "HCC304",
+        "name": "Cloud Computing",
+        "description": "Cloud Computing course covering core and advanced concepts.",
+        "teacher": "6860f6a06741b098abed91d2"
+      },
+      {
+        "_id": "6860f6a037767a882bf3784e",
+        "code": "HCC305",
+        "name": "Software Engineering",
+        "description": "Software Engineering course covering core and advanced concepts.",
+        "teacher": "6860f6a08d40737befef096f"
+      },
+      {
+        "_id": "6860f6a06af4970ab7bb4011",
+        "code": "HCC306",
+        "name": "Cybersecurity Fundamentals",
+        "description": "Cybersecurity Fundamentals course covering core and advanced concepts.",
+        "teacher": "6860f6a0d1cf0b311256e73c"
+      },
+      {
+        "_id": "6860f6a09d350b37bd4cc7e1",
+        "code": "HCC307",
+        "name": "Data Communications",
+        "description": "Data Communications course covering core and advanced concepts.",
+        "teacher": "6860f6a02878161fc03253e1"
+      },
+      {
+        "_id": "6860f6a03433748bb4b102fd",
+        "code": "CAMP100",
+        "name": "Campus-wide Competencies",
+        "description": "Campus-wide Competencies course covering core and advanced concepts.",
+        "teacher": "6860f6a0fc2d235e9b30c60f"
+      }
+    ]
+  }

@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solo Leveling - Student Dashboard</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&display=swap');
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 50%, #16213e 100%);
+            font-family: 'Orbitron', monospace;
+            color: #ffffff;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        
+        .dashboard-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            position: relative;
+        }
+        
+        .header::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 200px;
+            height: 200px;
+            background: radial-gradient(circle, rgba(138, 43, 226, 0.3) 0%, transparent 70%);
+            border-radius: 50%;
+            z-index: -1;
+        }
+        
+        .title {
+            font-size: 3rem;
+            font-weight: 900;
+            background: linear-gradient(45deg, #8a2be2, #4169e1, #00bfff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-shadow: 0 0 30px rgba(138, 43, 226, 0.5);
+            margin-bottom: 10px;
+        }
+        
+        .subtitle {
+            font-size: 1.2rem;
+            color: #a0a0a0;
+            font-weight: 400;
+        }
+        
+        .player-stats {
+            background: linear-gradient(145deg, rgba(138, 43, 226, 0.1), rgba(65, 105, 225, 0.1));
+            border: 1px solid rgba(138, 43, 226, 0.3);
+            border-radius: 15px;
+            padding: 25px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(10px);
+        }
+        
+        .player-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        
+        .player-name {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: #8a2be2;
+            text-shadow: 0 0 10px rgba(138, 43, 226, 0.5);
+        }
+        
+        .player-level {
+            font-size: 2.5rem;
+            font-weight: 900;
+            background: linear-gradient(45deg, #ffd700, #ffed4a);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-shadow: 0 0 20px rgba(255, 215, 0, 0.3);
+        }
+        
+        .overall-rating {
+            text-align: center;
+            margin: 20px 0;
+        }
+        
+        .rating-label {
+            font-size: 1rem;
+            color: #a0a0a0;
+            margin-bottom: 10px;
+        }
+        
+        .rating-bar {
+            background: rgba(255, 255, 255, 0.1);
+            height: 30px;
+            border-radius: 15px;
+            overflow: hidden;
+            position: relative;
+            border: 1px solid rgba(138, 43, 226, 0.3);
+        }
+        
+        .rating-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #8a2be2, #4169e1, #00bfff);
+            width: 87%;
+            border-radius: 15px;
+            position: relative;
+            animation: glow 2s ease-in-out infinite alternate;
+        }
+        
+        .rating-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-weight: 700;
+            font-size: 0.9rem;
+            text-shadow: 0 0 5px rgba(0, 0, 0, 0.8);
+        }
+        
+        @keyframes glow {
+            from {
+                box-shadow: 0 0 5px rgba(138, 43, 226, 0.3);
+            }
+            to {
+                box-shadow: 0 0 20px rgba(138, 43, 226, 0.8);
+            }
+        }
+        
+        .courses-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 25px;
+        }
+        
+        .course-card {
+            background: linear-gradient(145deg, rgba(26, 26, 46, 0.8), rgba(22, 33, 62, 0.8));
+            border: 1px solid rgba(138, 43, 226, 0.3);
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            backdrop-filter: blur(10px);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .course-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #8a2be2, transparent);
+            transition: left 0.5s ease;
+        }
+        
+        .course-card:hover::before {
+            left: 100%;
+        }
+        
+        .course-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 40px rgba(138, 43, 226, 0.2);
+            border-color: rgba(138, 43, 226, 0.6);
+        }
+        
+        .course-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .course-name {
+            font-size: 1.4rem;
+            font-weight: 700;
+            color: #4169e1;
+            text-shadow: 0 0 10px rgba(65, 105, 225, 0.3);
+        }
+        
+        .course-level {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #ffd700;
+            background: rgba(255, 215, 0, 0.1);
+            padding: 5px 12px;
+            border-radius: 20px;
+            border: 1px solid rgba(255, 215, 0, 0.3);
+        }
+        
+        .skills-section {
+            margin-top: 20px;
+        }
+        
+        .skill-item {
+            margin-bottom: 15px;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 10px;
+            border-left: 3px solid #8a2be2;
+        }
+        
+        .skill-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .skill-name {
+            font-weight: 600;
+            color: #ffffff;
+            font-size: 1.1rem;
+        }
+        
+        .skill-level {
+            font-size: 0.9rem;
+            color: #00bfff;
+            font-weight: 600;
+        }
+        
+        .skill-progress {
+            background: rgba(255, 255, 255, 0.1);
+            height: 8px;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+        
+        .skill-progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #8a2be2, #4169e1);
+            border-radius: 4px;
+            transition: width 0.5s ease;
+        }
+        
+        .sub-skills {
+            margin-top: 10px;
+            padding-left: 15px;
+            border-left: 2px solid rgba(138, 43, 226, 0.3);
+        }
+        
+        .sub-skill {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 0;
+            font-size: 0.9rem;
+            color: #b0b0b0;
+        }
+        
+        .sub-skill-name::before {
+            content: '▸';
+            color: #8a2be2;
+            margin-right: 8px;
+        }
+        
+        .sub-skill-level {
+            color: #00bfff;
+            font-weight: 600;
+        }
+        
+        @media (max-width: 768px) {
+            .title {
+                font-size: 2rem;
+            }
+            
+            .courses-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .player-info {
+                flex-direction: column;
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard-container">
+        <div class="header">
+            <h1 class="title">SOLO LEVELING</h1>
+            <p class="subtitle">Student Development System</p>
+        </div>
+        
+        <div class="player-stats">
+            <div class="player-info">
+                <div class="player-name">Hunter: Alex Chen</div>
+                <div class="player-level">Level 42</div>
+            </div>
+            
+            <div class="overall-rating">
+                <div class="rating-label">Overall Academic Power</div>
+                <div class="rating-bar">
+                    <div class="rating-fill"></div>
+                    <div class="rating-text">8,750 / 10,000 AP</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="courses-grid">
+            <div class="course-card">
+                <div class="course-header">
+                    <h3 class="course-name">Advanced Mathematics</h3>
+                    <div class="course-level">Lv. 38</div>
+                </div>
+                
+                <div class="skills-section">
+                    <div class="skill-item">
+                        <div class="skill-header">
+                            <span class="skill-name">Calculus Mastery</span>
+                            <span class="skill-level">Lv. 45</span>
+                        </div>
+                        <div class="skill-progress">
+                            <div class="skill-progress-fill" style="width: 90%;"></div>
+                        </div>
+                        <div class="sub-skills">
+                            <div class="sub-skill">
+                                <span class="sub-skill-name">Derivatives</span>
+                                <span class="sub-skill-level">Lv. 50</span>
+                            </div>
+                            <div class="sub-skill">
+                                <span class="sub-skill-name">Integrals</span>
+                                <span class="sub-skill-level">Lv. 42</span>
+                            </div>
+                            <div class="sub-skill">
+                                <span class="sub-skill-name">Limits</span>
+                                <span class="sub-skill-level">Lv. 48</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="skill-item">
+                        <div class="skill-header">
+                            <span class="skill-name">Linear Algebra</span>
+                            <span class="skill-level">Lv. 32</span>
+                        </div>
+                        <div class="skill-progress">
+                            <div class="skill-progress-fill" style="width: 64%;"></div>
+                        </div>
+                        <div class="sub-skills">
+                            <div class="sub-skill">
+                                <span class="sub-skill-name">Matrix Operations</span>
+                                <span class="sub-skill-level">Lv. 35</span>
+                            </div>
+                            <div class="sub-skill">
+                                <span class="sub-skill-name">Eigenvectors</span>
+                                <span class="sub-skill-level">Lv. 28</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="course-card">
+                <div class="course-header">
+                    <h3 class="course-name">Computer Science</h3>
+                    <div class="course-level">Lv. 51</div>
+                </div>
+                
+                <div class="skills-section">
+                    <div class="skill-item">
+                        <div class="skill-header">
+                            <span class="skill-name">Algorithm Design</span>
+                            <span class="skill-level">Lv. 58</span>
+                        </div>
+                        <div class="skill-progress">
+                            <div class="skill-progress-fill" style="width: 95%;"></div>
+                        </div>
+                        <div class="sub-skills">
+                            <div class="sub-skill">
+                                <span class="sub-skill-name">Dynamic Programming</span>
+                                <span class="sub-skill-level">Lv. 62</span>
+                            </div>
+                            <div class="sub-skill">
+                                <span class="sub-skill-name">Graph Algorithms</span>
+                                <span class="sub-skill-level">Lv. 55</span>
+                            </div>
+                            <div class="sub-skill">
+                                <span class="sub-skill-name">Sorting & Searching</span>
+                                <span class="sub-skill-level">Lv. 60</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="skill-item">
+                        <div class="skill-header">
+                            <span class="skill-name">Web Development</span>
+                            <span class="skill-level">Lv. 44</span>
+                        </div>
+                        <div class="skill-progress">
+                            <div class="skill-progress-fill" style="width: 88%;"></div>
+                        </div>
+                        <div class="sub-skills">
+                            <div class="sub-skill">
+                                <span class="sub-skill-name">Frontend Frameworks</span>
+                                <span class="sub-skill-level">Lv. 46</span>
+                            </div>
+                            <div class="sub-skill">
+                                <span class="sub-skill-name">Backend APIs</span>
+                                <span class="sub-skill-level">Lv. 41</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="course-card">
+                <div class="course-header">
+                    <h3 class="course-name">Physics</h3>
+                    <div class="course-level">Lv. 29</div>
+                </div>
+                
+                <div class="skills-section">
+                    <div class="skill-item">
+                        <div class="skill-header">
+                            <span class="skill-name">Mechanics</span>
+                            <span class="skill-level">Lv. 35</span>
+                        </div>
+                        <div class="skill-progress">
+                            <div class="skill-progress-fill" style="width: 70%;"></div>
+                        </div>
+                        <div class="sub-skills">
+                            <div class="sub-skill">
+                                <span class="sub-skill-name">Newton's Laws</span>
+                                <span class="sub-skill-level">Lv. 40</span>
+                            </div>
+                            <div class="sub-skill">
+                                <span class="sub-skill-name">Energy & Momentum</span>
+                                <span class="sub-skill-level">Lv. 32</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="skill-item">
+                        <div class="skill-header">
+                            <span class="skill-name">Electromagnetism</span>
+                            <span class="skill-level">Lv. 23</span>
+                        </div>
+                        <div class="skill-progress">
+                            <div class="skill-progress-fill" style="width: 46%;"></div>
+                        </div>
+                        <div class="sub-skills">
+                            <div class="sub-skill">
+                                <span class="sub-skill-name">Electric Fields</span>
+                                <span class="sub-skill-level">Lv. 25</span>
+                            </div>
+                            <div class="sub-skill">
+                                <span class="sub-skill-name">Magnetic Fields</span>
+                                <span class="sub-skill-level">Lv. 21</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="course-card">
+                <div class="course-header">
+                    <h3 class="course-name">Data Science</h3>
+                    <div class="course-level">Lv. 47</div>
+                </div>
+                
+                <div class="skills-section">
+                    <div class="skill-item">
+                        <div class="skill-header">
+                            <span class="skill-name">Machine Learning</span>
+                            <span class="skill-level">Lv. 52</span>
+                        </div>
+                        <div class="skill-progress">
+                            <div class="skill-progress-fill" style="width: 85%;"></div>
+                        </div>
+                        <div class="sub-skills">
+                            <div class="sub-skill">
+                                <span class="sub-skill-name">Neural Networks</span>
+                                <span class="sub-skill-level">Lv. 48</span>
+                            </div>
+                            <div class="sub-skill">
+                                <span class="sub-skill-name">Regression Analysis</span>
+                                <span class="sub-skill-level">Lv. 55</span>
+                            </div>
+                            <div class="sub-skill">
+                                <span class="sub-skill-name">Classification</span>
+                                <span class="sub-skill-level">Lv. 51</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="skill-item">
+                        <div class="skill-header">
+                            <span class="skill-name">Statistical Analysis</span>
+                            <span class="skill-level">Lv. 41</span>
+                        </div>
+                        <div class="skill-progress">
+                            <div class="skill-progress-fill" style="width: 82%;"></div>
+                        </div>
+                        <div class="sub-skills">
+                            <div class="sub-skill">
+                                <span class="sub-skill-name">Hypothesis Testing</span>
+                                <span class="sub-skill-level">Lv. 43</span>
+                            </div>
+                            <div class="sub-skill">
+                                <span class="sub-skill-name">Data Visualization</span>
+                                <span class="sub-skill-level">Lv. 39</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
