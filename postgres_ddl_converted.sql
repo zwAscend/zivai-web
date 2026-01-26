@@ -1,3 +1,10 @@
+-- Converted for PostgreSQL (Amazon RDS compatible)
+-- Conversion date: 2026-01-26
+-- Notes:
+-- 1) This file keeps your custom util.uuid_generate_v4() implementation.
+--    If you prefer the built-in generator, you can enable pgcrypto and replace defaults with gen_random_uuid().
+-- 2) Triggers use 'EXECUTE FUNCTION' (PostgreSQL 11+).
+
 -- =============================================================================
 -- ZivAI / Hybrid Cloud–Edge LMS (MVP+) – GaussDB for openGauss FULL DDL (COMMENTED)
 -- =============================================================================
@@ -168,7 +175,7 @@ COMMENT ON TABLE lms.schools IS 'Tenant boundary for multi-school cloud deployme
 
 CREATE TRIGGER trg_schools_touch
 BEFORE UPDATE ON lms.schools
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 CREATE TABLE IF NOT EXISTS lms.users (
   id uuid PRIMARY KEY DEFAULT util.gen_uuid_v4(),
@@ -194,7 +201,7 @@ COMMENT ON TABLE lms.users IS 'All identities (students/teachers/admins). UUID P
 
 CREATE TRIGGER trg_users_touch
 BEFORE UPDATE ON lms.users
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 CREATE TABLE IF NOT EXISTS lms.user_roles (
   user_id uuid NOT NULL REFERENCES lms.users(id) ON DELETE CASCADE,
@@ -229,7 +236,7 @@ CREATE INDEX IF NOT EXISTS idx_school_users_user   ON lms.school_users(user_id);
 
 CREATE TRIGGER trg_school_users_touch
 BEFORE UPDATE ON lms.school_users
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 -- =============================================================================
 -- SUBJECTS + CURRICULUM BACKBONE (DKT source of truth)
@@ -255,7 +262,7 @@ COMMENT ON TABLE lms.subjects IS 'Top-level academic subjects (anchor for curric
 
 CREATE TRIGGER trg_subjects_touch
 BEFORE UPDATE ON lms.subjects
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 -- Curriculum versioning: do NOT mutate skills/topics in place; publish new versions.
 CREATE TABLE IF NOT EXISTS lms.curriculum_versions (
@@ -289,7 +296,7 @@ CREATE INDEX IF NOT EXISTS idx_curriculum_school         ON lms.curriculum_versi
 
 CREATE TRIGGER trg_curriculum_versions_touch
 BEFORE UPDATE ON lms.curriculum_versions
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 -- Topics with hierarchy (parent_topic_id) and tied to curriculum_version
 CREATE TABLE IF NOT EXISTS lms.topics (
@@ -323,7 +330,7 @@ CREATE INDEX IF NOT EXISTS idx_topics_parent_id     ON lms.topics(parent_topic_i
 
 CREATE TRIGGER trg_topics_touch
 BEFORE UPDATE ON lms.topics
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 -- Skills with canonical_code + curriculum_version_id
 CREATE TABLE IF NOT EXISTS lms.skills (
@@ -359,7 +366,7 @@ CREATE INDEX IF NOT EXISTS idx_skills_topic_id      ON lms.skills(topic_id);
 
 CREATE TRIGGER trg_skills_touch
 BEFORE UPDATE ON lms.skills
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 CREATE TABLE IF NOT EXISTS lms.skill_prerequisites (
   skill_id uuid NOT NULL REFERENCES lms.skills(id) ON DELETE CASCADE,
@@ -400,7 +407,7 @@ CREATE INDEX IF NOT EXISTS idx_classes_teacher_id ON lms.classes(homeroom_teache
 
 CREATE TRIGGER trg_classes_touch
 BEFORE UPDATE ON lms.classes
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 CREATE TABLE IF NOT EXISTS lms.enrolments (
   id uuid PRIMARY KEY DEFAULT util.gen_uuid_v4(),
@@ -426,7 +433,7 @@ CREATE INDEX IF NOT EXISTS idx_enrolments_student_id ON lms.enrolments(student_i
 
 CREATE TRIGGER trg_enrolments_touch
 BEFORE UPDATE ON lms.enrolments
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 -- Minimal permission link: teacher↔class (+ optional subject)
 CREATE TABLE IF NOT EXISTS lms.class_teachers (
@@ -452,7 +459,7 @@ CREATE INDEX IF NOT EXISTS idx_class_teachers_teacher ON lms.class_teachers(teac
 
 CREATE TRIGGER trg_class_teachers_touch
 BEFORE UPDATE ON lms.class_teachers
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 -- =============================================================================
 -- RESOURCES (uploads; can be used for content AND optionally promoted into KB)
@@ -495,7 +502,7 @@ CREATE INDEX IF NOT EXISTS idx_resources_downloads ON lms.resources(downloads DE
 
 CREATE TRIGGER trg_resources_touch
 BEFORE UPDATE ON lms.resources
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 -- =============================================================================
 -- QUESTION BANK + RUBRICS + QUESTION→SKILL MAP
@@ -543,7 +550,7 @@ CREATE INDEX IF NOT EXISTS idx_questions_school_id     ON lms.questions(school_i
 
 CREATE TRIGGER trg_questions_touch
 BEFORE UPDATE ON lms.questions
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 -- Question→Skill mapping (primary + weight to remove ambiguity)
 CREATE TABLE IF NOT EXISTS lms.question_skills (
@@ -578,7 +585,7 @@ WHERE is_primary = TRUE;
 
 CREATE TRIGGER trg_question_skills_touch
 BEFORE UPDATE ON lms.question_skills
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 -- Rubric versions per question
 CREATE TABLE IF NOT EXISTS lms.marking_schemes (
@@ -603,7 +610,7 @@ COMMENT ON TABLE lms.marking_schemes IS 'Versioned marking schemes for reproduci
 
 CREATE TRIGGER trg_marking_schemes_touch
 BEFORE UPDATE ON lms.marking_schemes
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 CREATE TABLE IF NOT EXISTS lms.marking_scheme_items (
   id uuid PRIMARY KEY DEFAULT util.gen_uuid_v4(),
@@ -629,7 +636,7 @@ CREATE INDEX IF NOT EXISTS idx_marking_items_scheme_id ON lms.marking_scheme_ite
 
 CREATE TRIGGER trg_marking_scheme_items_touch
 BEFORE UPDATE ON lms.marking_scheme_items
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 -- =============================================================================
 -- UNIFIED ASSESSMENTS PIPELINE (quiz/test/assignment/project/exam)
@@ -675,7 +682,7 @@ CREATE INDEX IF NOT EXISTS idx_assessments_status         ON lms.assessments(sch
 
 CREATE TRIGGER trg_assessments_touch
 BEFORE UPDATE ON lms.assessments
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 CREATE TABLE IF NOT EXISTS lms.assessment_questions (
   id uuid PRIMARY KEY DEFAULT util.gen_uuid_v4(),
@@ -705,7 +712,7 @@ CREATE INDEX IF NOT EXISTS idx_assessment_questions_assessment ON lms.assessment
 
 CREATE TRIGGER trg_assessment_questions_touch
 BEFORE UPDATE ON lms.assessment_questions
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 CREATE TABLE IF NOT EXISTS lms.assessment_assignments (
   id uuid PRIMARY KEY DEFAULT util.gen_uuid_v4(),
@@ -736,7 +743,7 @@ CREATE INDEX IF NOT EXISTS idx_assessment_assignments_assignedby ON lms.assessme
 
 CREATE TRIGGER trg_assessment_assignments_touch
 BEFORE UPDATE ON lms.assessment_assignments
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 CREATE TABLE IF NOT EXISTS lms.assessment_enrollments (
   id uuid PRIMARY KEY DEFAULT util.gen_uuid_v4(),
@@ -761,7 +768,7 @@ CREATE INDEX IF NOT EXISTS idx_assessment_enrollments_student    ON lms.assessme
 
 CREATE TRIGGER trg_assessment_enrollments_touch
 BEFORE UPDATE ON lms.assessment_enrollments
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 CREATE TABLE IF NOT EXISTS lms.assessment_attempts (
   id uuid PRIMARY KEY DEFAULT util.gen_uuid_v4(),
@@ -797,7 +804,7 @@ CREATE INDEX IF NOT EXISTS idx_assessment_attempts_latest     ON lms.assessment_
 
 CREATE TRIGGER trg_assessment_attempts_touch
 BEFORE UPDATE ON lms.assessment_attempts
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 -- Answers: link ONLY to assessment_question_id to avoid redundancy drift
 CREATE TABLE IF NOT EXISTS lms.attempt_answers (
@@ -809,7 +816,7 @@ CREATE TABLE IF NOT EXISTS lms.attempt_answers (
   student_answer_text text,
   student_answer_blob jsonb,
 
-  -- OCR capture (raw + extracted)
+  -- OCR capture (BYTEA + extracted)
   handwriting_resource_id uuid REFERENCES lms.resources(id) ON DELETE SET NULL, -- scan/photo resource
   ocr_text text,                              -- extracted text from OCR
   ocr_confidence numeric(6,4),                -- OCR quality/confidence (engine-specific)
@@ -848,7 +855,7 @@ CREATE INDEX IF NOT EXISTS idx_attempt_answers_trace   ON lms.attempt_answers(an
 
 CREATE TRIGGER trg_attempt_answers_touch
 BEFORE UPDATE ON lms.attempt_answers
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 -- Attachments per answer (extra scans/files)
 CREATE TABLE IF NOT EXISTS lms.answer_attachments (
@@ -875,7 +882,7 @@ CREATE INDEX IF NOT EXISTS idx_answer_attachments_answer ON lms.answer_attachmen
 
 CREATE TRIGGER trg_answer_attachments_touch
 BEFORE UPDATE ON lms.answer_attachments
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 -- Teacher override governance: before/after + reason + trace link
 CREATE TABLE IF NOT EXISTS lms.grading_overrides (
@@ -904,7 +911,7 @@ CREATE INDEX IF NOT EXISTS idx_grading_overrides_teacher ON lms.grading_override
 
 CREATE TRIGGER trg_grading_overrides_touch
 BEFORE UPDATE ON lms.grading_overrides
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 -- =============================================================================
 -- DKT SUPPORT: FLATTENED INTERACTION EVENTS (model-friendly; minimal joins)
@@ -931,7 +938,7 @@ CREATE TABLE IF NOT EXISTS lms.interaction_events (
   max_score numeric(10,2),
 
   -- Behavioral features (optional but valuable; mirrors ASSISTments-like data)
-  attempt_count int,                        -- number of tries on the item
+  attempt_count int,                        -- NUMERIC of tries on the item
   response_time_ms int,                     -- time to first meaningful response
   hint_count int,                           -- hint usage
   opportunity int,                          -- cumulative practice count for this skill (optional)
@@ -939,7 +946,7 @@ CREATE TABLE IF NOT EXISTS lms.interaction_events (
   event_time timestamptz NOT NULL DEFAULT NOW(),
 
   trace_id varchar(64),                     -- links to ai.ai_inference_runs.trace_id (optional)
-  raw_event jsonb,                          -- optional raw payload for debugging/ETL parity
+  raw_event jsonb,                          -- optional BYTEA payload for debugging/ETL parity
 
   origin_node_id uuid,
   sync_version bigint NOT NULL DEFAULT 0,
@@ -966,7 +973,7 @@ ON lms.interaction_events(school_id, event_time DESC);
 
 CREATE TRIGGER trg_interaction_events_touch
 BEFORE UPDATE ON lms.interaction_events
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 -- =============================================================================
 -- MASTERY SNAPSHOTS (display + analytics; keep "latest" index)
@@ -990,14 +997,14 @@ CREATE TABLE IF NOT EXISTS lms.mastery_snapshots (
   UNIQUE (student_id, subject_id, snapshot_time)
 );
 
-COMMENT ON TABLE lms.mastery_snapshots IS 'Aggregated mastery snapshots for UI and analytics (not the raw DKT event stream).';
+COMMENT ON TABLE lms.mastery_snapshots IS 'Aggregated mastery snapshots for UI and analytics (not the BYTEA DKT event stream).';
 
 CREATE INDEX IF NOT EXISTS idx_mastery_latest
 ON lms.mastery_snapshots(student_id, subject_id, snapshot_time DESC);
 
 CREATE TRIGGER trg_mastery_snapshots_touch
 BEFORE UPDATE ON lms.mastery_snapshots
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 CREATE TABLE IF NOT EXISTS lms.mastery_snapshot_skills (
   mastery_snapshot_id uuid NOT NULL REFERENCES lms.mastery_snapshots(id) ON DELETE CASCADE,
@@ -1038,7 +1045,7 @@ ON kb.kb_versions(school_id, subject_id);
 
 CREATE TRIGGER trg_kb_versions_touch
 BEFORE UPDATE ON kb.kb_versions
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 CREATE TABLE IF NOT EXISTS kb.kb_documents (
   id uuid PRIMARY KEY DEFAULT util.gen_uuid_v4(),
@@ -1066,7 +1073,7 @@ ON kb.kb_documents(kb_version_id, status);
 
 CREATE TRIGGER trg_kb_documents_touch
 BEFORE UPDATE ON kb.kb_documents
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 CREATE TABLE IF NOT EXISTS kb.kb_chunks (
   id uuid PRIMARY KEY DEFAULT util.gen_uuid_v4(),
@@ -1093,7 +1100,7 @@ ON kb.kb_chunks(document_id);
 
 CREATE TRIGGER trg_kb_chunks_touch
 BEFORE UPDATE ON kb.kb_chunks
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 -- Embeddings metadata (portable): store float4[] or external vector_id depending on infra
 CREATE TABLE IF NOT EXISTS kb.kb_embeddings (
@@ -1125,7 +1132,7 @@ ON kb.kb_embeddings(chunk_id);
 
 CREATE TRIGGER trg_kb_embeddings_touch
 BEFORE UPDATE ON kb.kb_embeddings
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 -- =============================================================================
 -- AI AUDITABILITY / TRACEABILITY (models, versions, inference, retrieval traces)
@@ -1152,7 +1159,7 @@ COMMENT ON TABLE ai.ai_models IS 'Registry of logical models (DKT, ASAG, RAG, SL
 
 CREATE TRIGGER trg_ai_models_touch
 BEFORE UPDATE ON ai.ai_models
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 CREATE TABLE IF NOT EXISTS ai.ai_model_versions (
   id uuid PRIMARY KEY DEFAULT util.gen_uuid_v4(),
@@ -1180,7 +1187,7 @@ ON ai.ai_model_versions(model_id, created_at DESC);
 
 CREATE TRIGGER trg_ai_model_versions_touch
 BEFORE UPDATE ON ai.ai_model_versions
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 -- Inference runs: trace_id is the reproducibility handle
 CREATE TABLE IF NOT EXISTS ai.ai_inference_runs (
@@ -1193,7 +1200,7 @@ CREATE TABLE IF NOT EXISTS ai.ai_inference_runs (
   assessment_attempt_id uuid REFERENCES lms.assessment_attempts(id) ON DELETE SET NULL,
   attempt_answer_id uuid REFERENCES lms.attempt_answers(id) ON DELETE SET NULL,
 
-  prompt_text text,                           -- raw prompt (if applicable)
+  prompt_text text,                           -- BYTEA prompt (if applicable)
   context_json jsonb,                         -- structured context (variables, constraints, etc.)
 
   rubric_scheme_id uuid REFERENCES lms.marking_schemes(id) ON DELETE SET NULL,
@@ -1263,7 +1270,7 @@ ON edge.edge_nodes(school_id);
 
 CREATE TRIGGER trg_edge_nodes_touch
 BEFORE UPDATE ON edge.edge_nodes
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 CREATE TABLE IF NOT EXISTS edge.edge_model_deployments (
   id uuid PRIMARY KEY DEFAULT util.gen_uuid_v4(),
@@ -1289,7 +1296,7 @@ ON edge.edge_model_deployments(edge_node_id);
 
 CREATE TRIGGER trg_edge_model_deployments_touch
 BEFORE UPDATE ON edge.edge_model_deployments
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 -- Outbox: edge→cloud events (store-and-forward pattern)
 CREATE TABLE IF NOT EXISTS edge.sync_outbox (
@@ -1378,7 +1385,7 @@ CREATE INDEX IF NOT EXISTS idx_parents_mobile ON lms.parents(mobile);
 
 CREATE TRIGGER trg_parents_touch
 BEFORE UPDATE ON lms.parents
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 CREATE TABLE IF NOT EXISTS lms.student_parents (
   id uuid PRIMARY KEY DEFAULT util.gen_uuid_v4(),
@@ -1405,7 +1412,7 @@ CREATE INDEX IF NOT EXISTS idx_student_parents_parent_id  ON lms.student_parents
 
 CREATE TRIGGER trg_student_parents_touch
 BEFORE UPDATE ON lms.student_parents
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 CREATE TABLE IF NOT EXISTS lms.addresses (
   id uuid PRIMARY KEY DEFAULT util.gen_uuid_v4(),
@@ -1432,7 +1439,7 @@ COMMENT ON TABLE lms.addresses IS 'Reusable address records (users/parents).';
 
 CREATE TRIGGER trg_addresses_touch
 BEFORE UPDATE ON lms.addresses
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 CREATE TABLE IF NOT EXISTS lms.user_addresses (
   id uuid PRIMARY KEY DEFAULT util.gen_uuid_v4(),
@@ -1458,7 +1465,7 @@ CREATE INDEX IF NOT EXISTS idx_user_addresses_address_id ON lms.user_addresses(a
 
 CREATE TRIGGER trg_user_addresses_touch
 BEFORE UPDATE ON lms.user_addresses
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 CREATE TABLE IF NOT EXISTS lms.user_contacts (
   id uuid PRIMARY KEY DEFAULT util.gen_uuid_v4(),
@@ -1484,7 +1491,7 @@ CREATE INDEX IF NOT EXISTS idx_user_contacts_user_id ON lms.user_contacts(user_i
 
 CREATE TRIGGER trg_user_contacts_touch
 BEFORE UPDATE ON lms.user_contacts
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 CREATE TABLE IF NOT EXISTS lms.student_documents (
   id uuid PRIMARY KEY DEFAULT util.gen_uuid_v4(),
@@ -1532,7 +1539,7 @@ CREATE INDEX IF NOT EXISTS idx_chats_school ON lms.chats(school_id);
 
 CREATE TRIGGER trg_chats_touch
 BEFORE UPDATE ON lms.chats
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 CREATE TABLE IF NOT EXISTS lms.chat_members (
   chat_id uuid NOT NULL REFERENCES lms.chats(id) ON DELETE CASCADE,
@@ -1570,7 +1577,7 @@ CREATE INDEX IF NOT EXISTS idx_messages_chat_ts ON lms.messages(chat_id, ts);
 
 CREATE TRIGGER trg_messages_touch
 BEFORE UPDATE ON lms.messages
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 -- =============================================================================
 -- NOTIFICATIONS (small CHECK enum to avoid lookup join)
@@ -1612,7 +1619,7 @@ ON lms.notifications(expires_at);
 
 CREATE TRIGGER trg_notifications_touch
 BEFORE UPDATE ON lms.notifications
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 -- =============================================================================
 -- CALENDAR EVENTS (small CHECK enum)
@@ -1661,7 +1668,7 @@ ON lms.calendar_events(class_id, start_time);
 
 CREATE TRIGGER trg_calendar_events_touch
 BEFORE UPDATE ON lms.calendar_events
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 -- =============================================================================
 -- DEVELOPMENT PLANS (MVP; consistent enum casing; avoids spaces)
@@ -1690,7 +1697,7 @@ COMMENT ON TABLE lms.plans IS 'Template learning plans aligned to subject (assig
 
 CREATE TRIGGER trg_plans_touch
 BEFORE UPDATE ON lms.plans
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 CREATE TABLE IF NOT EXISTS lms.plan_steps (
   id uuid PRIMARY KEY DEFAULT util.gen_uuid_v4(),
@@ -1714,7 +1721,7 @@ COMMENT ON TABLE lms.plan_steps IS 'Ordered steps for a plan (resources, assessm
 
 CREATE TRIGGER trg_plan_steps_touch
 BEFORE UPDATE ON lms.plan_steps
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 CREATE TABLE IF NOT EXISTS lms.student_plans (
   id uuid PRIMARY KEY DEFAULT util.gen_uuid_v4(),
@@ -1744,7 +1751,7 @@ ON lms.student_plans(student_id, subject_id, is_current);
 
 CREATE TRIGGER trg_student_plans_touch
 BEFORE UPDATE ON lms.student_plans
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 CREATE TABLE IF NOT EXISTS lms.student_attributes (
   id uuid PRIMARY KEY DEFAULT util.gen_uuid_v4(),
@@ -1772,7 +1779,7 @@ ON lms.student_attributes(student_id);
 
 CREATE TRIGGER trg_student_attributes_touch
 BEFORE UPDATE ON lms.student_attributes
-FOR EACH ROW EXECUTE PROCEDURE util.tg_touch_row();
+FOR EACH ROW EXECUTE FUNCTION util.tg_touch_row();
 
 -- =============================================================================
 -- AUDIT EVENT LOG (append-only; analytics + governance)
