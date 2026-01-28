@@ -35,24 +35,24 @@ import { useAuth } from '@/context/AuthContext';
 
 interface DevelopmentPlanCreationProps {
   studentId?: string;
-  courseId?: string;
+  subjectId?: string;
 }
 
 const DevelopmentPlanCreation: React.FC<DevelopmentPlanCreationProps> = ({ 
   studentId: propStudentId,
-  courseId: propCourseId 
+  subjectId: propSubjectId 
 }) => {
-  const { studentId: paramStudentId, courseId: paramCourseId } = useParams<{ 
+  const { studentId: paramStudentId, subjectId: paramSubjectId } = useParams<{ 
     studentId: string; 
-    courseId: string 
+    subjectId: string 
   }>();
   
   const navigate = useNavigate();
   const { toast } = useToast();
-  const { selectedCourse } = useAuth();
+  const { selectedSubject } = useAuth();
   
   const initialStudentId = propStudentId || paramStudentId || '';
-  const initialCourseId = propCourseId || paramCourseId || selectedCourse?.id || '';
+  const initialSubjectId = propSubjectId || paramSubjectId || selectedSubject?.id || '';
   
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [allStudents, setAllStudents] = useState<Student[]>([]);
@@ -87,7 +87,7 @@ const DevelopmentPlanCreation: React.FC<DevelopmentPlanCreationProps> = ({
   // Fetch student data and attributes when student is selected
   useEffect(() => {
     const fetchData = async () => {
-      if (!initialStudentId || !initialCourseId) return;
+      if (!initialStudentId || !initialSubjectId) return;
       
       setLoading(true);
       setError(null);
@@ -97,9 +97,9 @@ const DevelopmentPlanCreation: React.FC<DevelopmentPlanCreationProps> = ({
         const studentData = await studentService.getStudent(initialStudentId);
         setSelectedStudent(studentData);
         
-        // Fetch student attributes for the course
+        // Fetch student attributes for the subject
         try {
-          const attributes = await developmentService.getStudentAttributes(initialStudentId, initialCourseId);
+          const attributes = await developmentService.getStudentAttributes(initialStudentId, initialSubjectId);
           setStudentAttributes(attributes);
         } catch (attrError) {
           console.error('Error fetching student attributes:', attrError);
@@ -123,7 +123,7 @@ const DevelopmentPlanCreation: React.FC<DevelopmentPlanCreationProps> = ({
     };
     
     fetchData();
-  }, [initialStudentId, initialCourseId, toast]);
+  }, [initialStudentId, initialSubjectId, toast]);
 
   // Toggle skill expansion
   const toggleSkill = (index: number) => {
@@ -181,7 +181,7 @@ const DevelopmentPlanCreation: React.FC<DevelopmentPlanCreationProps> = ({
 
   // Create the development plan
   const handleCreatePlan = async () => {
-    if (!selectedStudent || !initialCourseId) return;
+    if (!selectedStudent || !initialSubjectId) return;
     
     setIsCreating(true);
     
@@ -190,7 +190,7 @@ const DevelopmentPlanCreation: React.FC<DevelopmentPlanCreationProps> = ({
       const planData = {
         name: planName || `Development Plan for ${selectedStudent.firstName} ${selectedStudent.lastName}`,
         studentId: selectedStudent._id,
-        courseId: initialCourseId,
+        subjectId: initialSubjectId,
         skills: studentAttributes?.skills
           .filter(skill => selectedSkills.has(skill.id) || 
             skill.subskills?.some(sub => selectedSubskills.has(sub.id)))
@@ -207,7 +207,7 @@ const DevelopmentPlanCreation: React.FC<DevelopmentPlanCreationProps> = ({
       const generatedPlan = await planningService.generateDevelopmentPlan(planData);
       
       // Save the plan
-      const createdPlan = await developmentService.createCoursePlan(generatedPlan);
+      const createdPlan = await developmentService.createSubjectPlan(generatedPlan);
       
       // Show success message
       toast({
@@ -438,7 +438,7 @@ const DevelopmentPlanCreation: React.FC<DevelopmentPlanCreationProps> = ({
                       ? 'ring-2 ring-blue-500 bg-blue-50' 
                       : 'bg-white hover:bg-gray-50'
                   }`}
-                  onClick={() => navigate(`/classroom/development/create/${student._id}/${initialCourseId}`)}
+                  onClick={() => navigate(`/classroom/development/create/${student._id}/${initialSubjectId}`)}
                 >
                   <div className="flex items-center gap-3">
                     <div className="relative flex h-10 w-10 shrink-0 overflow-hidden rounded-full bg-gray-100">

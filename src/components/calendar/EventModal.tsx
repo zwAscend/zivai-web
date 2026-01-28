@@ -21,7 +21,7 @@ import {
   Eye
 } from 'lucide-react';
 import { CalendarEvent, EventFormData, EventType } from '../../types/calendar';
-import { Course } from '../../types';
+import { Subject } from '../../types';
 import { useToast } from '../ui/use-toast';
 
 interface EventModalProps {
@@ -30,7 +30,7 @@ interface EventModalProps {
   onSave: (eventData: EventFormData) => Promise<void>;
   onDelete?: (eventId: string) => Promise<void>;
   event?: CalendarEvent | null;
-  courses: Course[];
+  subjects: Subject[];
   selectedDate?: Date | null;
 }
 
@@ -55,7 +55,7 @@ const EventModal: React.FC<EventModalProps> = ({
   onSave,
   onDelete,
   event,
-  courses,
+  subjects,
   selectedDate
 }) => {
   const { toast } = useToast();
@@ -67,7 +67,7 @@ const EventModal: React.FC<EventModalProps> = ({
     end: '',
     allDay: false,
     type: 'lecture',
-    courseId: '',
+    subjectId: '',
     location: '',
     recurring: {
       enabled: false,
@@ -91,7 +91,7 @@ const EventModal: React.FC<EventModalProps> = ({
         end: formatDateTimeLocal(endDate),
         allDay: event.allDay || false,
         type: event.type,
-        courseId: event.courseId || '',
+        subjectId: event.subjectId || '',
         location: event.location || '',
         recurring: {
           enabled: !!event.recurring,
@@ -111,7 +111,7 @@ const EventModal: React.FC<EventModalProps> = ({
         end: formatDateTimeLocal(end),
         title: '',
         description: '',
-        courseId: '',
+        subjectId: '',
         location: ''
       }));
     }
@@ -198,7 +198,7 @@ const EventModal: React.FC<EventModalProps> = ({
 
   // Add this function to check if we should show preview
   const shouldShowPreview = () => {
-    return !!(formData.title || formData.location || formData.courseId || formData.type !== 'lecture');
+    return !!(formData.title || formData.location || formData.subjectId || formData.type !== 'lecture');
   };
 
   return (
@@ -286,7 +286,7 @@ const EventModal: React.FC<EventModalProps> = ({
               */}
             </div>
 
-            {/* Event Type and Course */}
+            {/* Event Type and Subject */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label className="text-sm font-medium">Event Type</Label>
@@ -311,21 +311,25 @@ const EventModal: React.FC<EventModalProps> = ({
               </div>
 
               <div className="space-y-2">
-                <Label className="text-sm font-medium">Course</Label>
+                <Label className="text-sm font-medium">Subject</Label>
                 <Select 
-                  value={formData.courseId || 'none'} 
-                  onValueChange={(value) => handleInputChange('courseId', value === 'none' ? '' : value)}
+                  value={formData.subjectId || 'none'} 
+                  onValueChange={(value) => handleInputChange('subjectId', value === 'none' ? '' : value)}
                 >
                   <SelectTrigger className="h-11">
-                    <SelectValue placeholder="Select course (optional)" />
+                    <SelectValue placeholder="Select subject (optional)" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">No course</SelectItem>
-                    {courses.map((course) => (
-                      <SelectItem key={course._id} value={course._id}>
-                        {course.code} - {course.name}
-                      </SelectItem>
-                    ))}
+                    <SelectItem value="none">No subject</SelectItem>
+                    {subjects.map((subject, index) => {
+                      const subjectValue = subject._id || subject.id || subject.code || '';
+                      const subjectKey = `${subjectValue || 'subject'}-${index}`;
+                      return (
+                        <SelectItem key={subjectKey} value={subjectValue}>
+                          {subject.code} - {subject.name}
+                        </SelectItem>
+                      );
+                    })}
                   </SelectContent>
                 </Select>
               </div>
@@ -484,9 +488,9 @@ const EventModal: React.FC<EventModalProps> = ({
                             {formData.location}
                           </p>
                         )}
-                        {formData.courseId && (
+                        {formData.subjectId && (
                           <p className="text-xs text-blue-600 mt-2">
-                            {courses.find(c => c._id === formData.courseId)?.name}
+                            {subjects.find(c => c._id === formData.subjectId)?.name}
                           </p>
                         )}
                       </div>

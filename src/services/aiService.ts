@@ -1,5 +1,5 @@
 import { fetchData } from './api';
-import { Assessment, CourseAttribute, Question } from '../types';
+import { Assessment, SubjectAttribute, Question } from '../types';
 
 interface AttributeInput {
   _id: string;
@@ -8,7 +8,7 @@ interface AttributeInput {
 }
 
 interface GenerateQuestionsParams {
-  courseId: string;
+  subjectId: string;
   attributes: Array<string | AttributeInput>;
   documentId?: string;
   questionCount?: number;
@@ -103,7 +103,7 @@ export const aiService = {
         // If we have string IDs, fetch the attribute details
         const attributes = await Promise.all(
           (params.attributes as string[]).map(attrId => 
-            fetchData<CourseAttribute>(`/api/courses/attributes/${attrId}`)
+            fetchData<SubjectAttribute>(`/api/subjects/attributes/${attrId}`)
               .catch(() => ({ _id: attrId, name: `Attribute ${attrId}`, description: '' }))
           )
         );
@@ -151,7 +151,7 @@ export const aiService = {
         questionTypes: (params.questionTypes && params.questionTypes.length > 0 ? params.questionTypes[0] : 'multiple_choice') as 'multiple_choice' | 'structured' | 'mixed',
         numberOfQuestions: params.questionCount || 5,
         attributes: Object.keys(attributesObject).length > 0 ? attributesObject : {
-          course: "General Course",
+          subject: "General Subject",
           topic: attributeNames.join(', ') || "General Topic"
         },
         referenceDocuments,
@@ -208,7 +208,7 @@ export const aiService = {
       const context = `Please regenerate questions based on the following feedback: ${params.feedback || 'No specific feedback provided'}. Previous questions to keep: ${JSON.stringify(params.questionsToKeep || [], null, 2)}`;
       
       const generateParams: GenerateQuestionsParams = {
-        courseId: params.prompt?.courseId || '',
+        subjectId: params.prompt?.subjectId || '',
         attributes: params.prompt?.attributes || [],
         questionCount: params.questionCount || 5,
         questionTypes: params.prompt?.questionTypes || ['multiple_choice'],
@@ -226,10 +226,10 @@ export const aiService = {
   /**
    * Upload a document for AI processing
    */
-  uploadDocument: async (file: File, courseId: string) => {
+  uploadDocument: async (file: File, subjectId: string) => {
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('courseId', courseId);
+    formData.append('subjectId', subjectId);
 
     return fetchData('/resources/upload', {
       method: 'POST',
@@ -240,10 +240,10 @@ export const aiService = {
   },
 
   /**
-   * Get course attributes for a specific course
+   * Get subject attributes for a specific subject
    */
-  getCourseAttributes: async (courseId: string): Promise<CourseAttribute[]> => {
-    return fetchData(`/development/attributes/course/${courseId}`);
+  getSubjectAttributes: async (subjectId: string): Promise<SubjectAttribute[]> => {
+    return fetchData(`/development/attributes/subject/${subjectId}`);
   },
 
   /**
@@ -290,12 +290,12 @@ export const aiService = {
   },
 
   /**
-   * Get all assessments for a course
+   * Get all assessments for a subject
    */
-  getCourseAssessments: async (courseId: string, status?: string): Promise<Assessment[]> => {
+  getSubjectAssessments: async (subjectId: string, status?: string): Promise<Assessment[]> => {
     const url = status 
-      ? `/assessments/course/${courseId}?status=${status}`
-      : `/assessments/course/${courseId}`;
+      ? `/assessments/subject/${subjectId}?status=${status}`
+      : `/assessments/subject/${subjectId}`;
       
     return fetchData(url);
   },

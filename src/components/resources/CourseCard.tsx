@@ -1,8 +1,8 @@
 import React from 'react';
 import { FileText, Folder, MoreVertical, Upload } from 'lucide-react';
 
-interface CourseCardProps {
-  course: {
+interface SubjectCardProps {
+  subject: {
     _id: string;
     name: string;
     code: string;
@@ -13,7 +13,7 @@ interface CourseCardProps {
   onUploadClick: () => void;
 }
 
-const CourseCard: React.FC<CourseCardProps> = ({ course, onClick, onUploadClick }) => {
+const SubjectCard: React.FC<SubjectCardProps> = ({ subject, onClick, onUploadClick }) => {
   return (
     <div className="bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow">
       <div 
@@ -26,8 +26,8 @@ const CourseCard: React.FC<CourseCardProps> = ({ course, onClick, onUploadClick 
               <Folder className="w-6 h-6 text-blue-600" />
             </div>
             <div>
-              <h3 className="font-semibold text-lg">{course.name}</h3>
-              <p className="text-gray-500 text-sm">{course.code}</p>
+              <h3 className="font-semibold text-lg">{subject.name}</h3>
+              <p className="text-gray-500 text-sm">{subject.code}</p>
             </div>
           </div>
           <button 
@@ -44,10 +44,10 @@ const CourseCard: React.FC<CourseCardProps> = ({ course, onClick, onUploadClick 
         <div className="flex items-center justify-between text-sm text-gray-500">
           <div className="flex items-center">
             <FileText className="w-4 h-4 mr-1" />
-            <span>{course.resourceCount || 0} resources</span>
+            <span>{subject.resourceCount || 0} resources</span>
           </div>
-          {course.lastUpdated && (
-            <span>Updated {new Date(course.lastUpdated).toLocaleDateString()}</span>
+          {subject.lastUpdated && (
+            <span>Updated {new Date(subject.lastUpdated).toLocaleDateString()}</span>
           )}
         </div>
       </div>
@@ -68,4 +68,4 @@ const CourseCard: React.FC<CourseCardProps> = ({ course, onClick, onUploadClick 
   );
 };
 
-export default CourseCard;
+export default SubjectCard;

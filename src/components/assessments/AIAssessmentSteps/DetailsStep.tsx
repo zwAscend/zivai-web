@@ -18,7 +18,7 @@ import {
   CheckCircle,
   AlertCircle
 } from 'lucide-react';
-import { CourseAttribute, QuestionType, AssessmentType } from '@/types';
+import { SubjectAttribute, QuestionType, AssessmentType } from '@/types';
 
 interface DetailsStepProps {
   formData: {
@@ -45,7 +45,7 @@ interface DetailsStepProps {
     weight: number;
     dueDate: string;
   }>>;
-  attributes: CourseAttribute[];
+  attributes: SubjectAttribute[];
   uploadedFile: File | null;
   setUploadedFile: (file: File | null) => void;
   isLoading: boolean;
@@ -334,7 +334,7 @@ export function DetailsStep({
         )}
       </div>
       
-      {/* Course Attributes */}
+      {/* Subject Attributes */}
       <div className="space-y-4">
         <div className="flex items-center gap-2 pb-2 border-b border-gray-200">
           <Target className="w-5 h-5 text-indigo-600" />
@@ -343,7 +343,7 @@ export function DetailsStep({
         </div>
         
         <p className="text-sm text-gray-600">
-          Select the course attributes this assessment will evaluate
+          Select the subject attributes this assessment will evaluate
         </p>
         
         {attributes.length > 0 ? (
@@ -386,7 +386,7 @@ export function DetailsStep({
           <div className="p-6 border-2 border-dashed border-gray-300 rounded-lg text-center">
             <AlertCircle className="w-8 h-8 text-gray-400 mx-auto mb-2" />
             <p className="text-sm text-gray-500">
-              No attributes found for this course. Please add attributes in the course settings.
+              No attributes found for this subject. Please add attributes in the subject settings.
             </p>
           </div>
         )}

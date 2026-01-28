@@ -27,7 +27,7 @@ interface CreateDevelopmentPlanModalProps {
   onOpenChange: (open: boolean) => void;
   onPlanCreated: (studentId: string, plan: any) => void;
   students: Student[];
-  courseId: string;
+  subjectId: string;
 }
 
 const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
@@ -35,7 +35,7 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
   onOpenChange,
   onPlanCreated,
   students: initialStudents = [],
-  courseId
+  subjectId
 }) => {
   const [students, setStudents] = React.useState<Student[]>(initialStudents || []);
   const [selectedStudentId, setSelectedStudentId] = React.useState<string>('');
@@ -46,7 +46,7 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
   const [createdPlan, setCreatedPlan] = React.useState<any>(null);
   const [selectedStudent, setSelectedStudent] = React.useState<Student | null>(null);
   
-  const { selectedCourse } = useAuth();
+  const { selectedSubject } = useAuth();
   const { toast } = useToast();
 
   const showToast = (title: string, description: string, variant: 'default' | 'destructive' = 'default') => {
@@ -97,13 +97,13 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
       setIsGenerating(true);
       const student = students.find(s => s._id === selectedStudentId);
       if (!student) throw new Error('Selected student not found');
-      if (!selectedCourse?.id) throw new Error('No course selected. Please select a course first.');
+      if (!selectedSubject?.id) throw new Error('No subject selected. Please select a subject first.');
 
-      const courseId = selectedCourse.id;
+      const subjectId = selectedSubject.id;
       
-      const studentAttributesResponse = await developmentService.getStudentAttributes(selectedStudentId, courseId);
+      const studentAttributesResponse = await developmentService.getStudentAttributes(selectedStudentId, subjectId);
       
-      const courseAttributes: any[] = [];
+      const subjectAttributes: any[] = [];
       const studentAttributeValues: Record<string, any> = {};
       
       if (Array.isArray(studentAttributesResponse)) {
@@ -111,8 +111,8 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
           if (item.attribute && (typeof item.current === 'number' || typeof item.potential === 'number')) {
             const attributeId = item.attribute._id || item.attribute.id;
             if (attributeId) {
-              if (!courseAttributes.some(attr => attr._id === attributeId || attr.id === attributeId)) {
-                courseAttributes.push({
+              if (!subjectAttributes.some(attr => attr._id === attributeId || attr.id === attributeId)) {
+                subjectAttributes.push({
                   _id: attributeId,
                   id: attributeId,
                   name: item.attribute.name || `Attribute ${attributeId}`,
@@ -143,7 +143,7 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
         {}
       );
 
-      const formattedCourseAttributes = courseAttributes.map(attr => ({
+      const formattedSubjectAttributes = subjectAttributes.map(attr => ({
         _id: attr._id || attr.id || 'unknown',
         name: attr.name || 'Unnamed Attribute',
         description: attr.description || ''
@@ -151,11 +151,11 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
 
       const formattedStudentAttributes = { ...studentAttributeValues };
 
-      if (formattedCourseAttributes.length === 0) {
-        formattedCourseAttributes.push({
+      if (formattedSubjectAttributes.length === 0) {
+        formattedSubjectAttributes.push({
           _id: 'default-attribute',
           name: 'Overall Performance',
-          description: 'General performance across all course metrics'
+          description: 'General performance across all subject metrics'
         });
         
         if (Object.keys(formattedStudentAttributes).length === 0) {
@@ -177,11 +177,11 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
           strength: student.strength || '',
           performance: student.performance || '',
           engagement: student.engagement || 0,
-          courses: student.courses || []
+          subjects: student.subjects || []
         },
-        courseId,
-        courseName: selectedCourse?.name || 'Course Name',
-        attributes: formattedCourseAttributes,
+        subjectId,
+        subjectName: selectedSubject?.name || 'Subject Name',
+        attributes: formattedSubjectAttributes,
         studentAttributes: formattedStudentAttributes,
         targetScores
       };
@@ -191,13 +191,13 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
       const planToSave = {
         ...plan,
         studentId: selectedStudentId,
-        courseId,
+        subjectId,
         status: 'active',
         createdAt: new Date(),
         updatedAt: new Date()
       };
 
-      const created = await developmentService.createCoursePlan(planToSave as any);
+      const created = await developmentService.createSubjectPlan(planToSave as any);
 
       setCreatedPlan(created);
       setIsReviewModalOpen(true);
@@ -207,19 +207,19 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
     } finally {
       setIsGenerating(false);
     }
-  }, [selectedStudentId, students, onPlanCreated, selectedCourse]);
+  }, [selectedStudentId, students, onPlanCreated, selectedSubject]);
 
   const handleAssignPlan = async () => {
     if (!createdPlan || isAssigning) return;
     
     try {
       setIsAssigning(true);
-      if (!selectedCourse?.id) throw new Error('No course selected');
+      if (!selectedSubject?.id) throw new Error('No subject selected');
       
       const assignedPlan = await developmentService.assignPlanToStudent(
         selectedStudentId, 
         createdPlan._id,
-        selectedCourse?.id || courseId
+        selectedSubject?.id || subjectId
       );
       
       onPlanCreated(selectedStudentId, assignedPlan);
@@ -267,14 +267,14 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
           </DialogHeader>
 
           <div className="flex-1 overflow-y-auto p-6">
-            {/* Course Info */}
-            {selectedCourse && (
+            {/* Subject Info */}
+            {selectedSubject && (
               <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 mb-6">
                 <div className="flex items-center gap-3">
                   <BookOpen className="w-5 h-5 text-indigo-600" />
                   <div>
-                    <h3 className="font-semibold text-indigo-900">{selectedCourse.name}</h3>
-                    <p className="text-sm text-indigo-700">{selectedCourse.code}</p>
+                    <h3 className="font-semibold text-indigo-900">{selectedSubject.name}</h3>
+                    <p className="text-sm text-indigo-700">{selectedSubject.code}</p>
                   </div>
                 </div>
               </div>

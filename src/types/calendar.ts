@@ -6,8 +6,8 @@ export interface CalendarEvent {
   end?: Date | string;
   allDay?: boolean;
   type: EventType;
-  courseId?: string;
-  courseName?: string;
+  subjectId?: string;
+  subjectName?: string;
   location?: string;
   attendees?: string[];
   color?: string;
@@ -45,7 +45,7 @@ export interface EventFormData {
   end: string;
   allDay: boolean;
   type: EventType;
-  courseId: string;
+  subjectId: string;
   location: string;
   recurring?: {
     enabled: boolean;

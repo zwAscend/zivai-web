@@ -2,7 +2,7 @@ import { NextApiRequest, NextApiResponse } from 'next';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 interface GenerateQuestionsBody {
-  courseId: string;
+  subjectId: string;
   attributes: string[];
   documentId?: string;
   questionCount?: number;
@@ -16,14 +16,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const { courseId, attributes, questionCount, questionTypes, difficulty } = req.body as GenerateQuestionsBody;
+    const { subjectId, attributes, questionCount, questionTypes, difficulty } = req.body as GenerateQuestionsBody;
     
     // Initialize Google Generative AI
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
     const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
 
     const prompt = `You are a question generator for academic assessments.
-Generate ${questionCount || 5} questions for the course "${courseId}".
+Generate ${questionCount || 5} questions for the subject "${subjectId}".
 The questions should assess the following attributes: ${attributes.join(', ')}.
 
 Question types: ${(questionTypes || ['multiple_choice']).join(', ')}

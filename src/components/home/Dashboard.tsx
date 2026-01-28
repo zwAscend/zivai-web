@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import CalendarWidget from '../calendar/CalendarWidget';
 import EventModal from '../calendar/EventModal';
 import { CalendarEvent, EventFormData } from '../../types/calendar';
-import { courseService } from '../../services/api';
+import { subjectService } from '../../services/api';
 
 interface Assessment {
   _id: string;
@@ -15,7 +15,7 @@ interface Assessment {
   description: string;
   type: string;
   maxScore: number;
-  courseId: string;
+  subjectId: string;
   weight: number;
   dueDate: string;
   createdAt: string;
@@ -50,7 +50,7 @@ interface Student {
   engagement: string;
   strength: string;
   performance: string;
-  courses: string[];
+  subjects: string[];
   activePlan: string;
   createdAt: string;
   updatedAt: string;
@@ -83,11 +83,11 @@ interface DevelopmentPlan {
       type: string;
       order: number;
     }[];
-    courseId: string;
+    subjectId: string;
     createdAt: string;
     updatedAt: string;
   };
-  courseId: string;
+  subjectId: string;
   currentProgress: number;
   status: string;
   startDate: string;
@@ -110,7 +110,7 @@ interface StudentAttribute {
     name: string;
     description: string;
     category: string;
-    courseId: string;
+    subjectId: string;
     createdAt: string;
     updatedAt: string;
   };
@@ -136,11 +136,11 @@ interface StudentDevelopment {
   hasActivePlan: boolean;
 }
 
-const fetchStudentAttributes = async (studentId: string, courseId: string): Promise<StudentAttribute[]> => {
+const fetchStudentAttributes = async (studentId: string, subjectId: string): Promise<StudentAttribute[]> => {
   try {
     const token = localStorage.getItem('token');
     const response = await axios.get(
-      `http://localhost:5000/api/development/attributes/student/${studentId}/course/${courseId}`,
+      `http://localhost:5000/api/development/attributes/student/${studentId}/subject/${subjectId}`,
       { headers: { Authorization: `Bearer ${token}` } }
     );
     return response.data;
@@ -158,27 +158,27 @@ const Dashboard: React.FC = () => {
   const [studentPerformance, setStudentPerformance] = useState<StudentPerformance[]>([]);
   const [studentsWithPlans, setStudentsWithPlans] = useState<StudentDevelopment[]>([]);
   const [loading, setLoading] = useState(true);
-  const { selectedCourse } = useAuth();
+  const { selectedSubject } = useAuth();
   
   // Calendar states
   const [showEventModal, setShowEventModal] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-  const [courses, setCourses] = useState<any[]>([]);
+  const [subjects, setSubjects] = useState<any[]>([]);
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
 
   const baseUrl = 'http://localhost:5000';
 
-  // Load courses for calendar
+  // Load subjects for calendar
   useEffect(() => {
-    const loadCourses = async () => {
+    const loadSubjects = async () => {
       try {
-        const coursesData = await courseService.getCourses();
-        setCourses(coursesData);
+        const subjectsData = await subjectService.getSubjects();
+        setSubjects(subjectsData);
       } catch (error) {
-        console.error('Error loading courses:', error);
+        console.error('Error loading subjects:', error);
       }
     };
-    loadCourses();
+    loadSubjects();
   }, []);
 
   // Mock calendar events
@@ -191,8 +191,8 @@ const Dashboard: React.FC = () => {
         start: new Date(Date.now() + 2 * 60 * 60 * 1000),
         end: new Date(Date.now() + 3.5 * 60 * 60 * 1000),
         type: 'lecture',
-        courseId: selectedCourse?.id || 'course1',
-        courseName: selectedCourse?.name || 'Network Security',
+        subjectId: selectedSubject?.id || 'subject1',
+        subjectName: selectedSubject?.name || 'Network Security',
         location: 'Room 101',
         color: '#3b82f6',
         backgroundColor: '#3b82f6',
@@ -208,8 +208,8 @@ const Dashboard: React.FC = () => {
         description: 'Network Configuration Lab',
         start: new Date(Date.now() + 24 * 60 * 60 * 1000),
         type: 'assignment_due',
-        courseId: selectedCourse?.id || 'course1',
-        courseName: selectedCourse?.name || 'Network Security',
+        subjectId: selectedSubject?.id || 'subject1',
+        subjectName: selectedSubject?.name || 'Network Security',
         allDay: true,
         color: '#ef4444',
         backgroundColor: '#ef4444',
@@ -221,12 +221,12 @@ const Dashboard: React.FC = () => {
       }
     ];
     setCalendarEvents(mockEvents);
-  }, [selectedCourse]);
+  }, [selectedSubject]);
   
-  const fetchStudentsByCourse = async (courseId: string): Promise<Student[]> => {
+  const fetchStudentsBySubject = async (subjectId: string): Promise<Student[]> => {
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get(`${baseUrl}/api/students?courseId=${courseId}`, {
+      const response = await axios.get(`${baseUrl}/api/students?subjectId=${subjectId}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       return response.data;
@@ -236,10 +236,10 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const fetchAssessmentsByCourse = async (courseId: string): Promise<Assessment[]> => {
+  const fetchAssessmentsBySubject = async (subjectId: string): Promise<Assessment[]> => {
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get(`${baseUrl}/api/assessments?courseId=${courseId}`, {
+      const response = await axios.get(`${baseUrl}/api/assessments?subjectId=${subjectId}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       return response.data;
@@ -262,10 +262,10 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const fetchStudentDevelopmentPlan = async (studentId: string, courseId: string): Promise<DevelopmentPlan | null> => {
+  const fetchStudentDevelopmentPlan = async (studentId: string, subjectId: string): Promise<DevelopmentPlan | null> => {
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get(`${baseUrl}/api/development/plans/student/${studentId}/course/${courseId}`, {
+      const response = await axios.get(`${baseUrl}/api/development/plans/student/${studentId}/subject/${subjectId}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       return response.data;
@@ -277,7 +277,7 @@ const Dashboard: React.FC = () => {
 
   const getStudentAttributes = async (
     studentId: string,
-    courseId: string,
+    subjectId: string,
     planSkills: any[] = []
   ): Promise<{ name: string; value: number }[]> => {
     let attributes: { name: string; value: number }[] = [];
@@ -292,7 +292,7 @@ const Dashboard: React.FC = () => {
     }
 
     if (attributes.length < 6) {
-      const studentAttributes = await fetchStudentAttributes(studentId, courseId);
+      const studentAttributes = await fetchStudentAttributes(studentId, subjectId);
       const existingNames = new Set(attributes.map(attr => attr.name.toLowerCase()));
       const additionalAttributes = studentAttributes
         .filter(attr => !existingNames.has(attr.attribute.name.toLowerCase()))
@@ -324,8 +324,8 @@ const Dashboard: React.FC = () => {
         end: eventData.end ? new Date(eventData.end) : undefined,
         allDay: eventData.allDay,
         type: eventData.type,
-        courseId: eventData.courseId || undefined,
-        courseName: eventData.courseId ? courses.find(c => c._id === eventData.courseId)?.name : undefined,
+        subjectId: eventData.subjectId || undefined,
+        subjectName: eventData.subjectId ? subjects.find(c => c._id === eventData.subjectId)?.name : undefined,
         location: eventData.location,
         color: '#3b82f6',
         backgroundColor: '#3b82f6',
@@ -345,13 +345,13 @@ const Dashboard: React.FC = () => {
   };
   
   useEffect(() => {
-    console.log('Selected course in Dashboard:', selectedCourse);
-  }, [selectedCourse]);
+    console.log('Selected subject in Dashboard:', selectedSubject);
+  }, [selectedSubject]);
 
   useEffect(() => {
     const fetchData = async () => {
-      if (!selectedCourse || !selectedCourse.id) {
-        console.log("No valid course selected, skipping data fetch.", { selectedCourse });
+      if (!selectedSubject || !selectedSubject.id) {
+        console.log("No valid subject selected, skipping data fetch.", { selectedSubject });
         setStudentsWithPlans([]);
         setLatestAssessment(null);
         setStudentPerformance([]);
@@ -361,17 +361,17 @@ const Dashboard: React.FC = () => {
   
       try {
         setLoading(true);
-        console.log(`Fetching data for course: ${selectedCourse.name} (ID: ${selectedCourse.id})`);
+        console.log(`Fetching data for subject: ${selectedSubject.name} (ID: ${selectedSubject.id})`);
   
-        const students = await fetchStudentsByCourse(selectedCourse.id);
+        const students = await fetchStudentsBySubject(selectedSubject.id);
         console.log("Students fetched:", students);
   
-        const courseStudents = students.filter(student => 
-          student.courses && student.courses.includes(selectedCourse.id)
+        const subjectStudents = students.filter(student => 
+          student.subjects && student.subjects.includes(selectedSubject.id)
         );
-        console.log("Filtered course students:", courseStudents);
+        console.log("Filtered subject students:", subjectStudents);
   
-        const assessments = await fetchAssessmentsByCourse(selectedCourse.id);
+        const assessments = await fetchAssessmentsBySubject(selectedSubject.id);
         console.log("Assessments fetched:", assessments);
   
         if (assessments.length > 0) {
@@ -385,11 +385,11 @@ const Dashboard: React.FC = () => {
           const results = await fetchAssessmentResults(latest._id);
           console.log("Assessment results:", results);
   
-          const courseResults = results.filter(result => 
-            courseStudents.some(student => student._id === result.student._id)
+          const subjectResults = results.filter(result => 
+            subjectStudents.some(student => student._id === result.student._id)
           );
   
-          const performance: StudentPerformance[] = courseResults.map(result => ({
+          const performance: StudentPerformance[] = subjectResults.map(result => ({
             studentId: result.student._id,
             firstName: result.student.firstName,
             lastName: result.student.lastName,
@@ -398,20 +398,20 @@ const Dashboard: React.FC = () => {
   
           setStudentPerformance(performance);
         } else {
-          console.log("No assessments found for the selected course.");
+          console.log("No assessments found for the selected subject.");
           setLatestAssessment(null);
           setStudentPerformance([]);
         }
   
         const allStudentsDevelopment: StudentDevelopment[] = [];
   
-        for (const student of courseStudents) {
+        for (const student of subjectStudents) {
           let developmentData: StudentDevelopment;
   
           if (student.activePlan) {
-            const developmentPlan = await fetchStudentDevelopmentPlan(student._id, selectedCourse.id);
+            const developmentPlan = await fetchStudentDevelopmentPlan(student._id, selectedSubject.id);
             if (developmentPlan && developmentPlan.status === 'Active') {
-              const attributes = await getStudentAttributes(student._id, selectedCourse.id, developmentPlan.plan.skills);
+              const attributes = await getStudentAttributes(student._id, selectedSubject.id, developmentPlan.plan.skills);
               const sessionsAvailable = Math.ceil(developmentPlan.plan.eta / 3);
   
               developmentData = {
@@ -426,7 +426,7 @@ const Dashboard: React.FC = () => {
                 hasActivePlan: true
               };
             } else {
-              const attributes = await getStudentAttributes(student._id, selectedCourse.id);
+              const attributes = await getStudentAttributes(student._id, selectedSubject.id);
               developmentData = {
                 studentId: student._id,
                 firstName: student.firstName,
@@ -440,7 +440,7 @@ const Dashboard: React.FC = () => {
               };
             }
           } else {
-            const attributes = await getStudentAttributes(student._id, selectedCourse.id);
+            const attributes = await getStudentAttributes(student._id, selectedSubject.id);
             developmentData = {
               studentId: student._id,
               firstName: student.firstName,
@@ -458,7 +458,7 @@ const Dashboard: React.FC = () => {
         }
   
         setStudentsWithPlans(allStudentsDevelopment);
-        console.log("All students development data for course:", allStudentsDevelopment);
+        console.log("All students development data for subject:", allStudentsDevelopment);
   
       } catch (error) {
         console.error('Error fetching data:', error);
@@ -471,7 +471,7 @@ const Dashboard: React.FC = () => {
     };
   
     fetchData();
-  }, [selectedCourse]);
+  }, [selectedSubject]);
 
   useEffect(() => {
     if (studentsWithPlans.length > 0) {
@@ -573,7 +573,7 @@ const Dashboard: React.FC = () => {
                 </>
               ) : (
                 <div className="flex-1 flex items-center justify-center text-gray-500">
-                  No assessments found for this course
+                  No assessments found for this subject
                 </div>
               )}
             </div>
@@ -666,7 +666,7 @@ const Dashboard: React.FC = () => {
               </AnimatePresence>
             ) : (
               <div className="flex-1 flex items-center justify-center text-sm text-gray-500">
-                No students found for this course
+                No students found for this subject
               </div>
             )}
           </div>
@@ -705,7 +705,7 @@ const Dashboard: React.FC = () => {
           setSelectedDate(null);
         }}
         onSave={handleCreateEvent}
-        courses={courses}
+        subjects={subjects}
         selectedDate={selectedDate}
       />
     </div>

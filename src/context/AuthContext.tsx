@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 
-interface Course {
+interface Subject {
   id: string;
   _id?: string;
   code: string;
@@ -8,17 +8,17 @@ interface Course {
 }
 
 interface AuthContextType {
-  selectedCourse: Course | null;
-  setSelectedCourse: (course: Course | null) => void;
+  selectedSubject: Subject | null;
+  setSelectedSubject: (subject: Subject | null) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
+  const [selectedSubject, setSelectedSubject] = useState<Subject | null>(null);
 
   return (
-    <AuthContext.Provider value={{ selectedCourse, setSelectedCourse }}>
+    <AuthContext.Provider value={{ selectedSubject, setSelectedSubject }}>
       {children}
     </AuthContext.Provider>
   );

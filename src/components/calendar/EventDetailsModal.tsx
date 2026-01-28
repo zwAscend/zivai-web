@@ -101,7 +101,7 @@ const EventDetailsModal: React.FC<EventDetailsModalProps> = ({
                   Event Details
                 </DialogTitle>
                 <p className="text-blue-100 mt-1">
-                  {event.courseName || 'General Event'}
+                  {event.subjectName || 'General Event'}
                 </p>
               </div>
             </div>
@@ -160,13 +160,13 @@ const EventDetailsModal: React.FC<EventDetailsModalProps> = ({
               </div>
             )}
 
-            {/* Course */}
-            {event.courseName && (
+            {/* Subject */}
+            {event.subjectName && (
               <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
                 <BookOpen className="w-5 h-5 text-gray-600" />
                 <div>
-                  <p className="font-medium text-gray-900">{event.courseName}</p>
-                  <p className="text-sm text-gray-500">Associated course</p>
+                  <p className="font-medium text-gray-900">{event.subjectName}</p>
+                  <p className="text-sm text-gray-500">Associated subject</p>
                 </div>
               </div>
             )}

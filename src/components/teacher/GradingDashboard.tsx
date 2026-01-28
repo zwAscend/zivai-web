@@ -60,17 +60,17 @@ const GradingDashboard: React.FC = () => {
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [filterStatus, setFilterStatus] = useState<'all' | 'graded' | 'submitted'>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const { selectedCourse } = useAuth();
+  const { selectedSubject } = useAuth();
 
   useEffect(() => {
     fetchData();
-  }, [selectedCourse]);
+  }, [selectedSubject]);
 
   const fetchData = async () => {
     try {
       setLoading(true);
       const [statsData, submissionsData] = await Promise.all([
-        submissionService.getGradingStats(selectedCourse?.id),
+        submissionService.getGradingStats(selectedSubject?.id),
         submissionService.getPendingSubmissions()
       ]);
       

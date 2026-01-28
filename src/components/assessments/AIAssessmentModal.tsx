@@ -18,21 +18,21 @@ import {
 import axios from 'axios';
 import { toast } from 'sonner';
 import AuthContext from '@/context/AuthContext';
-import { Question, Assessment, CourseAttribute, AssessmentType, User } from '@/types';
+import { Question, Assessment, SubjectAttribute, AssessmentType, User } from '@/types';
 import { aiService } from '@/services/aiService';
 import { DetailsStep } from './AIAssessmentSteps/DetailsStep';
 import { GenerateStep } from './AIAssessmentSteps/GenerateStep';
 import { ReviewStep } from './AIAssessmentSteps/ReviewStep';
-import { Course } from '@/types';
+import { Subject } from '@/types';
 
 type QuestionType = 'multiple_choice' | 'true_false' | 'short_answer' | 'essay' | 'code';
 type Difficulty = 'easy' | 'medium' | 'hard';
-type Step = 'course-selection' | 'details' | 'generate' | 'review';
+type Step = 'subject-selection' | 'details' | 'generate' | 'review';
 
 interface AIAssessmentModalProps {
   isOpen: boolean;
   onClose: () => void;
-  courseId: string;
+  subjectId: string;
   onAssessmentCreated: (assessment: Assessment) => void;
   assessmentToEdit?: Assessment | null;
 }
@@ -40,7 +40,7 @@ interface AIAssessmentModalProps {
 export function AIAssessmentModal({ 
   isOpen, 
   onClose, 
-  courseId, 
+  subjectId, 
   onAssessmentCreated,
   assessmentToEdit 
 }: AIAssessmentModalProps) {
@@ -48,13 +48,13 @@ export function AIAssessmentModal({
   const [isLoading, setIsLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [step, setStep] = useState<Step>('course-selection');
-  const [attributes, setAttributes] = useState<CourseAttribute[]>([]);
+  const [step, setStep] = useState<Step>('subject-selection');
+  const [attributes, setAttributes] = useState<SubjectAttribute[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [resourceId, setResourceId] = useState<string | null>(null);
-  const [courses, setCourses] = useState<Course[]>([]);
-  const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [selectedSubject, setSelectedSubject] = useState<Subject | null>(null);
   
   const authContext = useContext(AuthContext);
   const currentUser = authContext?.user;
@@ -74,7 +74,7 @@ export function AIAssessmentModal({
 
   // Step configuration
   const steps = [
-    { key: 'course-selection', title: 'Select Course', description: 'Choose the course for your assessment' },
+    { key: 'subject-selection', title: 'Select Subject', description: 'Choose the subject for your assessment' },
     { key: 'details', title: 'Assessment Details', description: 'Configure your assessment parameters' },
     { key: 'generate', title: 'Generating Questions', description: 'AI is creating your questions' },
     { key: 'review', title: 'Review & Edit', description: 'Review and customize generated questions' }
@@ -86,14 +86,14 @@ export function AIAssessmentModal({
   // Initialize data on modal open
   useEffect(() => {
     if (isOpen) {
-      fetchCourses();
+      fetchSubjects();
       if (assessmentToEdit) {
         initializeEditMode();
       }
     }
   }, [isOpen, assessmentToEdit]);
 
-  const fetchCourses = async () => {
+  const fetchSubjects = async () => {
     try {
       setIsLoading(true);
       const token = localStorage.getItem('token');
@@ -102,31 +102,31 @@ export function AIAssessmentModal({
         return;
       }
 
-      const response = await axios.get('http://localhost:5000/api/courses/teaching', {
+      const response = await axios.get('http://localhost:5000/api/subjects/teaching', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
       if (response.data && Array.isArray(response.data)) {
-        const coursesWithIds = response.data.map((course: any) => ({
-          ...course,
-          _id: course.id || course._id,
-          code: course.code || '',
-          name: course.name || 'Untitled Course'
+        const subjectsWithIds = response.data.map((subject: any) => ({
+          ...subject,
+          _id: subject.id || subject._id,
+          code: subject.code || '',
+          name: subject.name || 'Untitled Subject'
         }));
 
-        setCourses(coursesWithIds);
+        setSubjects(subjectsWithIds);
         
         if (assessmentToEdit) {
-          const currentCourse = coursesWithIds.find((c: any) => c._id === courseId);
-          if (currentCourse) {
-            setSelectedCourse(currentCourse);
+          const currentSubject = subjectsWithIds.find((c: any) => c._id === subjectId);
+          if (currentSubject) {
+            setSelectedSubject(currentSubject);
             setStep('details');
           }
         }
       }
     } catch (error) {
-      console.error('Error fetching courses:', error);
-      toast.error('Failed to load courses');
+      console.error('Error fetching subjects:', error);
+      toast.error('Failed to load subjects');
     } finally {
       setIsLoading(false);
     }
@@ -161,31 +161,31 @@ export function AIAssessmentModal({
     }
   };
 
-  // Fetch course attributes when course is selected
+  // Fetch subject attributes when subject is selected
   useEffect(() => {
     const fetchAttributes = async () => {
-      if (!selectedCourse) return;
+      if (!selectedSubject) return;
       
       try {
         setIsLoading(true);
-        const data = await aiService.getCourseAttributes(selectedCourse._id);
+        const data = await aiService.getSubjectAttributes(selectedSubject._id);
         setAttributes(data);
       } catch (error) {
         console.error('Error fetching attributes:', error);
-        toast.error('Failed to load course attributes');
+        toast.error('Failed to load subject attributes');
       } finally {
         setIsLoading(false);
       }
     };
 
-    if (isOpen && selectedCourse) {
+    if (isOpen && selectedSubject) {
       fetchAttributes();
     }
-  }, [isOpen, selectedCourse]);
+  }, [isOpen, selectedSubject]);
 
   const generateQuestions = async () => {
     if (formData.selectedAttributes.length === 0) {
-      toast.error('Please select at least one course attribute');
+      toast.error('Please select at least one subject attribute');
       return;
     }
 
@@ -203,7 +203,7 @@ export function AIAssessmentModal({
       );
 
       const generatedQuestions = await aiService.generateQuestions({
-        courseId,
+        subjectId,
         attributes: selectedAttributeObjects.map(attr => ({
           _id: attr._id,
           name: attr.name,
@@ -233,7 +233,7 @@ export function AIAssessmentModal({
     
     try {
       setIsLoading(true);
-      const response = await aiService.uploadDocument(uploadedFile, courseId);
+      const response = await aiService.uploadDocument(uploadedFile, subjectId);
       setResourceId(response.id);
       toast.success('Document uploaded successfully');
       return response.id;
@@ -262,7 +262,7 @@ export function AIAssessmentModal({
       
       const regeneratedQuestions = await aiService.regenerateQuestions({
         prompt: {
-          courseId,
+          subjectId,
           attributes: attributeIds,
           documentId: resourceId || undefined,
           questionCount: formData.questionCount,
@@ -284,8 +284,8 @@ export function AIAssessmentModal({
   };
 
   const saveAssessment = async () => {
-    if (!selectedCourse?._id) {
-      toast.error('No course selected');
+    if (!selectedSubject?._id) {
+      toast.error('No subject selected');
       return;
     }
 
@@ -360,8 +360,8 @@ export function AIAssessmentModal({
     setQuestions([]);
     setUploadedFile(null);
     setResourceId(null);
-    setSelectedCourse(null);
-    setStep('course-selection');
+    setSelectedSubject(null);
+    setStep('subject-selection');
   };
 
   const handleNext = () => {
@@ -376,13 +376,13 @@ export function AIAssessmentModal({
     if (step === 'review') {
       setStep('details');
     } else if (step === 'details') {
-      setStep('course-selection');
+      setStep('subject-selection');
     }
   };
 
   const isStepValid = () => {
-    if (step === 'course-selection') {
-      return selectedCourse !== null;
+    if (step === 'subject-selection') {
+      return selectedSubject !== null;
     }
     
     if (step === 'details') {
@@ -397,15 +397,15 @@ export function AIAssessmentModal({
 
   const renderStepContent = () => {
     switch (step) {
-      case 'course-selection':
+      case 'subject-selection':
         return (
           <div className="space-y-6">
             <div className="text-center">
               <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
                 <BookOpen className="w-8 h-8 text-blue-600" />
               </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">Select Course</h3>
-              <p className="text-gray-600">Choose the course you want to create an assessment for</p>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">Select Subject</h3>
+              <p className="text-gray-600">Choose the subject you want to create an assessment for</p>
             </div>
             
             {isLoading ? (
@@ -414,33 +414,33 @@ export function AIAssessmentModal({
               </div>
             ) : (
               <div className="grid gap-3 max-h-80 overflow-y-auto">
-                {courses.map((course) => (
+                {subjects.map((subject) => (
                   <button
-                    key={course._id}
+                    key={subject._id}
                     onClick={() => {
-                      setSelectedCourse(course);
+                      setSelectedSubject(subject);
                       setStep('details');
                     }}
                     className={`p-4 border-2 rounded-xl text-left transition-all hover:shadow-md ${
-                      selectedCourse?._id === course._id 
+                      selectedSubject?._id === subject._id 
                         ? 'border-blue-500 bg-blue-50 shadow-md' 
                         : 'border-gray-200 hover:border-gray-300'
                     }`}
                   >
                     <div className="flex items-center justify-between">
                       <div>
-                        <h4 className="font-semibold text-gray-900">{course.code}</h4>
-                        <p className="text-sm text-gray-600 mt-1">{course.name}</p>
+                        <h4 className="font-semibold text-gray-900">{subject.code}</h4>
+                        <p className="text-sm text-gray-600 mt-1">{subject.name}</p>
                       </div>
                       <ChevronRight className="w-5 h-5 text-gray-400" />
                     </div>
                   </button>
                 ))}
                 
-                {courses.length === 0 && (
+                {subjects.length === 0 && (
                   <div className="text-center py-8 text-gray-500">
                     <AlertCircle className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                    <p>No courses available</p>
+                    <p>No subjects available</p>
                   </div>
                 )}
               </div>
@@ -451,15 +451,15 @@ export function AIAssessmentModal({
       case 'details':
         return (
           <div className="space-y-6">
-            {selectedCourse && (
+            {selectedSubject && (
               <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-xl border border-blue-200">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
                     <BookOpen className="w-5 h-5 text-white" />
                   </div>
                   <div>
-                    <h3 className="font-semibold text-blue-900">{selectedCourse.name}</h3>
-                    <p className="text-sm text-blue-700">{selectedCourse.code}</p>
+                    <h3 className="font-semibold text-blue-900">{selectedSubject.name}</h3>
+                    <p className="text-sm text-blue-700">{selectedSubject.code}</p>
                   </div>
                 </div>
               </div>
@@ -564,7 +564,7 @@ export function AIAssessmentModal({
           <div className="bg-gray-50 border-t border-gray-200 p-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                {step !== 'course-selection' && (
+                {step !== 'subject-selection' && (
                   <Button
                     variant="outline"
                     onClick={handleBack}
@@ -586,7 +586,7 @@ export function AIAssessmentModal({
                 )}
                 
                 <Button
-                  onClick={step === 'course-selection' ? () => setStep('details') : handleNext}
+                  onClick={step === 'subject-selection' ? () => setStep('details') : handleNext}
                   disabled={!isStepValid() || isGenerating || isSubmitting}
                   className="flex items-center gap-2 min-w-[140px]"
                 >

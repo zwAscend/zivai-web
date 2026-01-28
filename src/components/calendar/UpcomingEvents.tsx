@@ -79,8 +79,8 @@ const UpcomingEvents: React.FC<UpcomingEventsProps> = ({
         start: new Date(now.getTime() + 2 * 60 * 60 * 1000), // 2 hours from now
         end: new Date(now.getTime() + 3.5 * 60 * 60 * 1000),
         type: 'lecture',
-        courseId: 'hcc301',
-        courseName: 'HCC301',
+        subjectId: 'hcc301',
+        subjectName: 'HCC301',
         location: 'Room 101',
         createdBy: 'teacher1',
         createdAt: now,
@@ -92,8 +92,8 @@ const UpcomingEvents: React.FC<UpcomingEventsProps> = ({
         description: 'VLAN Configuration Lab',
         start: new Date(now.getTime() + 24 * 60 * 60 * 1000), // Tomorrow
         type: 'assignment_due',
-        courseId: 'hcc301',
-        courseName: 'HCC301',
+        subjectId: 'hcc301',
+        subjectName: 'HCC301',
         allDay: true,
         createdBy: 'teacher1',
         createdAt: now,
@@ -118,8 +118,8 @@ const UpcomingEvents: React.FC<UpcomingEventsProps> = ({
         start: new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000), // 5 days from now
         end: new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000),
         type: 'quiz',
-        courseId: 'hcc202',
-        courseName: 'HCC202',
+        subjectId: 'hcc202',
+        subjectName: 'HCC202',
         location: 'Lab 3',
         createdBy: 'teacher1',
         createdAt: now,
@@ -132,8 +132,8 @@ const UpcomingEvents: React.FC<UpcomingEventsProps> = ({
         start: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000), // 1 week from now
         end: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000 + 3 * 60 * 60 * 1000),
         type: 'presentation',
-        courseId: 'hcc303',
-        courseName: 'HCC303',
+        subjectId: 'hcc303',
+        subjectName: 'HCC303',
         location: 'Auditorium',
         createdBy: 'teacher1',
         createdAt: now,
@@ -350,10 +350,10 @@ const UpcomingEvents: React.FC<UpcomingEventsProps> = ({
                         </div>
                       )}
                       
-                      {event.courseName && (
+                      {event.subjectName && (
                         <div className="flex items-center gap-1">
                           <BookOpen className="w-4 h-4" />
-                          <span className="truncate">{event.courseName}</span>
+                          <span className="truncate">{event.subjectName}</span>
                         </div>
                       )}
                     </div>

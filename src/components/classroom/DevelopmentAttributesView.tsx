@@ -18,14 +18,20 @@ const DevelopmentAttributesView: React.FC<DevelopmentAttributesViewProps> = ({ s
       setLoading(true);
       setError(null);
       try {
+        const studentId = student._id || student.id;
+        if (!studentId) {
+          setError('Missing student id.');
+          setLoading(false);
+          return;
+        }
         // Fetch the student's active plan (if any)
-        const plans: DevelopmentPlan[] = await developmentService.getAllPlansForStudent(student._id, 'Active');
+        const plans: DevelopmentPlan[] = await developmentService.getAllPlansForStudent(studentId, 'Active');
         const activePlan = plans && plans.length > 0 ? plans[0].plan : null;
         setPlan(activePlan);
-        // If the student is enrolled in courses, use the first course for attributes (or adjust as needed)
-        const courseId = student.courses && student.courses.length > 0 ? student.courses[0] : null;
-        if (courseId) {
-          const attrs = await developmentService.getStudentAttributes(student._id, courseId);
+        // If the student is enrolled in subjects, use the first subject for attributes (or adjust as needed)
+        const subjectId = student.subjects && student.subjects.length > 0 ? student.subjects[0] : null;
+        if (subjectId) {
+          const attrs = await developmentService.getStudentAttributes(studentId, subjectId);
           setAttributes(attrs);
         } else {
           setAttributes(null);

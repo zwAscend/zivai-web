@@ -1,18 +1,19 @@
 import axios from 'axios';
 // Import the newly defined Plan interface
-import { Student, ChatMessage, Result, Assessment, User, DevelopmentPlan, StudentAttributes, CourseAttribute, Plan, PlanStatus, Course, SubmissionPayload } from '../types';
+import { Student, ChatMessage, Result, Assessment, User, DevelopmentPlan, StudentAttributes, SubjectAttribute, Plan, PlanStatus, Subject, SubmissionPayload } from '../types';
 
 // Use environment variable with fallback to default development URL
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 export const authService = {
   async login(email: string, password: string): Promise<{ token: string; user: User }> {
     try {
       const response = await axios.post<{ token: string; user: User }>(`${API_URL}/auth/login`, { email, password });
-      if (response.data.token) {
+      if (response.data?.token) {
         localStorage.setItem('token', response.data.token);
-        // Ensure the user data stored matches the User interface
-        localStorage.setItem('user', JSON.stringify(response.data));
+      }
+      if (response.data?.user) {
+        localStorage.setItem('user', JSON.stringify(response.data.user));
       }
       return response.data;
     } catch (error: any) {
@@ -25,12 +26,14 @@ export const authService = {
       method: 'POST',
       body: JSON.stringify(userData),
     });
-    
-    if (data.token) {
+
+    if (data?.token) {
       localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data));
     }
-    
+    if (data?.user) {
+      localStorage.setItem('user', JSON.stringify(data.user));
+    }
+
     return data;
   },
 
@@ -42,7 +45,6 @@ export const authService = {
 
   getCurrentUser(): User | null {
     const userStr = localStorage.getItem('user');
-    // Ensure the parsed user data is typed as User
     return userStr ? JSON.parse(userStr) : null;
   }
 };
@@ -81,12 +83,15 @@ export async function fetchData<T = any>(endpoint: string, options: RequestInit 
 
 // Student services
 export const studentService = {
-  getStudents: async (courseId?: string): Promise<Student[]> => { // Added optional courseId parameter
-    const endpoint = courseId ? `/students?courseId=${courseId}` : '/students';
+  getStudents: async (subjectId?: string): Promise<Student[]> => { // Added optional subjectId parameter
+    const endpoint = subjectId ? `/students?subjectId=${subjectId}` : '/students';
     return fetchData(endpoint);
   },
 
   getStudent: async (id: string): Promise<Student> => {
+    if (!id || id === 'undefined') {
+      throw new Error('Student id is required');
+    }
     return fetchData<Student>(`/students/${id}`);
   },
 
@@ -111,47 +116,47 @@ export const studentService = {
   }
 };
 
-// Course services
-export const courseService = {
-  // Get all courses (for teachers/admins) or enrolled courses (for students)
-  getCourses: async (): Promise<Course[]> => {
-    return fetchData<Course[]>('/courses');
+// Subject services
+export const subjectService = {
+  // Get all subjects (for teachers/admins) or enrolled subjects (for students)
+  getSubjects: async (): Promise<Subject[]> => {
+    return fetchData<Subject[]>('/subjects');
   },
 
-  // Get a single course by ID with proper access control
-  // - Admins can access any course
-  // - Teachers can access courses they teach
-  // - Students can only access courses they're enrolled in
-  getCourseById: async (id: string): Promise<Course> => {
-    return fetchData<Course>(`/courses/${id}`);
+  // Get a single subject by ID with proper access control
+  // - Admins can access any subject
+  // - Teachers can access subjects they teach
+  // - Students can only access subjects they're enrolled in
+  getSubjectById: async (id: string): Promise<Subject> => {
+    return fetchData<Subject>(`/subjects/${id}`);
   },
 
-  // Get courses taught by the current teacher
-  getTeachingCourses: async (): Promise<Course[]> => {
-    return fetchData<Course[]>('/courses/teaching');
+  // Get subjects taught by the current teacher
+  getTeachingSubjects: async (): Promise<Subject[]> => {
+    return fetchData<Subject[]>('/subjects/teaching');
   },
 };
 
 // Development services
 export const developmentService = {
-  // Course attributes
-  getCourseAttributes: async (courseId: string): Promise<CourseAttribute[]> => {
-    return fetchData<CourseAttribute[]>(`/development/attributes/course/${courseId}`);
+  // Subject attributes
+  getSubjectAttributes: async (subjectId: string): Promise<SubjectAttribute[]> => {
+    return fetchData<SubjectAttribute[]>(`/development/attributes/subject/${subjectId}`);
   },
 
-  createCourseAttribute: async (attributeData: Omit<CourseAttribute, '_id' | 'createdAt' | 'updatedAt'>): Promise<CourseAttribute> => {
+  createSubjectAttribute: async (attributeData: Omit<SubjectAttribute, '_id' | 'createdAt' | 'updatedAt'>): Promise<SubjectAttribute> => {
     // Omit _id, createdAt, updatedAt as they are generated by the backend
-    return fetchData<CourseAttribute>('/development/attributes/course', {
+    return fetchData<SubjectAttribute>('/development/attributes/subject', {
       method: 'POST',
       body: JSON.stringify(attributeData),
     });
   },
 
   // Student attributes
-  getStudentAttributes: async (studentId: string, courseId: string): Promise<StudentAttributes> => {
+  getStudentAttributes: async (studentId: string, subjectId: string): Promise<StudentAttributes> => {
     // This assumes your backend for this endpoint transforms the StudentAttribute array
     // into the StudentAttributes object shape before sending.
-    return fetchData<StudentAttributes>(`/development/attributes/student/${studentId}/course/${courseId}`);
+    return fetchData<StudentAttributes>(`/development/attributes/student/${studentId}/subject/${subjectId}`);
   },
 
   updateStudentAttributes: async (studentId: string, attributes: Array<{ attributeId: string; current: number; potential: number }>): Promise<{ message: string }> => {
@@ -164,36 +169,42 @@ export const developmentService = {
   },
 
   // Plans
-  getCoursePlans: async (courseId: string): Promise<Plan[]> => {
-    // This returns plan TEMPLATES associated with a course
-    return fetchData<Plan[]>(`/development/plans/course/${courseId}`);
+  getSubjectPlans: async (subjectId: string): Promise<Plan[]> => {
+    // This returns plan TEMPLATES associated with a subject
+    return fetchData<Plan[]>(`/development/plans/subject/${subjectId}`);
   },
 
-  createCoursePlan: async (planData: Omit<Plan, '_id' | 'createdAt' | 'updatedAt'>): Promise<Plan> => {
+  createSubjectPlan: async (planData: Omit<Plan, '_id' | 'createdAt' | 'updatedAt'>): Promise<Plan> => {
     // Omit _id, createdAt, updatedAt as they are generated by the backend
-    return fetchData<Plan>('/development/plans/course', {
+    return fetchData<Plan>('/development/plans/subject', {
       method: 'POST',
       body: JSON.stringify(planData),
     });
   },
 
-  getStudentPlan: async (studentId: string, courseId: string): Promise<DevelopmentPlan> => {
+  getStudentPlan: async (studentId: string, subjectId: string): Promise<DevelopmentPlan> => {
     // This returns a specific student's instance of a plan, with populated plan details
-    return fetchData<DevelopmentPlan>(`/development/plans/student/${studentId}/course/${courseId}`);
+    if (!studentId || studentId === 'undefined') {
+      throw new Error('Student id is required');
+    }
+    return fetchData<DevelopmentPlan>(`/development/plans/student/${studentId}/subject/${subjectId}`);
   },
 
   // Get all plans assigned to a student (with optional filter support)
   getAllPlansForStudent: async (studentId: string, status?: string): Promise<DevelopmentPlan[]> => {
+    if (!studentId || studentId === 'undefined') {
+      return [];
+    }
     const query = status ? `?status=${encodeURIComponent(status)}` : '';
     return fetchData<DevelopmentPlan[]>(`/development/plans/student/${studentId}${query}`);
   },
 
-  assignPlanToStudent: async (studentId: string, planId: string, courseId?: string): Promise<DevelopmentPlan> => {
+  assignPlanToStudent: async (studentId: string, planId: string, subjectId?: string): Promise<DevelopmentPlan> => {
     // This assigns a plan template to a student, creating a StudentPlan document on backend
-    const requestBody: { planId: string; courseId?: string } = { planId };
+    const requestBody: { planId: string; subjectId?: string } = { planId };
     
-    if (courseId) {
-      requestBody.courseId = courseId;
+    if (subjectId) {
+      requestBody.subjectId = subjectId;
     }
     
     return fetchData<DevelopmentPlan>(`/development/plans/student/${studentId}/assign`, {
@@ -220,10 +231,10 @@ export const assessmentService = {
   getAssessment: async (id: string): Promise<Assessment> => {
     return fetchData<Assessment>(`/assessments/${id}`);
   },
-    // New function to fetch assessments by course ID
-  getAssessmentsByCourseId: async (courseId: string): Promise<Assessment[]> => {
-    // This uses the backend route `GET /api/assessments?courseId=...`
-    return fetchData<Assessment[]>(`/assessments?courseId=${courseId}`);
+    // New function to fetch assessments by subject ID
+  getAssessmentsBySubjectId: async (subjectId: string): Promise<Assessment[]> => {
+    // This uses the backend route `GET /api/assessments?subjectId=...`
+    return fetchData<Assessment[]>(`/assessments?subjectId=${subjectId}`);
   },
   
   createAssessment: async (assessmentData: Omit<Assessment, '_id' | 'createdAt' | 'updatedAt'>): Promise<Assessment> => {
@@ -362,9 +373,9 @@ export const submissionService = {
   },
 
   // Fixed endpoint path to match backend  
-  getGradingStats: async (courseId?: string, timeframe?: string) => {
+  getGradingStats: async (subjectId?: string, timeframe?: string) => {
     const params = new URLSearchParams();
-    if (courseId) params.append('courseId', courseId);
+    if (subjectId) params.append('subjectId', subjectId);
     if (timeframe) params.append('timeframe', timeframe);
     
     const queryString = params.toString();

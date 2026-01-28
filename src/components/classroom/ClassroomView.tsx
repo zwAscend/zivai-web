@@ -28,7 +28,11 @@ const ClassroomView: React.FC = () => {
         const studentsWithPlans = await Promise.all(
           data.map(async (student) => {
             try {
-              const plans = await developmentService.getAllPlansForStudent(student._id);
+              const studentId = student._id || student.id;
+              if (!studentId) {
+                return { ...student, planName: undefined };
+              }
+              const plans = await developmentService.getAllPlansForStudent(studentId);
               return {
                 ...student,
                 planName: plans.length > 0 ? plans[0].plan.name : undefined,
@@ -167,7 +171,7 @@ const ClassroomView: React.FC = () => {
                         <tr
                           key={student._id}
                           className={`transition-colors duration-300 ${
-                            selectedStudent?._id === student._id
+                            (selectedStudent?._id || selectedStudent?.id) === (student._id || student.id)
                               ? 'bg-blue-300'
                               : index % 2 === 0
                               ? 'bg-white'
@@ -190,7 +194,7 @@ const ClassroomView: React.FC = () => {
                               <td className="px-4 py-1.5 border-b text-sm">
                                 <button
                                   className="text-blue-600 underline hover:text-blue-800"
-                                  onClick={(e) => handlePlanClick(e, student._id)}
+                                  onClick={(e) => handlePlanClick(e, student._id || student.id)}
                                 >
                                   {student.planName || 'View Plan'}
                                 </button>

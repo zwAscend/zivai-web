@@ -146,13 +146,13 @@
             }
         }
         
-        .courses-grid {
+        .subjects-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
             gap: 25px;
         }
         
-        .course-card {
+        .subject-card {
             background: linear-gradient(145deg, rgba(26, 26, 46, 0.8), rgba(22, 33, 62, 0.8));
             border: 1px solid rgba(138, 43, 226, 0.3);
             border-radius: 15px;
@@ -164,7 +164,7 @@
             overflow: hidden;
         }
         
-        .course-card::before {
+        .subject-card::before {
             content: '';
             position: absolute;
             top: 0;
@@ -175,31 +175,31 @@
             transition: left 0.5s ease;
         }
         
-        .course-card:hover::before {
+        .subject-card:hover::before {
             left: 100%;
         }
         
-        .course-card:hover {
+        .subject-card:hover {
             transform: translateY(-5px);
             box-shadow: 0 15px 40px rgba(138, 43, 226, 0.2);
             border-color: rgba(138, 43, 226, 0.6);
         }
         
-        .course-header {
+        .subject-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
             margin-bottom: 20px;
         }
         
-        .course-name {
+        .subject-name {
             font-size: 1.4rem;
             font-weight: 700;
             color: #4169e1;
             text-shadow: 0 0 10px rgba(65, 105, 225, 0.3);
         }
         
-        .course-level {
+        .subject-level {
             font-size: 1.1rem;
             font-weight: 700;
             color: #ffd700;
@@ -286,7 +286,7 @@
                 font-size: 2rem;
             }
             
-            .courses-grid {
+            .subjects-grid {
                 grid-template-columns: 1fr;
             }
             
@@ -319,11 +319,11 @@
             </div>
         </div>
         
-        <div class="courses-grid">
-            <div class="course-card">
-                <div class="course-header">
-                    <h3 class="course-name">Advanced Mathematics</h3>
-                    <div class="course-level">Lv. 38</div>
+        <div class="subjects-grid">
+            <div class="subject-card">
+                <div class="subject-header">
+                    <h3 class="subject-name">Advanced Mathematics</h3>
+                    <div class="subject-level">Lv. 38</div>
                 </div>
                 
                 <div class="skills-section">
@@ -373,10 +373,10 @@
                 </div>
             </div>
             
-            <div class="course-card">
-                <div class="course-header">
-                    <h3 class="course-name">Computer Science</h3>
-                    <div class="course-level">Lv. 51</div>
+            <div class="subject-card">
+                <div class="subject-header">
+                    <h3 class="subject-name">Computer Science</h3>
+                    <div class="subject-level">Lv. 51</div>
                 </div>
                 
                 <div class="skills-section">
@@ -426,10 +426,10 @@
                 </div>
             </div>
             
-            <div class="course-card">
-                <div class="course-header">
-                    <h3 class="course-name">Physics</h3>
-                    <div class="course-level">Lv. 29</div>
+            <div class="subject-card">
+                <div class="subject-header">
+                    <h3 class="subject-name">Physics</h3>
+                    <div class="subject-level">Lv. 29</div>
                 </div>
                 
                 <div class="skills-section">
@@ -475,10 +475,10 @@
                 </div>
             </div>
             
-            <div class="course-card">
-                <div class="course-header">
-                    <h3 class="course-name">Data Science</h3>
-                    <div class="course-level">Lv. 47</div>
+            <div class="subject-card">
+                <div class="subject-header">
+                    <h3 class="subject-name">Data Science</h3>
+                    <div class="subject-level">Lv. 47</div>
                 </div>
                 
                 <div class="skills-section">

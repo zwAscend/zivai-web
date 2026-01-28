@@ -17,7 +17,7 @@ zivAI's scope encompasses three primary domains:
 
 #### 1.2.1 Core Functionality
 - **User Management**: Secure authentication and role-based access control
-- **Academic Management**: Course, class, and resource organization
+- **Academic Management**: Subject, class, and resource organization
 - **Assessment System**: Automated grading and feedback generation; OCR for uploaded scripts
 - **Communication Tools**: Real-time interaction between stakeholders
 - **Analytics Dashboard**: Mastery tracking, risk detection, and focused remediation
@@ -215,7 +215,7 @@ First and foremost, I would like to thank the Almighty God for giving me the str
 
 I am deeply grateful to the Technology services team from Econet Wireless Zimbabwe, for giving me the opportunity to be part of an environment that nurtured my learning and growth. Their guidance greatly inspired me during my internship.
 
-A special thank you to **Shadreck Mhlanga**, AIOps Engineer at Econet Wireless Zimbabwe, for his guidance, especially in the technologies that were the backbone of this project, and encouragement throughout the course of this project.
+A special thank you to **Shadreck Mhlanga**, AIOps Engineer at Econet Wireless Zimbabwe, for his guidance, especially in the technologies that were the backbone of this project, and encouragement throughout the subject of this project.
 
 I extend my sincere appreciation to **Tendai Mukande**, Lead Researcher at AI Research Lab, for his support, guidance, and faith in giving me the opportunity to be a research assistant under his supervision, which further gave me the confidence to undertake this project.
 
@@ -229,7 +229,7 @@ Last but certainly not least, I would like to thank my family for all the emotio
 
 **zivAI**, the Lecturer-Student Development System (LSDS) is an intelligent academic support platform designed to enhance student performance and streamline lecturer workflows through data-driven personalization. Inspired by player development systems in career mode in FIFA, LSDS enables targeted student development within higher education institutions.
 
-The system provides lecturers with real-time insights into student progress across various performance metrics and course attributes. It automatically analyzes assignment submissions—either digital or scanned using intelligent marking tools, updates individual performance stats, and recommends personalized development plans tailored to each student's strengths and areas for improvement.
+The system provides lecturers with real-time insights into student progress across various performance metrics and subject attributes. It automatically analyzes assignment submissions—either digital or scanned using intelligent marking tools, updates individual performance stats, and recommends personalized development plans tailored to each student's strengths and areas for improvement.
 
 [Back to Top](#table-of-contents)
 
@@ -723,7 +723,7 @@ This structured approach ensures a comprehensive examination of both the theoret
 This chapter presents a comprehensive review of existing literature pertinent to the development of zivAI, an AI-powered Educational Management System. It aims to establish a theoretical foundation for the project by exploring key concepts, established practices, and emerging trends in educational technology. The review will delve into the functionalities and impact of Educational Management Systems (EMS), the transformative role of Artificial Intelligence (AI) in personalized learning and assessment, and the unique challenges and opportunities associated with implementing educational technology solutions in developing countries, particularly within the African context. By critically analyzing current research and existing platforms, this chapter will identify gaps in the literature and current solutions that zivAI seeks to address, thereby justifying its design and proposed contributions.
 2.2	Review of Relevant Literature
 2.2.1	Educational Management Systems (EMS)
- Educational Management Systems (EMS), often used interchangeably with Learning Management Systems (LMS), have become foundational components in the digital transformation of educational administration and instructional delivery. These systems are web-based platforms designed to support the core administrative, pedagogical, and communication needs of educational institutions. They enable the efficient organization of courses, user management, and the integration of instructional resources, while simultaneously offering powerful tools for monitoring and enhancing student performance (Schoonenboom, 2014).
+ Educational Management Systems (EMS), often used interchangeably with Learning Management Systems (LMS), have become foundational components in the digital transformation of educational administration and instructional delivery. These systems are web-based platforms designed to support the core administrative, pedagogical, and communication needs of educational institutions. They enable the efficient organization of subjects, user management, and the integration of instructional resources, while simultaneously offering powerful tools for monitoring and enhancing student performance (Schoonenboom, 2014).
 One of the most significant advantages of EMS platforms is their capacity to automate routine administrative tasks. These include grade computation, attendance tracking, and data entry, which traditionally consumed a considerable amount of educators’ time. By streamlining these processes, EMS not only reduces institutional costs but also frees teachers to concentrate more on pedagogical responsibilities (Zhang et al., 2024). Furthermore, EMS platforms often feature learning analytics dashboards that provide educators with real-time insights into student engagement and performance, thereby allowing for timely intervention when learners are identified as at risk (Guo et al., 2022; Pérez-Óertel et al., 2021).
 Another key benefit of EMS is its role in fostering collaboration and communication between key stakeholders in the educational process—namely teachers, students, and parents. Features such as messaging systems, discussion boards, announcements, and notifications ensure that all parties remain informed and engaged. This improved communication infrastructure contributes to a more transparent and inclusive educational environment (Frontiers et al., 2025).
 Moreover, EMS platforms support individualized learning paths through adaptive learning features, which tailor content and pacing based on a student’s learning behavior and performance history. This personalization promotes deeper engagement and improved learning outcomes by catering to the unique needs of each learner (Zhang et al., 2024). In environments where educational equity is a concern, such as under-resourced schools or regions with diverse learner populations, EMS can serve as a leveller—making quality content and support accessible to all students.
@@ -746,7 +746,7 @@ In summary, while the challenges of educational technology implementation in dev
 
 2.3	Discussion of Similar Projects or Systems 
 The ecosystem of online learning platforms is broad and varied, encompassing globally recognized Learning Management Systems (LMS) such as Moodle and Blackboard. These platforms are widely praised for their extensive customization capabilities, comprehensive content management, collaboration tools, and robust communication features that facilitate effective educational delivery (Aljawarneh, 2019). Typical functionalities include detailed student progress tracking, interactive discussion forums, quizzes, and online examinations, which support both formative and summative assessments (Sangrà, Vlachopoulos & Cabrera, 2012).
-Despite their strengths, many existing LMS platforms primarily emphasize self-paced learning and general course administration, often lacking advanced real-time adaptive interventions that address individual student difficulties promptly—an area especially critical in educational contexts characterized by high student-to-teacher ratios (Jisc, 2021). Security and assessment capabilities in some platforms have also faced criticism, with concerns raised regarding data privacy and the sophistication of evaluation tools (Saadé & Kira, 2009).
+Despite their strengths, many existing LMS platforms primarily emphasize self-paced learning and general subject administration, often lacking advanced real-time adaptive interventions that address individual student difficulties promptly—an area especially critical in educational contexts characterized by high student-to-teacher ratios (Jisc, 2021). Security and assessment capabilities in some platforms have also faced criticism, with concerns raised regarding data privacy and the sophistication of evaluation tools (Saadé & Kira, 2009).
 Importantly, many mainstream solutions inadequately consider the socio-economic and infrastructural realities of regions such as Zimbabwe. Challenges like high internet data costs, unstable connectivity, and the need for simplified, culturally and linguistically relevant user interfaces remain insufficiently addressed (Nhamo et al., 2020). Furthermore, while several platforms focus on supplementing student self-learning outside classroom hours, they often underemphasize the critical role of teacher-student and parent-teacher engagement—components vital for mitigating systemic academic underperformance in many developing countries (Masunda & Jere, 2021).
 Therefore, while existing LMS platforms provide a valuable foundation, there remains a significant opportunity to develop solutions tailored to local contexts that combine personalized, adaptive learning with features fostering community engagement and operational sustainability.
 
@@ -973,10 +973,10 @@ zivAI uses a noSQL database approach:
 Key relationships in the system:
 
 - **User ↔ Role**: Many-to-many (Users can have multiple roles)
-- **Student ↔ Course**: Many-to-many (Enrollment)
-- **Teacher ↔ Course**: One-to-many (Teaching assignment)
-- **Resource ↔ Course**: Many-to-many (Course materials)
-- **Assessment ↔ Course**: One-to-many (Course assessments)
+- **Student ↔ Subject**: Many-to-many (Enrollment)
+- **Teacher ↔ Subject**: One-to-many (Teaching assignment)
+- **Resource ↔ Subject**: Many-to-many (Subject materials)
+- **Assessment ↔ Subject**: One-to-many (Subject assessments)
 - **Submission ↔ Assessment**: One-to-many (Student submissions)
 
 ### 4.4 User Interface Design
@@ -1027,7 +1027,7 @@ zivAI's UI is built on a custom design system with the following foundations:
    - Session management
 
 2. **Learning Management**
-   - Course and class management
+   - Subject and class management
    - Content delivery
    - Progress tracking
    - Assessment creation and grading
@@ -1081,7 +1081,7 @@ zivAI's UI is built on a custom design system with the following foundations:
 This chapter has presented the comprehensive design of the zivAI Educational Management System, detailing its architecture, data models, and user interface. The system's modular design, combined with modern technologies and best practices, ensures scalability, security, and maintainability. The following chapters will elaborate on the implementation details and evaluation of the system.
 •	Web Server Tier: Handles HTTP requests, static content serving.
 •	Application Server Tier: Executes business logic, manages sessions, invokes AI services.
-o	Sub-components: User Manager, Course Manager, Assessment Processor, Resource Manager, Communication Manager, Calendar Manager, Report Generator.
+o	Sub-components: User Manager, Subject Manager, Assessment Processor, Resource Manager, Communication Manager, Calendar Manager, Report Generator.
 •	AI Service Tier: Dedicated microservices for:
 o	Performance Analytics Service
 o	Recommendation Engine Service
@@ -1098,7 +1098,7 @@ o	User (Supertype for Student, Teacher, Parent, Admin)
 o	Student
 o	Teacher
 o	Parent
-o	Course
+o	Subject
 o	Assessment
 o	Question
 o	Answer (Submitted by student)
@@ -1109,14 +1109,14 @@ o	DevelopmentPlan (Personalized recommendations)
 o	Attendance
 •	Relationships:
 o	User is_a Student/Teacher/Parent/Admin
-o	Student enrolls_in Course
-o	Teacher teaches Course
+o	Student enrolls_in Subject
+o	Teacher teaches Subject
 o	Teacher creates Assessment
 o	Student takes Assessment
 o	Student submits Answer
 o	Assessment contains Question
 o	Student receives Grade for Assessment
-o	Course has Resource
+o	Subject has Resource
 o	Student has DevelopmentPlan
 o	Parent monitors Student
 o	User sends/receives Communication
@@ -1133,8 +1133,8 @@ Parents	ParentID (PK), UserID (FK), FirstName, LastName, RelationshipToStudent, 
 
 Academic Structure
 Table	Fields
-Courses	CourseID (PK), CourseName, CourseCode, Description, TeacherID (FK)
-Assessments	AssessmentID (PK), CourseID (FK), AssessmentType, Title, DueDate, MaxScore
+Subjects	SubjectID (PK), SubjectName, SubjectCode, Description, TeacherID (FK)
+Assessments	AssessmentID (PK), SubjectID (FK), AssessmentType, Title, DueDate, MaxScore
 Questions	QuestionID (PK), AssessmentID (FK), QuestionText, QuestionType, CorrectAnswer, Marks
 
 
@@ -1146,7 +1146,7 @@ Grades	GradeID (PK), StudentID (FK), AssessmentID (FK), FinalScore, Comments, Da
 
 Learning Support
 Table	Fields
-Resources	ResourceID (PK), CourseID (FK), Title, Description, FileType, S3FileKey, UploadDate, UploaderID (FK)
+Resources	ResourceID (PK), SubjectID (FK), Title, Description, FileType, S3FileKey, UploadDate, UploaderID (FK)
 DevelopmentPlans	PlanID (PK), StudentID (FK), GeneratedDate, Recommendations, StrengthAreas, ImprovementAreas, AIModelVersion
 
 
@@ -1218,8 +1218,8 @@ This chapter details the practical implementation of the zivAI Educational Manag
 - **User Profiles**: Comprehensive profile management with avatar uploads and preference settings
 - **Role Management**: Fine-grained permission system with role inheritance
 
-#### 5.3.2 Course Management
-- **Course Creation**: Multi-step form with rich text editing
+#### 5.3.2 Subject Management
+- **Subject Creation**: Multi-step form with rich text editing
 - **Enrollment System**: Self-enrollment and admin-managed enrollment workflows
 - **Content Delivery**: LTI integration for SCORM and xAPI compatibility
 
@@ -1337,7 +1337,7 @@ This chapter presents the empirical findings from the implementation and evaluat
 #### 6.5.1 Impact on Learning Outcomes
 The implementation of zivAI has demonstrated significant improvements in several key educational metrics:
 - **Student Performance**: Average test scores increased by 18.7% in classes using zivAI
-- **Retention Rates**: 27% reduction in course dropout rates
+- **Retention Rates**: 27% reduction in subject dropout rates
 - **Learning Efficiency**: 35% reduction in time needed to master complex concepts
 
 #### 6.5.2 Teacher Workload and Efficiency
@@ -1450,7 +1450,7 @@ The project successfully met its primary objectives:
 - Improved student performance by 18.7% in pilot classes
 - Increased assignment submission rates by 68%
 - Enhanced parental engagement with 3.7x more parent-teacher interactions
-- Reduced course dropout rates by 27%
+- Reduced subject dropout rates by 27%
 
 ### 7.3.3 User Experience Objectives
 - 92% of teachers found the interface intuitive and efficient
@@ -1683,7 +1683,7 @@ Mtebe, J.S. & Raisamo, R. (2014) ‘Challenges and instructors’ intention to a
 Mutisya, D. & Makori, A. (2020) ‘Adoption of Artificial Intelligence in Education: A Review of Challenges and Opportunities in Africa’, International Journal of Emerging Technologies in Learning, 15(10), pp. 102–113.
 
 
-Wolff, A., Zdrahal, Z., Nikolov, A. & Pantucek, M. (2016) ‘Improving retention: Predicting dropout in massive open online courses’, Proceedings of the 2016 Learning Analytics & Knowledge Conference, pp. 63–67.
+Wolff, A., Zdrahal, Z., Nikolov, A. & Pantucek, M. (2016) ‘Improving retention: Predicting dropout in massive open online subjects’, Proceedings of the 2016 Learning Analytics & Knowledge Conference, pp. 63–67.
 Frontiers et al. (2025) ‘Assessing Learning Management System success in the UAE universities: how quality measures linked to students' academic performance’, Frontiers in Education.
 
 

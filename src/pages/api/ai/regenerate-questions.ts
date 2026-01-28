@@ -24,7 +24,7 @@ ${JSON.stringify(questionsToKeep || [], null, 2)}
 Generate ${prompt.questionCount || 5} questions with the following parameters:
 - Question types: ${(prompt.questionTypes || ['multiple_choice']).join(', ')}
 - Difficulty: ${prompt.difficulty || 'medium'}
-- Course: ${prompt.courseId || 'N/A'}
+- Subject: ${prompt.subjectId || 'N/A'}
 - Attributes: ${prompt.attributes?.join(', ') || 'N/A'}
 
 Format the response as a JSON array of question objects with the following structure:

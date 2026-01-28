@@ -39,7 +39,7 @@ export interface Student {
   performance: string; // E.g., 'Excellent', 'Good', 'Needs Improvement'
   engagement: string; // E.g., 'High', 'Medium', 'Low'
   // References to other models
-  courses?: string[]; // Array of Course IDs the student is enrolled in
+  subjects?: string[]; // Array of Subject IDs the student is enrolled in
   activePlan?: DevelopmentPlan; // The student's currently active development plan (populated)
   attributes?: StudentAttributes; // Aggregated student attributes (transformed object)
   // Derived or aggregated fields (not directly from student model, but useful for frontend)
@@ -80,7 +80,7 @@ export interface Plan {
   performance: string;
   skills: Skill[]; // Array of skills and subskills defined in the plan template
   steps: Step[]; // Array of steps defined in the plan template
-  courseId: string; // The ID of the Course this plan belongs to
+  subjectId: string; // The ID of the Subject this plan belongs to
   createdAt?: Date; // Mongoose timestamps
   updatedAt?: Date; // Mongoose timestamps
   link?: string;
@@ -141,7 +141,7 @@ export interface Question {
   explanation?: string;
   points: number;
   difficulty: DifficultyLevel;
-  courseAttributes?: string[]; // IDs of related course attributes
+  subjectAttributes?: string[]; // IDs of related subject attributes
   metadata?: {
     isAIEnhanced?: boolean;
     aiPrompt?: string;
@@ -159,7 +159,7 @@ export interface Assessment {
   maxScore: number;
   weight: number;
   dueDate: Date;
-  courseId: string;
+  subjectId: string;
   status: AssessmentStatus;
   isAIEnhanced?: boolean;
   questions: Question[] | string; // Can be array of questions or JSON string
@@ -227,14 +227,14 @@ export interface Resource {
   key: string; // S3 object key
   lastModified: Date | string; // Can be either Date or string
   tags: string[];
-  classes: string[]; // Array of Course IDs this resource is associated with
+  classes: string[]; // Array of Subject IDs this resource is associated with
   downloads: number;
   uploadedBy?: { // Populated uploader details from User model
     _id: string;
     firstName: string;
     lastName: string;
   };
-  order?: number; // For custom ordering of resources within a course
+  order?: number; // For custom ordering of resources within a subject
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -251,31 +251,31 @@ export interface SubmissionPayload {
   fileType?: string;
 }
 
-// ClassResource - Represents aggregated resource counts for a course (from Course model's resourceCounts)
+// ClassResource - Represents aggregated resource counts for a subject (from Subject model's resourceCounts)
 export interface ClassResource {
-  id: string; // This would be the Course's ID
-  code: string; // This would be the Course's code
-  name: string; // This would be the Course's name
-  teacher:{id:string; email:string;}; // This would be the Course's teacher
+  id: string; // This would be the Subject's ID
+  code: string; // This would be the Subject's code
+  name: string; // This would be the Subject's name
+  teacher:{id:string; email:string;}; // This would be the Subject's teacher
   documents: number;
   images: number;
   videos: number;
   others: number;
 }
 
-// CourseAttribute Interface - Represents a specific attribute defined for a course
-export interface CourseAttribute {
+// SubjectAttribute Interface - Represents a specific attribute defined for a subject
+export interface SubjectAttribute {
   _id: string;
   name: string;
   description: string;
   category: AttributeCategory;
-  courseId: string; // The ID of the course this attribute belongs to
+  subjectId: string; // The ID of the subject this attribute belongs to
   createdAt?: Date;
   updatedAt?: Date;
 }
 
-// Course Interface - Represents a single course
-export interface Course {
+// Subject Interface - Represents a single subject
+export interface Subject {
   _id: string;
   code: string; // E.g., "HCC301"
   name: string; // E.g., "Network Security"
@@ -290,8 +290,8 @@ export interface Course {
     others: number;
   };
   // Virtuals for easier access to related data (if populated on backend)
-  attributes?: CourseAttribute[]; // Array of CourseAttribute definitions for this course
-  plans?: Plan[]; // Array of Plan templates associated with this course
+  attributes?: SubjectAttribute[]; // Array of SubjectAttribute definitions for this subject
+  plans?: Plan[]; // Array of Plan templates associated with this subject
   createdAt?: Date;
   updatedAt?: Date;
 }

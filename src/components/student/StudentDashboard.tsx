@@ -12,8 +12,8 @@ import {
   BarChart2,
   FileText,
 } from 'lucide-react';
-import { Student, DevelopmentPlan, Course } from '../../types';
-import { studentService, developmentService, courseService } from '../../services/api';
+import { Student, DevelopmentPlan, Subject } from '../../types';
+import { studentService, developmentService, subjectService } from '../../services/api';
 import StudentPlanView from './StudentPlanView';
 import StudentStats from './StudentStats';
 import StudentMessages from './StudentMessages';
@@ -21,16 +21,16 @@ import StudentAssignments from './StudentAssignments';
 import StudentResults from './StudentResults';
 
 // ---------------------------------------------------------------- //
-// A new type and a mock service for Course, as it's not in api.ts
+// A new type and a mock service for Subject, as it's not in api.ts
 // In a real app, this would be in your services/api.ts
-// type Course = {
+// type Subject = {
 //   _id: string;
 //   name: string;
-//   // ... other course properties
+//   // ... other subject properties
 // };
 
-// The original mock `courseService` is removed as we now use the one from api.ts.
-// The `getCourse` method is not needed as `studentData.courses` is an array of course objects,
+// The original mock `subjectService` is removed as we now use the one from api.ts.
+// The `getSubject` method is not needed as `studentData.subjects` is an array of subject objects,
 // not just IDs, as per the typical structure of a populated Mongoose object from a REST API.
 // ---------------------------------------------------------------- //
 
@@ -91,8 +91,8 @@ const DashboardSkeleton = () => (
 
 const StudentDashboard: React.FC = () => {
   const [student, setStudent] = useState<Student | null>(null);
-  const [courses, setCourses] = useState<Course[]>([]);
-  const [selectedCourseId, setSelectedCourseId] = useState<string>('all');
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [selectedSubjectId, setSelectedSubjectId] = useState<string>('all');
   const [activePlan, setActivePlan] = useState<DevelopmentPlan | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -113,16 +113,17 @@ const StudentDashboard: React.FC = () => {
         setStudent(studentData);
         console.log("this is all the student data", studentData);
 
-        // Fetch course data for each course ID using a more efficient method if possible
-        const fetchedCourses = await Promise.all(
-          studentData?.courses?.map(courseId => courseService.getCourseById(courseId)) || []
+        // Fetch subject data for each subject ID using a more efficient method if possible
+        const fetchedSubjects = await Promise.all(
+          studentData?.subjects?.map(subjectId => subjectService.getSubjectById(subjectId)) || []
         );
-        setCourses(fetchedCourses);
-        console.log("this is all the courses", fetchedCourses);
+        setSubjects(fetchedSubjects);
+        console.log("this is all the subjects", fetchedSubjects);
 
-        if (studentData?._id) {
+        const studentId = studentData?._id || studentData?.id;
+        if (studentId) {
           try {
-            const plans = await developmentService.getAllPlansForStudent(studentData._id, 'Active');
+            const plans = await developmentService.getAllPlansForStudent(studentId, 'Active');
             if (plans.length > 0) setActivePlan(plans[0]);
           } catch {
             console.warn('No active development plan found for this student.');
@@ -178,13 +179,13 @@ const StudentDashboard: React.FC = () => {
           </div>
         );
       case 'stats':
-        return <StudentStats student={student} selectedCourseId={selectedCourseId} />;
+        return <StudentStats student={student} selectedSubjectId={selectedSubjectId} />;
       case 'messages':
         return <StudentMessages studentId={student.id} />;
       case 'assignments':
-        return <StudentAssignments studentId={student.id} selectedCourseId={selectedCourseId} />;
+        return <StudentAssignments studentId={student.id} selectedSubjectId={selectedSubjectId} />;
       case 'results':
-        return <StudentResults studentId={student.id} selectedCourseId={selectedCourseId} />;
+        return <StudentResults studentId={student.id} selectedSubjectId={selectedSubjectId} />;
       default:
         return (
           <motion.div
@@ -333,17 +334,17 @@ const StudentDashboard: React.FC = () => {
               </h1>
               <p className="text-slate-500 mt-1">Here's your academic and development snapshot.</p>
             </div>
-            {/* Course Selection Dropdown */}
-            {courses.length > 0 && (
+            {/* Subject Selection Dropdown */}
+            {subjects.length > 0 && (
               <select
-                value={selectedCourseId}
-                onChange={(e) => setSelectedCourseId(e.target.value)}
+                value={selectedSubjectId}
+                onChange={(e) => setSelectedSubjectId(e.target.value)}
                 className="p-2 border border-slate-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
               >
-                <option value="all">All Courses</option>
-                {courses.map(course => (
-                  <option key={course._id} value={course._id}>
-                    {`${course.code}: ${course.name}`}
+                <option value="all">All Subjects</option>
+                {subjects.map(subject => (
+                  <option key={subject._id} value={subject._id}>
+                    {`${subject.code}: ${subject.name}`}
                   </option>
                 ))}
               </select>

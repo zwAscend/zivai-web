@@ -20,9 +20,9 @@ import {
   Loader2
 } from 'lucide-react';
 import { CalendarEvent, EventFormData } from '../../types/calendar';
-import { Course } from '../../types';
+import { Subject } from '../../types';
 import { calendarService } from '../../services/calendarService';
-import { courseService } from '../../services/api';
+import { subjectService } from '../../services/api';
 import EventModal from './EventModal';
 import EventDetailsModal from './EventDetailsModal';
 import CalendarIntegration from './CalendarIntegration';
@@ -47,7 +47,7 @@ const CalendarView: React.FC = () => {
   
   // State management
   const [events, setEvents] = useState<CalendarEvent[]>([]);
-  const [courses, setCourses] = useState<Course[]>([]);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
   const [loading, setLoading] = useState(true);
   
   // State for controlled view and title
@@ -62,7 +62,7 @@ const CalendarView: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   
   // Filter states
-  const [filterCourse, setFilterCourse] = useState<string>('all');
+  const [filterSubject, setFilterSubject] = useState<string>('all');
 
   // Load initial data
   useEffect(() => {
@@ -72,13 +72,13 @@ const CalendarView: React.FC = () => {
   const loadInitialData = async () => {
     try {
       setLoading(true);
-      const [eventsData, coursesData] = await Promise.all([
+      const [eventsData, subjectsData] = await Promise.all([
         loadMockEvents(), // Replace with calendarService.getEvents() when backend is ready
-        courseService.getCourses().catch(() => [])
+        subjectService.getSubjects().catch(() => [])
       ]);
       
       setEvents(eventsData);
-      setCourses(coursesData);
+      setSubjects(subjectsData);
     } catch (error) {
       console.error('Error loading calendar data:', error);
       toast.error('Failed to load calendar data');
@@ -98,8 +98,8 @@ const CalendarView: React.FC = () => {
         start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 9, 0),
         end: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 10, 30),
         type: 'lecture',
-        courseId: courses[0]?._id || 'course1',
-        courseName: 'HCC301 - Network Security',
+        subjectId: subjects[0]?._id || 'subject1',
+        subjectName: 'HCC301 - Network Security',
         location: 'Room 101',
         color: '#3b82f6',
         backgroundColor: '#3b82f6',
@@ -115,8 +115,8 @@ const CalendarView: React.FC = () => {
         description: 'SQL Queries and Normalization Lab',
         start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 3, 23, 59),
         type: 'assignment_due',
-        courseId: courses[1]?._id || 'course2',
-        courseName: 'HCC202 - Database Systems',
+        subjectId: subjects[1]?._id || 'subject2',
+        subjectName: 'HCC202 - Database Systems',
         allDay: true,
         color: '#ef4444',
         backgroundColor: '#ef4444',
@@ -149,8 +149,8 @@ const CalendarView: React.FC = () => {
         start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 10, 0),
         end: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 12, 0),
         type: 'exam',
-        courseId: courses[0]?._id || 'course1',
-        courseName: 'HCC301 - Network Security',
+        subjectId: subjects[0]?._id || 'subject1',
+        subjectName: 'HCC301 - Network Security',
         location: 'Main Hall',
         color: '#8b5cf6',
         backgroundColor: '#8b5cf6',
@@ -211,8 +211,8 @@ const CalendarView: React.FC = () => {
         end: eventData.end ? new Date(eventData.end) : undefined,
         allDay: eventData.allDay,
         type: eventData.type,
-        courseId: eventData.courseId || undefined,
-        courseName: eventData.courseId ? courses.find(c => c._id === eventData.courseId)?.name : undefined,
+        subjectId: eventData.subjectId || undefined,
+        subjectName: eventData.subjectId ? subjects.find(c => c._id === eventData.subjectId)?.name : undefined,
         location: eventData.location,
         recurring: eventData.recurring.enabled ? eventData.recurring : undefined,
         reminders: eventData.reminders,
@@ -249,8 +249,8 @@ const CalendarView: React.FC = () => {
         end: eventData.end ? new Date(eventData.end) : undefined,
         allDay: eventData.allDay,
         type: eventData.type,
-        courseId: eventData.courseId || undefined,
-        courseName: eventData.courseId ? courses.find(c => c._id === eventData.courseId)?.name : undefined,
+        subjectId: eventData.subjectId || undefined,
+        subjectName: eventData.subjectId ? subjects.find(c => c._id === eventData.subjectId)?.name : undefined,
         location: eventData.location,
         recurring: eventData.recurring.enabled ? eventData.recurring : undefined,
         reminders: eventData.reminders,
@@ -289,7 +289,7 @@ const CalendarView: React.FC = () => {
 
   // Filter events based on current filters
   const filteredEvents = events.filter(event => {
-    if (filterCourse !== 'all' && event.courseId !== filterCourse) return false;
+    if (filterSubject !== 'all' && event.subjectId !== filterSubject) return false;
     return true;
   });
 
@@ -305,8 +305,8 @@ const CalendarView: React.FC = () => {
     textColor: event.textColor,
     extendedProps: {
       type: event.type,
-      courseId: event.courseId,
-      courseName: event.courseName,
+      subjectId: event.subjectId,
+      subjectName: event.subjectName,
       location: event.location,
       description: event.description,
     },
@@ -440,15 +440,15 @@ return (
         {/* Right Side: Filters, View Switcher, Settings, New Event */}
         <div className="flex items-center gap-2">
           
-          <Select value={filterCourse} onValueChange={setFilterCourse}>
+          <Select value={filterSubject} onValueChange={setFilterSubject}>
             <SelectTrigger className="w-36 h-8 text-xs">
-              <SelectValue placeholder="All Courses" />
+              <SelectValue placeholder="All Subjects" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">All Courses</SelectItem>
-              {courses.map((course) => (
-                <SelectItem key={course._id} value={course._id}>
-                  {course.code}
+              <SelectItem value="all">All Subjects</SelectItem>
+              {subjects.map((subject) => (
+                <SelectItem key={subject._id} value={subject._id}>
+                  {subject.code}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -557,7 +557,7 @@ return (
         onSave={selectedEvent ? handleUpdateEvent : handleCreateEvent}
         onDelete={selectedEvent ? handleDeleteEvent : undefined}
         event={selectedEvent}
-        courses={courses}
+        subjects={subjects}
         selectedDate={selectedDate}
       />
 

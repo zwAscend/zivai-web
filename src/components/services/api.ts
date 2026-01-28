@@ -1,6 +1,6 @@
 import { Student, ChatMessage, Result, Assessment, User } from '../../types/index';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 // Helper function for fetch requests
 const fetchData = async (endpoint: string, options: RequestInit = {}) => {
@@ -34,23 +34,33 @@ const fetchData = async (endpoint: string, options: RequestInit = {}) => {
 
 // Authentication services
 export const authService = {
-  login: async (email: string, password: string): Promise<User> => {
+  login: async (email: string, password: string): Promise<{ token: string; user: User }> => {
     const data = await fetchData('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
 
-    localStorage.setItem('token', data.token);
+    if (data?.token) {
+      localStorage.setItem('token', data.token);
+    }
+    if (data?.user) {
+      localStorage.setItem('user', JSON.stringify(data.user));
+    }
     return data;
   },
 
-  register: async (userData: Partial<User>): Promise<User> => {
+  register: async (userData: Partial<User>): Promise<{ token: string; user: User }> => {
     const data = await fetchData('/auth/register', {
       method: 'POST',
       body: JSON.stringify(userData),
     });
 
-    localStorage.setItem('token', data.token);
+    if (data?.token) {
+      localStorage.setItem('token', data.token);
+    }
+    if (data?.user) {
+      localStorage.setItem('user', JSON.stringify(data.user));
+    }
     return data;
   },
 

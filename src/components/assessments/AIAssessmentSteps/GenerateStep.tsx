@@ -99,7 +99,7 @@ export function GenerateStep({ formData, attributes, uploadedFile }: GenerateSte
           <div className="space-y-4 text-sm">
             {selectedAttributeNames.length > 0 && (
               <div>
-                <p className="text-muted-foreground">Course Attributes</p>
+                <p className="text-muted-foreground">Subject Attributes</p>
                 <p>{selectedAttributeNames.join(', ')}</p>
               </div>
             )}
@@ -112,7 +112,7 @@ export function GenerateStep({ formData, attributes, uploadedFile }: GenerateSte
             )}
             
             {!uploadedFile && selectedAttributeNames.length === 0 && (
-              <p className="text-muted-foreground">Using course content as context</p>
+              <p className="text-muted-foreground">Using subject content as context</p>
             )}
           </div>
         </div>

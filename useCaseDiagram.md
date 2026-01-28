@@ -14,7 +14,7 @@ graph TD
     subgraph System Functions
         UC_Auth((Authenticate User))
         UC_ManageResource((Manage Resources (Upload/Fetch)))
-        UC_ManageCourse((Create & Enroll in Courses))
+        UC_ManageSubject((Create & Enroll in Subjects))
         UC_ManageAssess((Create & Schedule Assessment))
         UC_TakeAssess((Take Assessment))
         UC_ViewReport((View Progress Report))
@@ -27,14 +27,14 @@ graph TD
 
     %% Relationships (Actor -> Use Case)
     Teacher --> UC_Auth
-    Teacher --> UC_ManageCourse
+    Teacher --> UC_ManageSubject
     Teacher --> UC_ManageAssess
     Teacher --> UC_GradeAssess
     Teacher --> UC_ManageResource
     Teacher --> UC_ManageCal
 
     Student --> UC_Auth
-    Student --> UC_ManageCourse
+    Student --> UC_ManageSubject
     Student --> UC_TakeAssess
     Student --> UC_ViewReport
     Student --> UC_GetNotif
@@ -43,7 +43,7 @@ graph TD
     %% Relationships (Use Case Includes/Extends/Informs)
 
     %% Authentication is often included in major actions
-    UC_ManageCourse ..> UC_Auth : <<include>>
+    UC_ManageSubject ..> UC_Auth : <<include>>
     UC_ManageAssess ..> UC_Auth : <<include>>
 
     %% Progress is based on Assessments

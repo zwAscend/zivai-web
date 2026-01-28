@@ -27,9 +27,9 @@ const StudentStats: React.FC<StudentStatsProps> = ({ student }) => {
 
   useEffect(() => {
     const fetchAttributes = async () => {
-      if (student.courses && student.courses.length > 0) {
+      if (student.subjects && student.subjects.length > 0) {
         try {
-          const attrs = await developmentService.getStudentAttributes(student._id, student.courses[0]);
+          const attrs = await developmentService.getStudentAttributes(student._id, student.subjects[0]);
           setAttributes(attrs);
         } catch (error) {
           console.error('Failed to fetch student attributes:', error);

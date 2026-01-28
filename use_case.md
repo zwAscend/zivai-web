@@ -9,7 +9,7 @@ graph LR
   %% Components (stereotypes)
   AuthComp[["<<Component>> Authentication\n- login()\n- authorize()"]]
   ResourceComp[["<<Component>> ResourceManagement\n- upload()\n- fetch()"]]
-  CourseComp[["<<Component>> CourseManagement\n- createCourse()\n- enroll()"]]
+  SubjectComp[["<<Component>> SubjectManagement\n- createSubject()\n- enrollInSubject()"]]
   AssessComp[["<<Component>> AssessmentSystem\n- createAssessment()\n- grade()"]]
   DevPlanComp[["<<Component>> DevelopmentPlanning\n- planLearnerPath()\n- updatePlan()"]]
   SkillsComp[["<<Component>> SkillsTracking\n- trackSkill()\n- evaluate()"]]
@@ -21,16 +21,16 @@ graph LR
   Gemini((<<External>> Gemini AI))
 
   %% Actor → Component
-  Teacher -->|uses / interacts| CourseComp
+  Teacher -->|uses / interacts| SubjectComp
   Teacher -->|manages| AssessComp
   Teacher -->|uploads →| ResourceComp
-  Student -->|uses| CourseComp
+  Student -->|uses| SubjectComp
   Student -->|takes| AssessComp
   Student -->|views| ProgressComp
   Student -->|receives| ChatComp
 
   %% Component relationships
-  CourseComp -->|requires auth| AuthComp
+  SubjectComp -->|requires auth| AuthComp
   ResourceComp -->|secured by| AuthComp
   AssessComp -->|stores results →| ProgressComp
   AssessComp -->|informs| DevPlanComp

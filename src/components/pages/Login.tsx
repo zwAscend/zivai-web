@@ -71,17 +71,18 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         user = await authService.register(registrationData);
       }
 
-      if (user?.token) {
-        localStorage.setItem('token', user.token);
+      const userPayload: any = (user as any)?.user ?? user;
+      if ((user as any)?.token) {
+        localStorage.setItem('token', (user as any).token);
       }
-      if (user) {
-        localStorage.setItem('user', JSON.stringify(user));
+      if (userPayload) {
+        localStorage.setItem('user', JSON.stringify(userPayload));
       }
       onLogin();
 
       // Immediately navigate based on the returned user to avoid relying on global routing
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const storedUser = user as any;
+  const storedUser = userPayload as any;
       const isAdmin = !!storedUser?.isAdmin;
       const isTeacher = !!storedUser?.isTeacher;
       const isStudent = storedUser?.role === 'student' && !!storedUser?.studentId;

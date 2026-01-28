@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 interface RecentUpload {
     _id: string; name: string; type: string; createdAt: string;
-    course: { _id: string; name: string; code?: string; };
+    subject: { _id: string; name: string; code?: string; };
     uploadedBy: { _id: string; firstName: string; lastName: string; };
 }
 
@@ -85,12 +85,12 @@ const Sidebar: React.FC<SidebarProps> = ({ onUploadClick, onCreateAssignment, re
           </h3>
           <div className="space-y-1">
             {recentUploads.length > 0 ? recentUploads.map(upload => (
-                <div key={upload._id} className={clsx("flex items-center gap-3 p-2.5 text-sm rounded-md", isCollapsed && "justify-center")} title={isCollapsed ? `${upload.name} in ${upload.course.name}` : undefined}>
+                <div key={upload._id} className={clsx("flex items-center gap-3 p-2.5 text-sm rounded-md", isCollapsed && "justify-center")} title={isCollapsed ? `${upload.name} in ${upload.subject.name}` : undefined}>
                   <div className="flex-shrink-0">{getFileIcon(upload.type)}</div>
                   {!isCollapsed && (
                     <div className="min-w-0">
                       <p className="font-medium text-slate-800 truncate">{upload.name}</p>
-                      <p className="text-xs text-slate-500 truncate">{upload.course.name}</p>
+                      <p className="text-xs text-slate-500 truncate">{upload.subject.name}</p>
                     </div>
                   )}
                 </div>

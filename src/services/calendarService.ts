@@ -14,9 +14,9 @@ export const calendarService = {
     return fetchData<CalendarEvent[]>(endpoint);
   },
 
-  // Get events for a specific course
-  getCourseEvents: async (courseId: string): Promise<CalendarEvent[]> => {
-    return fetchData<CalendarEvent[]>(`/calendar/events/course/${courseId}`);
+  // Get events for a specific subject
+  getSubjectEvents: async (subjectId: string): Promise<CalendarEvent[]> => {
+    return fetchData<CalendarEvent[]>(`/calendar/events/subject/${subjectId}`);
   },
 
   // Create a new event

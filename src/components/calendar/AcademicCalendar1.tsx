@@ -21,8 +21,8 @@ interface CalendarEvent {
   end?: Date;
   allDay?: boolean;
   type: EventType;
-  courseId?: string;
-  courseName?: string;
+  subjectId?: string;
+  subjectName?: string;
   location?: string;
   color?: string;
   backgroundColor?: string;
@@ -38,7 +38,7 @@ interface CalendarEvent {
   updatedAt: Date;
 }
 
-interface Course {
+interface Subject {
   _id: string;
   code: string;
   name: string;
@@ -76,13 +76,13 @@ const AcademicCalendar: React.FC = () => {
   const calendarRef = useRef<FullCalendar>(null);
   
   const [events, setEvents] = useState<CalendarEvent[]>([]);
-  const [courses, setCourses] = useState<Course[]>([]);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentView, setCurrentView] = useState<string>('dayGridMonth');
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [showEventModal, setShowEventModal] = useState(false);
-  const [filterCourse, setFilterCourse] = useState<string>('all');
+  const [filterSubject, setFilterSubject] = useState<string>('all');
   const [filterType, setFilterType] = useState<EventType | 'all'>('all');
   const [hiddenEventTypes, setHiddenEventTypes] = useState<Set<EventType>>(new Set());
 
@@ -97,15 +97,15 @@ const AcademicCalendar: React.FC = () => {
     const loadData = async () => {
       try {
         setLoading(true);
-        // Mock courses data
-        const mockCourses: Course[] = [
+        // Mock subjects data
+        const mockSubjects: Subject[] = [
           { _id: 'hcc301', code: 'HCC301', name: 'Network Security' },
           { _id: 'hcc401', code: 'HCC401', name: 'Advanced Networking' },
         ];
         
         const eventsData = await loadMockEvents();
         
-        setCourses(mockCourses);
+        setSubjects(mockSubjects);
         setEvents(eventsData);
       } catch (error) {
         console.error('Error loading calendar data:', error);
@@ -129,8 +129,8 @@ const AcademicCalendar: React.FC = () => {
         start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 9, 0),
         end: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 10, 30),
         type: 'lecture',
-        courseId: 'hcc301',
-        courseName: 'HCC301 - Network Security',
+        subjectId: 'hcc301',
+        subjectName: 'HCC301 - Network Security',
         location: 'Room 101',
         color: EVENT_TYPE_COLORS.lecture.bg,
         backgroundColor: EVENT_TYPE_COLORS.lecture.bg,
@@ -147,8 +147,8 @@ const AcademicCalendar: React.FC = () => {
         start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2, 14, 0),
         end: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2, 16, 0),
         type: 'lab',
-        courseId: 'hcc301',
-        courseName: 'HCC301 - Network Security',
+        subjectId: 'hcc301',
+        subjectName: 'HCC301 - Network Security',
         location: 'Computer Lab 2',
         color: EVENT_TYPE_COLORS.lab.bg,
         backgroundColor: EVENT_TYPE_COLORS.lab.bg,
@@ -165,8 +165,8 @@ const AcademicCalendar: React.FC = () => {
         start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 5, 23, 59),
         type: 'assignment_due',
         allDay: false,
-        courseId: 'hcc301',
-        courseName: 'HCC301 - Network Security',
+        subjectId: 'hcc301',
+        subjectName: 'HCC301 - Network Security',
         color: EVENT_TYPE_COLORS.assignment_due.bg,
         backgroundColor: EVENT_TYPE_COLORS.assignment_due.bg,
         borderColor: EVENT_TYPE_COLORS.assignment_due.border,
@@ -182,8 +182,8 @@ const AcademicCalendar: React.FC = () => {
         start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 10, 10, 0),
         end: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 10, 12, 0),
         type: 'exam',
-        courseId: 'hcc301',
-        courseName: 'HCC301 - Network Security',
+        subjectId: 'hcc301',
+        subjectName: 'HCC301 - Network Security',
         location: 'Exam Hall A',
         color: EVENT_TYPE_COLORS.exam.bg,
         backgroundColor: EVENT_TYPE_COLORS.exam.bg,
@@ -220,11 +220,11 @@ const AcademicCalendar: React.FC = () => {
 
   // Filter events based on selected filters
   const filteredEvents = events.filter(event => {
-    const courseMatch = filterCourse === 'all' || event.courseId === filterCourse;
+    const subjectMatch = filterSubject === 'all' || event.subjectId === filterSubject;
     const typeMatch = filterType === 'all' || event.type === filterType;
     const visibilityMatch = !hiddenEventTypes.has(event.type);
     
-    return courseMatch && typeMatch && visibilityMatch;
+    return subjectMatch && typeMatch && visibilityMatch;
   });
 
   // Handle date selection
@@ -366,16 +366,16 @@ const AcademicCalendar: React.FC = () => {
               </SelectContent>
             </Select>
 
-            {/* Course Filter */}
-            <Select value={filterCourse} onValueChange={setFilterCourse}>
+            {/* Subject Filter */}
+            <Select value={filterSubject} onValueChange={setFilterSubject}>
               <SelectTrigger className="w-48">
-                <SelectValue placeholder="Filter by course" />
+                <SelectValue placeholder="Filter by subject" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">All Courses</SelectItem>
-                {courses.map((course) => (
-                  <SelectItem key={course._id} value={course._id}>
-                    {course.code} - {course.name}
+                <SelectItem value="all">All Subjects</SelectItem>
+                {subjects.map((subject) => (
+                  <SelectItem key={subject._id} value={subject._id}>
+                    {subject.code} - {subject.name}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -483,8 +483,8 @@ const AcademicCalendar: React.FC = () => {
                 extendedProps: {
                   description: event.description,
                   type: event.type,
-                  courseId: event.courseId,
-                  courseName: event.courseName,
+                  subjectId: event.subjectId,
+                  subjectName: event.subjectName,
                   location: event.location,
                 }
               }))}
@@ -513,9 +513,9 @@ const AcademicCalendar: React.FC = () => {
                       📍 {eventInfo.event.extendedProps.location}
                     </div>
                   )}
-                  {eventInfo.event.extendedProps.courseName && (
+                  {eventInfo.event.extendedProps.subjectName && (
                     <div className="text-xs opacity-75 truncate">
-                      {eventInfo.event.extendedProps.courseName}
+                      {eventInfo.event.extendedProps.subjectName}
                     </div>
                   )}
                 </div>

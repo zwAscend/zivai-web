@@ -15,7 +15,7 @@ import {
   Folder
 } from 'lucide-react';
 
-interface Course {
+interface Subject {
   _id: string;
   id?: string;
   name: string;
@@ -26,9 +26,9 @@ interface UploadModalProps {
   isOpen: boolean;
   onClose: () => void;
   onUploadSuccess?: () => void;
-  selectedCourse: Course | null;
-  courses: Course[];
-  onCourseSelect: (course: Course) => void;
+  selectedSubject: Subject | null;
+  subjects: Subject[];
+  onSubjectSelect: (subject: Subject) => void;
   onFileSelect?: (file: File) => void;
   isUploading?: boolean;
   uploadProgress?: number;
@@ -38,9 +38,9 @@ const UploadModal: React.FC<UploadModalProps> = ({
   isOpen,
   onClose,
   onUploadSuccess,
-  selectedCourse,
-  courses,
-  onCourseSelect,
+  selectedSubject,
+  subjects,
+  onSubjectSelect,
   onFileSelect,
   isUploading = false,
   uploadProgress = 0
@@ -95,7 +95,7 @@ const UploadModal: React.FC<UploadModalProps> = ({
   };
 
   const handleUpload = async () => {
-    if (!selectedFile || !selectedCourse) return;
+    if (!selectedFile || !selectedSubject) return;
     
     try {
       if (onFileSelect) {
@@ -164,7 +164,7 @@ const UploadModal: React.FC<UploadModalProps> = ({
                   Upload Resource
                 </DialogTitle>
                 <p className="text-indigo-100 mt-1">
-                  Add files to your course library
+                  Add files to your subject library
                 </p>
               </div>
             </div>
@@ -179,31 +179,31 @@ const UploadModal: React.FC<UploadModalProps> = ({
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {/* Course Selection */}
+          {/* Subject Selection */}
           <div className="space-y-3">
             <div className="flex items-center gap-2">
               <Folder className="w-5 h-5 text-gray-600" />
-              <h3 className="text-lg font-semibold text-gray-900">Select Course</h3>
+              <h3 className="text-lg font-semibold text-gray-900">Select Subject</h3>
               <span className="text-red-500">*</span>
             </div>
             
             <select
               className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
-              value={selectedCourse?._id || ''}
+              value={selectedSubject?._id || ''}
               onChange={(e) => {
-                const course = courses.find(c => c._id === e.target.value);
-                if (course) onCourseSelect(course);
+                const subject = subjects.find(c => c._id === e.target.value);
+                if (subject) onSubjectSelect(subject);
               }}
               disabled={isUploading}
               required
             >
-              <option value="">Choose a course...</option>
-              {courses.map((course) => (
+              <option value="">Choose a subject...</option>
+              {subjects.map((subject) => (
                 <option 
-                  key={course._id}
-                  value={course._id}
+                  key={subject._id}
+                  value={subject._id}
                 >
-                  {course.code} - {course.name}
+                  {subject.code} - {subject.name}
                 </option>
               ))}
             </select>
@@ -327,13 +327,13 @@ const UploadModal: React.FC<UploadModalProps> = ({
         <div className="bg-gray-50 border-t border-gray-200 p-6">
           <div className="flex items-center justify-between">
             <div className="text-sm text-gray-500">
-              {selectedFile && selectedCourse ? (
+              {selectedFile && selectedSubject ? (
                 <div className="flex items-center gap-2">
                   <CheckCircle className="w-4 h-4 text-green-500" />
-                  Ready to upload to {selectedCourse.code}
+                  Ready to upload to {selectedSubject.code}
                 </div>
               ) : (
-                'Please select a course and file to continue'
+                'Please select a subject and file to continue'
               )}
             </div>
             
@@ -347,7 +347,7 @@ const UploadModal: React.FC<UploadModalProps> = ({
               </Button>
               <Button
                 onClick={handleUpload}
-                disabled={!selectedFile || !selectedCourse || isUploading}
+                disabled={!selectedFile || !selectedSubject || isUploading}
                 className="min-w-[120px] bg-indigo-600 hover:bg-indigo-700"
               >
                 {isUploading ? (

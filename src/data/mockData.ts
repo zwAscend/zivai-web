@@ -539,21 +539,21 @@ Chairperson`
 export const upcomingActivities: UpcomingActivity[] = [
   {
     id: '1',
-    course: 'HCC301',
+    subject: 'HCC301',
     title: 'OSPF Lecturer',
     time: '09:00',
     link: 'https://us02web.zoom.us/j/12345678901'
   },
   {
     id: '2',
-    course: 'HCC402',
+    subject: 'HCC402',
     title: 'Cloud Security',
     time: '14:00',
     link: 'https://us02web.zoom.us/j/12345678902'
   },
   {
     id: '3',
-    course: 'HCC201',
+    subject: 'HCC201',
     title: 'OS Architecture',
     time: '15:00',
     link: 'https://us02web.zoom.us/j/12345678903'
@@ -570,7 +570,7 @@ export const performanceCategories = [
 
 export const userData = {
   name: 'Eujin Blank',
-  course: 'HCC301',
+  subject: 'HCC301',
   score: 78,
   daysRemaining: 6,
   sessionsAvailable: 4

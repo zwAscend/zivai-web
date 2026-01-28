@@ -7,7 +7,7 @@ import { externalAssessmentService } from '../../services/externalAssessmentServ
 
 interface StudentAssignmentsProps {
   studentId: string;
-  selectedCourseId?: string; // Add this prop to filter by course
+  selectedSubjectId?: string; // Add this prop to filter by subject
 }
 
 interface SubmissionWithResult extends Submission {
@@ -23,7 +23,7 @@ interface AssignmentWithResult extends Assessment {
   isOverdue: boolean;
 }
 
-const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, selectedCourseId }) => {
+const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, selectedSubjectId }) => {
   const [assignments, setAssignments] = useState<AssignmentWithResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState<string | null>(null);
@@ -37,7 +37,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
   useEffect(() => {
     console.log('--- Fetching Student Assignments ---');
     console.log('Student ID:', studentId);
-    console.log('Selected Course ID:', selectedCourseId);
+    console.log('Selected Subject ID:', selectedSubjectId);
 
     const fetchStudentAssignments = async () => {
       if (!studentId) {
@@ -55,7 +55,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
         const [student, submissions] = await Promise.all([
           studentService.getStudent(studentId).catch(error => {
             console.error('Error fetching student:', error);
-            return { courses: [] };
+            return { subjects: [] };
           }),
           submissionService.getStudentSubmissions(studentId).catch(error => {
             console.error('Error fetching submissions:', error);
@@ -63,35 +63,35 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
           })
         ]);
 
-        // Process course IDs to fetch
-        const courseIdsToFetch = (() => {
-          if (selectedCourseId && selectedCourseId !== 'all') {
-            return [selectedCourseId];
+        // Process subject IDs to fetch
+        const subjectIdsToFetch = (() => {
+          if (selectedSubjectId && selectedSubjectId !== 'all') {
+            return [selectedSubjectId];
           }
-          return (student.courses || [])
-            .map(course => typeof course === 'string' ? course : course?._id)
+          return (student.subjects || [])
+            .map(subject => typeof subject === 'string' ? subject : subject?._id)
             .filter(Boolean) as string[];
         })();
 
-        if (courseIdsToFetch.length === 0) {
-          console.log('DEBUG: No valid course IDs found to fetch assignments for.');
+        if (subjectIdsToFetch.length === 0) {
+          console.log('DEBUG: No valid subject IDs found to fetch assignments for.');
           setAssignments([]);
           setLoading(false);
           return;
         }
 
-        // Fetch assessments for all courses in parallel
-        const assessmentsByCourse = await Promise.all(
-          courseIdsToFetch.map(courseId => 
-            assessmentService.getAssessmentsByCourseId(courseId).catch(error => {
-              console.error(`ERROR fetching assessments for course ${courseId}:`, error);
+        // Fetch assessments for all subjects in parallel
+        const assessmentsBySubject = await Promise.all(
+          subjectIdsToFetch.map(subjectId => 
+            assessmentService.getAssessmentsBySubjectId(subjectId).catch(error => {
+              console.error(`ERROR fetching assessments for subject ${subjectId}:`, error);
               return [];
             })
           )
         );
 
-        const allAssessments = assessmentsByCourse.flat();
-        console.log(`DEBUG: Found ${allAssessments.length} assessments across ${courseIdsToFetch.length} courses`);
+        const allAssessments = assessmentsBySubject.flat();
+        console.log(`DEBUG: Found ${allAssessments.length} assessments across ${subjectIdsToFetch.length} subjects`);
 
         // *** IMPROVED RESULT CHECKING ***
         // Fetch results for each assessment specifically for this student
@@ -179,7 +179,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
       setAssignments([]);
       console.log('DEBUG: No student ID provided. Skipping fetch.');
     }
-  }, [studentId, selectedCourseId]);
+  }, [studentId, selectedSubjectId]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, assignmentId: string) => {
     if (e.target.files && e.target.files[0]) {
@@ -197,7 +197,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
         throw new Error('Assignment not found');
       }
   
-      // The moduleName should be derived from the assignment's associated course
+      // The moduleName should be derived from the assignment's associated subject
       const moduleName = 'Operating Systems'; 
   
       // Step 1: Trigger external assessment first

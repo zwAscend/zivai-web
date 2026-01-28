@@ -19,23 +19,23 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
   const currentUser = authService.getCurrentUser();
   const navigate = useNavigate();
 
-  interface Course {
+  interface Subject {
     _id: string;
     id: string;
     code: string;
     name: string;
   }
 
-  const [courses, setCourses] = useState<Course[]>([]);
-  const { selectedCourse, setSelectedCourse } = useAuth();
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const { selectedSubject, setSelectedSubject } = useAuth();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [students, setStudents] = useState<Student[]>([]);
 
-  // Fetch courses from API
+  // Fetch subjects from API
   useEffect(() => {
-    const fetchCourses = async () => {
+    const fetchSubjects = async () => {
       try {
         const token = localStorage.getItem('token');
         if (!token) {
@@ -43,35 +43,35 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
           return;
         }
 
-        const response = await axios.get('http://localhost:5000/api/courses/teaching', {
+        const response = await axios.get('http://localhost:5000/api/subjects/teaching', {
           headers: { 'Authorization': `Bearer ${token}` }
         });
 
         if (response.data && Array.isArray(response.data)) {
-          const coursesWithIds = response.data.map(course => ({
-            ...course,
-            id: course.id || course._id
+          const subjectsWithIds = response.data.map(subject => ({
+            ...subject,
+            id: subject.id || subject._id
           }));
 
-          setCourses(coursesWithIds);
+          setSubjects(subjectsWithIds);
           
-          if (coursesWithIds.length > 0) {
-            // Only set the selected course if it's not already set
-            if (!selectedCourse) {
-              setSelectedCourse(coursesWithIds[0]);
+          if (subjectsWithIds.length > 0) {
+            // Only set the selected subject if it's not already set
+            if (!selectedSubject) {
+              setSelectedSubject(subjectsWithIds[0]);
             }
           } else {
-            console.warn('No courses found in the API response.'); // Keeping this for important warnings
+            console.warn('No subjects found in the API response.'); // Keeping this for important warnings
           }
         } else {
             console.warn('API response data is not an array or is empty:', response.data); // Keeping this for important warnings
         }
       } catch (error) {
-        console.error('Error fetching courses:', error); // Keeping error logs
+        console.error('Error fetching subjects:', error); // Keeping error logs
       }
     };
 
-    fetchCourses();
+    fetchSubjects();
   }, []);
 
   // Fetch unread notification count
@@ -87,12 +87,12 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
 
     const fetchStudents = async () => {
       try {
-        // Get the current course ID from the URL or use the first available course
+        // Get the current subject ID from the URL or use the first available subject
         const pathParts = window.location.pathname.split('/');
-        const courseId = pathParts[pathParts.length - 1];
+        const subjectId = pathParts[pathParts.length - 1];
         
-        // Fetch students for the current course
-        const studentsData = await studentService.getStudents(courseId);
+        // Fetch students for the current subject
+        const studentsData = await studentService.getStudents(subjectId);
         setStudents(studentsData);
         
         // Calculate grade distribution
@@ -254,7 +254,7 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
                       className="flex items-center text-sm hover:bg-gray-100 px-2 py-1 rounded-md w-full text-left"
                     >
                       <span className="flex-1">
-                        {selectedCourse ? selectedCourse.code : 'Select Course'}
+                        {selectedSubject ? selectedSubject.code : 'Select Subject'}
                       </span>
                       <ChevronDown size={16} className="ml-1" />
                     </button>
@@ -317,12 +317,12 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
         ))}
       </nav>
 
-      {/* Course Selection Modal */}
+      {/* Subject Selection Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg w-full max-w-md max-h-[80vh] flex flex-col">
             <div className="flex justify-between items-center p-4 border-b">
-              <h3 className="text-lg font-medium">Select Course</h3>
+              <h3 className="text-lg font-medium">Select Subject</h3>
               <button 
                 onClick={() => setIsModalOpen(false)}
                 className="text-gray-400 hover:text-gray-500"
@@ -331,29 +331,29 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
               </button>
             </div>
             <div className="p-4 overflow-y-auto">
-              {courses.length > 0 ? (
+              {subjects.length > 0 ? (
                 <div className="space-y-2">
-                  {courses.map((course) => (
+                  {subjects.map((subject) => (
                     <button
-                      key={course.id}
+                      key={subject.id}
                       onClick={() => {
-                        setSelectedCourse(course);
+                        setSelectedSubject(subject);
                         setIsModalOpen(false);
                       }}
                       className={`w-full text-left p-3 rounded-md transition-colors ${
-                        selectedCourse?.id === course.id 
+                        selectedSubject?.id === subject.id 
                           ? 'bg-blue-50 text-blue-700 border border-blue-200' 
                           : 'hover:bg-gray-50 border border-transparent'
                       }`}
                     >
-                      <div className="font-medium">{course.code}</div>
-                      <div className="text-sm text-gray-500">{course.name}</div>
+                      <div className="font-medium">{subject.code}</div>
+                      <div className="text-sm text-gray-500">{subject.name}</div>
                     </button>
                   ))}
                 </div>
               ) : (
                 <div className="text-center py-8 text-gray-500">
-                  No courses available
+                  No subjects available
                 </div>
               )}
             </div>

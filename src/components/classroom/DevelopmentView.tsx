@@ -9,9 +9,14 @@ interface DevelopmentViewProps {
   studentId?: string;
 }
 
+
+const isValidUuid = (value: string) => {
+  return /^[0-9a-fA-F-]{36}$/.test(value);
+};
+
 const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStudentId }) => {
   const { studentId: paramStudentId } = useParams<{ studentId: string }>();
-  const initialStudentId = propStudentId || paramStudentId || '';
+  const initialStudentId = (propStudentId && propStudentId !== 'undefined') ? propStudentId : ((paramStudentId && paramStudentId !== 'undefined') ? paramStudentId : '');
 
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [allStudents, setAllStudents] = useState<Student[]>([]);
@@ -61,6 +66,11 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
     };
 
     if (initialStudentId) {
+      if (!isValidUuid(initialStudentId)) {
+        setError("Invalid student id in route.");
+        setLoading(false);
+        return;
+      }
       fetchData();
     }
   }, [initialStudentId]);
@@ -155,7 +165,7 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
           onOpenChange={setIsCreatePlanModalOpen}
           onPlanCreated={handlePlanCreated}
           students={[selectedStudent]}
-          courseId={selectedStudent.courses?.[0] || ''}
+          subjectId={selectedStudent.subjects?.[0] || ''}
         />
       )}
 

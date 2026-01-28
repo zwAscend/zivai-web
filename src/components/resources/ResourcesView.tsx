@@ -87,7 +87,7 @@ export interface Resource {
   extension?: string;
   updatedAt?: string;
   downloads?: number;
-  course: string;
+  subject: string;
   createdAt: string;
 }
 
@@ -112,7 +112,7 @@ const ResourcesView: React.FC<ResourcesViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [resources, setResources] = useState<Resource[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [courseInfo, setCourseInfo] = useState<{ name: string; code: string } | null>(null);
+  const [subjectInfo, setSubjectInfo] = useState<{ name: string; code: string } | null>(null);
   const [fileCounts, setFileCounts] = useState({
     total: 0,
     documents: 0,
@@ -228,7 +228,7 @@ const ResourcesView: React.FC<ResourcesViewProps> = ({
       extension,
       updatedAt: data.updatedAt,
       downloads: data.downloads || 0,
-      course: data.course || classId,
+      subject: data.subject || classId,
       createdAt: data.createdAt || new Date().toISOString(),
     };
   }, [classId]);
@@ -251,44 +251,44 @@ const ResourcesView: React.FC<ResourcesViewProps> = ({
       setIsLoading(true);
       setError(null);
       try {
-        let fetchedCourseInfo = null;
+        let fetchedSubjectInfo = null;
         try {
-          const coursesResponse = await axios.get(`${API_URL}/api/courses/teaching`, {
+          const subjectsResponse = await axios.get(`${API_URL}/api/subjects/teaching`, {
             headers: { 'Authorization': `Bearer ${token}` }
           });
-          if (Array.isArray(coursesResponse.data)) {
-            const currentCourse = coursesResponse.data.find(
-              (course: any) => course._id === classId
+          if (Array.isArray(subjectsResponse.data)) {
+            const currentSubject = subjectsResponse.data.find(
+              (subject: any) => subject._id === classId
             );
-            if (currentCourse) {
-              fetchedCourseInfo = {
-                name: currentCourse.name || 'Unnamed Course',
-                code: currentCourse.code || ''
+            if (currentSubject) {
+              fetchedSubjectInfo = {
+                name: currentSubject.name || 'Unnamed Subject',
+                code: currentSubject.code || ''
               };
             }
           }
 
-          if (!fetchedCourseInfo) {
-            const courseResponse = await axios.get(`${API_URL}/api/courses/${classId}`, {
+          if (!fetchedSubjectInfo) {
+            const subjectResponse = await axios.get(`${API_URL}/api/subjects/${classId}`, {
               headers: { 'Authorization': `Bearer ${token}` }
             });
-            if (courseResponse.data) {
-              fetchedCourseInfo = {
-                name: courseResponse.data.name || 'Unnamed Course',
-                code: courseResponse.data.code || ''
+            if (subjectResponse.data) {
+              fetchedSubjectInfo = {
+                name: subjectResponse.data.name || 'Unnamed Subject',
+                code: subjectResponse.data.code || ''
               };
             }
           }
-        } catch (courseError) {
-          console.error('Error fetching course info:', courseError);
-          fetchedCourseInfo = {
-            name: className || 'Course Resources',
+        } catch (subjectError) {
+          console.error('Error fetching subject info:', subjectError);
+          fetchedSubjectInfo = {
+            name: className || 'Subject Resources',
             code: classCode || ''
           };
         }
-        setCourseInfo(fetchedCourseInfo);
+        setSubjectInfo(fetchedSubjectInfo);
 
-        const resourcesResponse = await axios.get(`${API_URL}/api/resources/course/${classId}`, {
+        const resourcesResponse = await axios.get(`${API_URL}/api/resources/subject/${classId}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
 
@@ -307,7 +307,7 @@ const ResourcesView: React.FC<ResourcesViewProps> = ({
       } catch (error: any) {
         console.error('Error fetching data:', error);
         setResources([]);
-        setCourseInfo(null);
+        setSubjectInfo(null);
         setError(error.response?.data?.message || 'Failed to load resources.');
       } finally {
         setIsLoading(false);
@@ -364,7 +364,7 @@ const ResourcesView: React.FC<ResourcesViewProps> = ({
 
     const formData = new FormData();
     formData.append('file', file);
-    formData.append('courseId', classId);
+    formData.append('subjectId', classId);
 
     setIsUploading(true);
     setUploadProgress(0);
@@ -440,8 +440,8 @@ const ResourcesView: React.FC<ResourcesViewProps> = ({
   }, []);
 
   const formatDisplayName = () => {
-    const name = courseInfo?.name || className || (classId ? `Course ${classId.substring(0, 6)}` : 'Course Resources');
-    const code = courseInfo?.code || classCode || '';
+    const name = subjectInfo?.name || className || (classId ? `Subject ${classId.substring(0, 6)}` : 'Subject Resources');
+    const code = subjectInfo?.code || classCode || '';
 
     if (name && code) {
       return `${name} - ${code}`;
@@ -603,20 +603,20 @@ const ResourcesView: React.FC<ResourcesViewProps> = ({
           isOpen={showUploadModal}
           onClose={() => setShowUploadModal(false)}
           onFileSelect={handleFileUpload}
-          courses={courseInfo ? [{
+          subjects={subjectInfo ? [{
             _id: classId || '',
             id: classId || '',
-            name: courseInfo.name,
-            code: courseInfo.code
+            name: subjectInfo.name,
+            code: subjectInfo.code
           }] : []}
-          selectedCourse={courseInfo ? {
+          selectedSubject={subjectInfo ? {
             _id: classId || '',
             id: classId || '',
-            name: courseInfo.name,
-            code: courseInfo.code
+            name: subjectInfo.name,
+            code: subjectInfo.code
           } : null}
-          onCourseSelect={(course) => {
-            console.log('Selected course:', course);
+          onSubjectSelect={(subject) => {
+            console.log('Selected subject:', subject);
           }}
           isUploading={isUploading}
           uploadProgress={uploadProgress}

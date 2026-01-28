@@ -1,16 +1,16 @@
 import { fetchData } from './api';
-import { DevelopmentPlan, Plan, Student, CourseAttribute, StudentAttributes } from '../types';
+import { DevelopmentPlan, Plan, Student, SubjectAttribute, StudentAttributes } from '../types';
 
 // The base URL for the agent service
 const AGENT_API_URL = 'http://localhost:8000/api/v1/agents/teacher/plan-generation';
 
 interface GeneratePlanParams {
   student: Student;
-  courseId: string;
-  attributes: CourseAttribute[];
+  subjectId: string;
+  attributes: SubjectAttribute[];
   studentAttributes: StudentAttributes;
   targetScores: Record<string, number>;
-  courseName: string;
+  subjectName: string;
 }
 
 export const planningService = {
@@ -19,10 +19,10 @@ export const planningService = {
    */
   async generateDevelopmentPlan(params: GeneratePlanParams): Promise<Omit<Plan, '_id'>> {
     try {
-      const { student, courseId, courseName, attributes, studentAttributes, targetScores } = params;
+      const { student, subjectId, subjectName, attributes, studentAttributes, targetScores } = params;
 
       // Prepare the data payload for the API
-      const payload = this.preparePayload(student, courseName, courseId, attributes, studentAttributes, targetScores);
+      const payload = this.preparePayload(student, subjectName, subjectId, attributes, studentAttributes, targetScores);
 
       // Make the POST request to the agent API using standard fetch
       const response = await fetch(AGENT_API_URL, {
@@ -54,9 +54,9 @@ export const planningService = {
    */
   preparePayload(
     student: Student,
-    courseName: string,
-    courseId: string,
-    attributes: CourseAttribute[],
+    subjectName: string,
+    subjectId: string,
+    attributes: SubjectAttribute[],
     studentAttributes: StudentAttributes,
     targetScores: Record<string, number>
   ): any {
@@ -119,8 +119,8 @@ export const planningService = {
     const payload = {
       firstName: student.firstName,
       lastName: student.lastName,
-      courseName,
-      courseID: courseId,
+      subjectName,
+      subjectID: subjectId,
       currentOverallScore: `${(student.overall || currentWeightedScore).toFixed(1)}%`,
       potentialOverallScore: `${Math.min(100, Math.round(currentWeightedScore + 10))}%`,
       targetScore: `${Math.max(85, Math.min(100, Math.round(currentWeightedScore + 10)))}%`,
@@ -134,7 +134,7 @@ export const planningService = {
     return payload;
   },
 
-  async assignPlanToStudent(studentId: string, planId: string, courseId: string): Promise<DevelopmentPlan> {
+  async assignPlanToStudent(studentId: string, planId: string, subjectId: string): Promise<DevelopmentPlan> {
     try {
       const createdPlan = await fetchData<DevelopmentPlan>(`/api/development/plans/student/${studentId}/assign`, {
         method: 'POST',
@@ -143,7 +143,7 @@ export const planningService = {
         },
         body: JSON.stringify({
           planId,
-          courseId
+          subjectId
         }),
       });
       return createdPlan;
