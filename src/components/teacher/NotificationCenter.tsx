@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import SubmissionReviewModal from './SubmissionReviewModal';
 
 interface Notification {
-  _id: string;
+  id: string;
   type: string;
   title: string;
   message: string;
@@ -48,7 +48,7 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ isOpen, onClose
     try {
       await notificationService.markAsRead(notificationId);
       setNotifications(prev => 
-        prev.map(n => n._id === notificationId ? { ...n, read: true } : n)
+        prev.map(n => n.id === notificationId ? { ...n, read: true } : n)
       );
     } catch (error) {
       console.error('Error marking notification as read:', error);
@@ -61,7 +61,7 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ isOpen, onClose
       setShowReviewModal(true);
       
       if (!notification.read) {
-        await handleMarkAsRead(notification._id);
+        await handleMarkAsRead(notification.id);
       }
     }
   };
@@ -142,7 +142,7 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ isOpen, onClose
             <div className="divide-y">
               {notifications.map((notification) => (
                 <div
-                  key={notification._id}
+                  key={notification.id}
                   className={`p-4 border-l-4 ${getPriorityColor(notification.priority)} ${
                     !notification.read ? 'bg-opacity-100' : 'bg-opacity-50'
                   } hover:bg-opacity-75 transition-colors cursor-pointer`}
@@ -150,7 +150,7 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ isOpen, onClose
                     if (notification.type === 'assignment_graded' || notification.type === 'assignment_submitted') {
                       handleViewSubmission(notification);
                     } else {
-                      handleMarkAsRead(notification._id);
+                      handleMarkAsRead(notification.id);
                     }
                   }}
                 >

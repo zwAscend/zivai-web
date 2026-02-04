@@ -189,7 +189,7 @@ const DevelopmentPlanCreation: React.FC<DevelopmentPlanCreationProps> = ({
       // Prepare plan data
       const planData = {
         name: planName || `Development Plan for ${selectedStudent.firstName} ${selectedStudent.lastName}`,
-        studentId: selectedStudent._id,
+        studentId: selectedStudent.id,
         subjectId: initialSubjectId,
         skills: studentAttributes?.skills
           .filter(skill => selectedSkills.has(skill.id) || 
@@ -216,7 +216,7 @@ const DevelopmentPlanCreation: React.FC<DevelopmentPlanCreationProps> = ({
       });
       
       // Navigate to the development view for this student
-      navigate(`/classroom/development/${selectedStudent._id}`);
+      navigate(`/classroom/development/${selectedStudent.id}`);
       
     } catch (error: any) {
       console.error('Error creating development plan:', error);
@@ -432,13 +432,13 @@ const DevelopmentPlanCreation: React.FC<DevelopmentPlanCreationProps> = ({
             <div className="space-y-3 max-h-[calc(100vh-200px)] overflow-y-auto pr-2">
               {allStudents.map(student => (
                 <div 
-                  key={student._id}
+                  key={student.id}
                   className={`p-3 mb-2 border rounded-md cursor-pointer transition-colors ${
-                    student._id === selectedStudent?._id 
+                    student.id === selectedStudent?.id 
                       ? 'ring-2 ring-blue-500 bg-blue-50' 
                       : 'bg-white hover:bg-gray-50'
                   }`}
-                  onClick={() => navigate(`/classroom/development/create/${student._id}/${initialSubjectId}`)}
+                  onClick={() => navigate(`/classroom/development/create/${student.id}/${initialSubjectId}`)}
                 >
                   <div className="flex items-center gap-3">
                     <div className="relative flex h-10 w-10 shrink-0 overflow-hidden rounded-full bg-gray-100">

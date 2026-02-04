@@ -69,7 +69,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
             return [selectedSubjectId];
           }
           return (student.subjects || [])
-            .map(subject => typeof subject === 'string' ? subject : subject?._id)
+            .map(subject => typeof subject === 'string' ? subject : subject?.id)
             .filter(Boolean) as string[];
         })();
 
@@ -96,15 +96,15 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
         // *** IMPROVED RESULT CHECKING ***
         // Fetch results for each assessment specifically for this student
         const resultsPromises = allAssessments.map(assessment => 
-          assessment?._id 
-            ? assessmentService.getResults(assessment._id, studentId) // Pass studentId as query param
+          assessment?.id 
+            ? assessmentService.getResults(assessment.id, studentId) // Pass studentId as query param
                 .then(results => ({ 
-                  assessmentId: assessment._id, 
+                  assessmentId: assessment.id, 
                   result: results && results.length > 0 ? results[0] : null 
                 }))
                 .catch(error => {
-                  console.error(`ERROR fetching result for assessment ${assessment._id}:`, error);
-                  return { assessmentId: assessment._id, result: null };
+                  console.error(`ERROR fetching result for assessment ${assessment.id}:`, error);
+                  return { assessmentId: assessment.id, result: null };
                 })
             : Promise.resolve({ assessmentId: '', result: null })
         );
@@ -129,8 +129,8 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
         // Merge all data together with proper result existence checking
         const now = new Date();
         const processedAssignments = allAssessments.map(assessment => {
-          const submission = submissionMap.get(assessment._id);
-          const result = resultsMap.get(assessment._id); // This will be null if no result exists
+          const submission = submissionMap.get(assessment.id);
+          const result = resultsMap.get(assessment.id); // This will be null if no result exists
           const dueDate = new Date(assessment.dueDate);
           
           // *** IMPROVED STATUS LOGIC ***
@@ -192,7 +192,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
     setSubmitting(assignmentId);
   
     try {
-      const assignment = assignments.find(a => a._id === assignmentId);
+      const assignment = assignments.find(a => a.id === assignmentId);
       if (!assignment) {
         throw new Error('Assignment not found');
       }
@@ -251,7 +251,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
         assessmentId: assignmentId,
         studentId: studentId,  // Correct field name
         submissionType,
-        result: resultResponse._id, // Link to the created result
+        result: resultResponse.id, // Link to the created result
         externalAssessmentData: assessmentResult.data,
         // Add file-specific fields if it's a file submission
         ...(submissionType === 'file' && selectedFile ? { 
@@ -271,7 +271,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
   
       // Step 6: Update the local state
       setAssignments(prev => prev.map(a => 
-        a._id === assignmentId 
+        a.id === assignmentId 
           ? { 
             ...a, 
             isSubmitted: true, 
@@ -433,7 +433,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
 
       <div className="space-y-4">
         {assignments.map((assignment) => (
-          <div key={assignment._id} className="bg-white rounded-lg shadow p-6">
+          <div key={assignment.id} className="bg-white rounded-lg shadow p-6">
             <div className="flex items-start justify-between mb-4">
               <div className="flex-1">
                 <div className="flex items-center gap-3 mb-2">
@@ -470,9 +470,9 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                   <div className="flex gap-2">
                     <button
                       type="button"
-                      onClick={() => { setSubmissionType('file'); setActiveAssignment(assignment._id); }}
+                      onClick={() => { setSubmissionType('file'); setActiveAssignment(assignment.id); }}
                       className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        submissionType === 'file' && activeAssignment === assignment._id
+                        submissionType === 'file' && activeAssignment === assignment.id
                           ? 'bg-blue-600 text-white'
                           : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                       }`}
@@ -481,9 +481,9 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                     </button>
                     <button
                       type="button"
-                      onClick={() => { setSubmissionType('text'); setActiveAssignment(assignment._id); }}
+                      onClick={() => { setSubmissionType('text'); setActiveAssignment(assignment.id); }}
                       className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        submissionType === 'text' && activeAssignment === assignment._id
+                        submissionType === 'text' && activeAssignment === assignment.id
                           ? 'bg-blue-600 text-white'
                           : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                       }`}
@@ -492,13 +492,13 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                     </button>
                   </div>
 
-                  {submissionType === 'file' && activeAssignment === assignment._id && (
+                  {submissionType === 'file' && activeAssignment === assignment.id && (
                     <div className="flex items-center gap-4">
                       <div className="flex-1">
                         <label className="block">
                           <input
                             type="file"
-                            onChange={(e) => handleFileSelect(e, assignment._id)}
+                            onChange={(e) => handleFileSelect(e, assignment.id)}
                             className="hidden"
                             accept=".pdf,.doc,.docx,.txt,.zip"
                           />
@@ -513,7 +513,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                     </div>
                   )}
 
-                  {submissionType === 'text' && activeAssignment === assignment._id && (
+                  {submissionType === 'text' && activeAssignment === assignment.id && (
                     <div>
                       <textarea
                         value={textSubmission}
@@ -527,15 +527,15 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
 
                   <div className="flex justify-end">
                     <button
-                      onClick={() => handleSubmitAssignment(assignment._id)}
+                      onClick={() => handleSubmitAssignment(assignment.id)}
                       disabled={
-                        (submissionType === 'file' && (!selectedFile || activeAssignment !== assignment._id)) ||
+                        (submissionType === 'file' && (!selectedFile || activeAssignment !== assignment.id)) ||
                         (submissionType === 'text' && !textSubmission.trim()) ||
-                        submitting === assignment._id
+                        submitting === assignment.id
                       }
                       className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                     >
-                      {submitting === assignment._id ? (
+                      {submitting === assignment.id ? (
                         <>
                           <Loader2 className="w-4 h-4 animate-spin" />
                           Submitting & Grading...

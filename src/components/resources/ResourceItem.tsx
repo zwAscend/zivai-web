@@ -9,7 +9,7 @@ import type { Resource } from './ResourcesView';
 
 interface ResourceItemProps {
   resource: Omit<Resource, 'uploadedBy'> & {
-    uploadedBy: string | { _id: string; firstName: string; lastName: string };
+    uploadedBy: string | { id: string; firstName: string; lastName: string };
   };
   viewMode: 'grid' | 'list';
   // Add an onClick handler for the item

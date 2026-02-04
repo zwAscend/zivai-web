@@ -25,6 +25,7 @@ export interface CalendarEvent {
 }
 
 export type EventType = 
+  | 'lecture'
   | 'lesson' 
   | 'lab' 
   | 'assignment_due' 
@@ -47,12 +48,13 @@ export interface EventFormData {
   type: EventType;
   subjectId: string;
   location: string;
-  recurring?: {
+  recurring: {
     enabled: boolean;
     frequency: 'daily' | 'weekly' | 'monthly';
     interval: number;
     endDate: string;
   };
+  reminders?: any;
 }
 
 export interface CalendarView {

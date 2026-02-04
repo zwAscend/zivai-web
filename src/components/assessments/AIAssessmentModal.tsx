@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -17,8 +17,7 @@ import {
 } from 'lucide-react';
 import axios from 'axios';
 import { toast } from 'sonner';
-import AuthContext from '@/context/AuthContext';
-import { Question, Assessment, SubjectAttribute, AssessmentType, User } from '@/types';
+import { Question, Assessment, SubjectAttribute, AssessmentType } from '@/types';
 import { aiService } from '@/services/aiService';
 import { DetailsStep } from './AIAssessmentSteps/DetailsStep';
 import { GenerateStep } from './AIAssessmentSteps/GenerateStep';
@@ -56,9 +55,6 @@ export function AIAssessmentModal({
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [selectedSubject, setSelectedSubject] = useState<Subject | null>(null);
   
-  const authContext = useContext(AuthContext);
-  const currentUser = authContext?.user;
-
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -109,7 +105,7 @@ export function AIAssessmentModal({
       if (response.data && Array.isArray(response.data)) {
         const subjectsWithIds = response.data.map((subject: any) => ({
           ...subject,
-          _id: subject.id || subject._id,
+          id: subject.id,
           code: subject.code || '',
           name: subject.name || 'Untitled Subject'
         }));
@@ -117,7 +113,7 @@ export function AIAssessmentModal({
         setSubjects(subjectsWithIds);
         
         if (assessmentToEdit) {
-          const currentSubject = subjectsWithIds.find((c: any) => c._id === subjectId);
+          const currentSubject = subjectsWithIds.find((c: any) => c.id === subjectId);
           if (currentSubject) {
             setSelectedSubject(currentSubject);
             setStep('details');
@@ -168,7 +164,7 @@ export function AIAssessmentModal({
       
       try {
         setIsLoading(true);
-        const data = await aiService.getSubjectAttributes(selectedSubject._id);
+        const data = await aiService.getSubjectAttributes(selectedSubject.id);
         setAttributes(data);
       } catch (error) {
         console.error('Error fetching attributes:', error);
@@ -199,13 +195,13 @@ export function AIAssessmentModal({
       }
 
       const selectedAttributeObjects = attributes.filter(attr => 
-        formData.selectedAttributes.includes(attr._id)
+        formData.selectedAttributes.includes(attr.id)
       );
 
       const generatedQuestions = await aiService.generateQuestions({
         subjectId,
         attributes: selectedAttributeObjects.map(attr => ({
-          _id: attr._id,
+          id: attr.id,
           name: attr.name,
           description: attr.description
         })),
@@ -248,7 +244,7 @@ export function AIAssessmentModal({
 
   const handleUpdateQuestion = (updatedQuestion: Question) => {
     setQuestions(questions.map(q => 
-      q._id === updatedQuestion._id ? updatedQuestion : q
+      q.id === updatedQuestion.id ? updatedQuestion : q
     ));
   };
 
@@ -256,8 +252,8 @@ export function AIAssessmentModal({
     try {
       setIsGenerating(true);
       
-      const attributeIds = formData.selectedAttributes.map((attr: string | { _id: string }) => 
-        typeof attr === 'string' ? attr : attr._id
+      const attributeIds = formData.selectedAttributes.map((attr: string | { id: string }) => 
+        typeof attr === 'string' ? attr : attr.id
       );
       
       const regeneratedQuestions = await aiService.regenerateQuestions({
@@ -284,7 +280,7 @@ export function AIAssessmentModal({
   };
 
   const saveAssessment = async () => {
-    if (!selectedSubject?._id) {
+    if (!selectedSubject?.id) {
       toast.error('No subject selected');
       return;
     }
@@ -416,13 +412,13 @@ export function AIAssessmentModal({
               <div className="grid gap-3 max-h-80 overflow-y-auto">
                 {subjects.map((subject) => (
                   <button
-                    key={subject._id}
+                    key={subject.id}
                     onClick={() => {
                       setSelectedSubject(subject);
                       setStep('details');
                     }}
                     className={`p-4 border-2 rounded-xl text-left transition-all hover:shadow-md ${
-                      selectedSubject?._id === subject._id 
+                      selectedSubject?.id === subject.id 
                         ? 'border-blue-500 bg-blue-50 shadow-md' 
                         : 'border-gray-200 hover:border-gray-300'
                     }`}

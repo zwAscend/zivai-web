@@ -12,12 +12,12 @@ import {
   File,
   CheckCircle,
   AlertCircle,
-  Folder
+  Folder,
+  Loader2
 } from 'lucide-react';
 
 interface Subject {
-  _id: string;
-  id?: string;
+  id: string;
   name: string;
   code: string;
 }
@@ -189,9 +189,9 @@ const UploadModal: React.FC<UploadModalProps> = ({
             
             <select
               className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
-              value={selectedSubject?._id || ''}
+              value={selectedSubject?.id || ''}
               onChange={(e) => {
-                const subject = subjects.find(c => c._id === e.target.value);
+                const subject = subjects.find(c => c.id === e.target.value);
                 if (subject) onSubjectSelect(subject);
               }}
               disabled={isUploading}
@@ -200,8 +200,8 @@ const UploadModal: React.FC<UploadModalProps> = ({
               <option value="">Choose a subject...</option>
               {subjects.map((subject) => (
                 <option 
-                  key={subject._id}
-                  value={subject._id}
+                  key={subject.id}
+                  value={subject.id}
                 >
                   {subject.code} - {subject.name}
                 </option>

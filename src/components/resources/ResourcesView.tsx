@@ -60,17 +60,15 @@ type ResourceType = 'document' | 'image' | 'video' | 'other';
 
 // User information interface
 interface UploadedByUser {
-  _id: string;
+  id: string;
   firstName: string;
   lastName: string;
   name?: string;
-  id?: string;
 }
 
 // Base resource interface
 export interface Resource {
   id: string;
-  _id: string;
   name: string;
   originalName: string;
   mimeType: string;
@@ -182,20 +180,19 @@ const ResourcesView: React.FC<ResourcesViewProps> = ({
     const lastModified = data.updatedAt || data.createdAt || new Date().toISOString();
 
     let uploadedBy: UploadedByUser = {
-      _id: 'unknown',
+      id: 'unknown',
       firstName: 'Unknown',
       lastName: ''
     };
     if (data.uploadedBy) {
       if (typeof data.uploadedBy === 'string') {
-        uploadedBy = { ...uploadedBy, _id: data.uploadedBy };
+        uploadedBy = { ...uploadedBy, id: data.uploadedBy };
       } else {
         uploadedBy = {
-          _id: data.uploadedBy._id || 'unknown',
+          id: data.uploadedBy.id || 'unknown',
           firstName: data.uploadedBy.firstName || 'Unknown',
           lastName: data.uploadedBy.lastName || '',
-          name: data.uploadedBy.name,
-          id: data.uploadedBy.id
+          name: data.uploadedBy.name
         };
       }
     }
@@ -203,11 +200,10 @@ const ResourcesView: React.FC<ResourcesViewProps> = ({
     const fileName = data.originalName || data.name || 'Unnamed File';
     const extension = fileName.split('.').pop()?.toLowerCase() || '';
 
-    const resourceId = data._id || data.id || `temp-${Date.now()}`;
+    const resourceId = data.id || `temp-${Date.now()}`;
 
     return {
       id: resourceId,
-      _id: resourceId,
       name: data.name || fileName,
       originalName: fileName,
       mimeType: data.mimeType || 'application/octet-stream',
@@ -258,7 +254,7 @@ const ResourcesView: React.FC<ResourcesViewProps> = ({
           });
           if (Array.isArray(subjectsResponse.data)) {
             const currentSubject = subjectsResponse.data.find(
-              (subject: any) => subject._id === classId
+              (subject: any) => subject.id === classId
             );
             if (currentSubject) {
               fetchedSubjectInfo = {
@@ -427,7 +423,7 @@ const ResourcesView: React.FC<ResourcesViewProps> = ({
 
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/api/resources/download/${resource._id}`, {
+      const response = await axios.get(`${API_URL}/api/resources/download/${resource.id}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       setPreviewUrl(response.data.url);
@@ -604,13 +600,11 @@ const ResourcesView: React.FC<ResourcesViewProps> = ({
           onClose={() => setShowUploadModal(false)}
           onFileSelect={handleFileUpload}
           subjects={subjectInfo ? [{
-            _id: classId || '',
             id: classId || '',
             name: subjectInfo.name,
             code: subjectInfo.code
           }] : []}
           selectedSubject={subjectInfo ? {
-            _id: classId || '',
             id: classId || '',
             name: subjectInfo.name,
             code: subjectInfo.code

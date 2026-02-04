@@ -36,7 +36,7 @@ export function ReviewStep({ questions, onUpdateQuestion, onRegenerate, isGenera
 
   const handleEditClick = (question: Question) => {
     setEditingQuestion({ ...question });
-    setEditingQuestionId(question._id || null);
+    setEditingQuestionId(question.id || null);
   };
 
   const handleSaveEdit = () => {
@@ -128,8 +128,8 @@ export function ReviewStep({ questions, onUpdateQuestion, onRegenerate, isGenera
   };
 
   const renderQuestionContent = (question: Question) => {
-    const isEditing = editingQuestionId === question._id && editingQuestion;
-    const isExpanded = expandedQuestionId === question._id;
+    const isEditing = editingQuestionId === question.id && editingQuestion;
+    const isExpanded = expandedQuestionId === question.id;
 
     if (isEditing) {
       return (
@@ -229,7 +229,7 @@ export function ReviewStep({ questions, onUpdateQuestion, onRegenerate, isGenera
             <p className="font-medium text-gray-900 leading-relaxed">{question.text}</p>
           </div>
           <button
-            onClick={() => setExpandedQuestionId(isExpanded ? null : question._id || null)}
+            onClick={() => setExpandedQuestionId(isExpanded ? null : question.id || null)}
             className="ml-4 p-1 text-gray-400 hover:text-gray-600"
           >
             <Eye className="w-4 h-4" />
@@ -269,7 +269,7 @@ export function ReviewStep({ questions, onUpdateQuestion, onRegenerate, isGenera
             
             {!isExpanded && question.options.length > 2 && (
               <button
-                onClick={() => setExpandedQuestionId(question._id || null)}
+                onClick={() => setExpandedQuestionId(question.id || null)}
                 className="text-sm text-blue-600 hover:text-blue-800 font-medium"
               >
                 Show {question.options.length - 2} more options...
@@ -386,7 +386,7 @@ export function ReviewStep({ questions, onUpdateQuestion, onRegenerate, isGenera
       {/* Questions List */}
       <div className="space-y-4">
         {questions.map((question, index) => (
-          <div key={question._id} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+          <div key={question.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
             {/* Question Header */}
             <div className="bg-gray-50 border-b border-gray-200 p-4">
               <div className="flex items-center justify-between">
@@ -416,7 +416,7 @@ export function ReviewStep({ questions, onUpdateQuestion, onRegenerate, isGenera
                     variant="ghost"
                     size="sm"
                     onClick={() => handleEditClick(question)}
-                    disabled={isGenerating || editingQuestionId === question._id}
+                    disabled={isGenerating || editingQuestionId === question.id}
                     className="h-8"
                   >
                     <Edit3 className="w-3 h-3" />

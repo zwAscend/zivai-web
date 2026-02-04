@@ -38,16 +38,15 @@ interface SubmissionReviewModalProps {
 }
 
 interface SubmissionDetails {
-  _id: string;
+  id: string;
   student: {
-    _id: string;
     id: string;
     firstName: string;
     lastName: string;
     email: string;
   };
   assessment: {
-    _id: string;
+    id: string;
     name: string;
     description: string;
     type: string;

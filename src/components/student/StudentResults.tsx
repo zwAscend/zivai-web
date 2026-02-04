@@ -6,6 +6,7 @@ import { assessmentService } from '../../services/api';
 
 interface StudentResultsProps {
   studentId: string;
+  selectedSubjectId?: string;
 }
 
 interface AssessmentResult {
@@ -27,7 +28,7 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId }) => {
         const mockResults: AssessmentResult[] = [
           {
             assessment: {
-              _id: '1',
+              id: '1',
               name: 'Network Fundamentals Quiz',
               description: 'Basic networking concepts',
               type: 'Test',
@@ -36,7 +37,7 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId }) => {
               dueDate: new Date('2024-01-15'),
             },
             result: {
-              _id: 'r1',
+              id: 'r1',
               student: studentId,
               assessment: '1',
               expectedMark: 35,
@@ -49,7 +50,7 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId }) => {
           },
           {
             assessment: {
-              _id: '2',
+              id: '2',
               name: 'OSPF Configuration Lab',
               description: 'Hands-on OSPF routing configuration',
               type: 'Assignment',
@@ -58,7 +59,7 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId }) => {
               dueDate: new Date('2024-01-22'),
             },
             result: {
-              _id: 'r2',
+              id: 'r2',
               student: studentId,
               assessment: '2',
               expectedMark: 75,
@@ -71,7 +72,7 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId }) => {
           },
           {
             assessment: {
-              _id: '3',
+              id: '3',
               name: 'Network Security Project',
               description: 'Design secure network infrastructure',
               type: 'Project',
@@ -80,7 +81,7 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId }) => {
               dueDate: new Date('2024-02-05'),
             },
             result: {
-              _id: 'r3',
+              id: 'r3',
               student: studentId,
               assessment: '3',
               expectedMark: 80,
@@ -93,7 +94,7 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId }) => {
           },
           {
             assessment: {
-              _id: '4',
+              id: '4',
               name: 'Switching Technologies Test',
               description: 'VLANs, STP, and switching concepts',
               type: 'Test',
@@ -102,7 +103,7 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId }) => {
               dueDate: new Date('2024-02-12'),
             },
             result: {
-              _id: 'r4',
+              id: 'r4',
               student: studentId,
               assessment: '4',
               expectedMark: 55,
@@ -115,7 +116,7 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId }) => {
           },
           {
             assessment: {
-              _id: '5',
+              id: '5',
               name: 'Mid-term Examination',
               description: 'Comprehensive networking exam',
               type: 'Exam',
@@ -124,7 +125,7 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId }) => {
               dueDate: new Date('2024-02-20'),
             },
             result: {
-              _id: 'r5',
+              id: 'r5',
               student: studentId,
               assessment: '5',
               expectedMark: 70,
@@ -341,7 +342,7 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId }) => {
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {filteredResults.map((result) => (
-                <tr key={result.result._id} className="hover:bg-gray-50">
+                <tr key={result.result.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div>
                       <div className="text-sm font-medium text-gray-900">

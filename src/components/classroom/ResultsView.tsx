@@ -123,7 +123,7 @@ const ResultsView: React.FC<ResultsViewProps> = ({ student }) => {
               // Now `item` has both `assessment` and `result` properties
               const difference = item.result.actualMark - item.result.expectedMark;
               return (
-                <tr key={item.assessment._id || index} className="border-t border-gray-200">
+                <tr key={item.assessment.id || index} className="border-t border-gray-200">
                   {/* 4. Reduced cell padding to py-1.5 */}
                   <td className="py-1.5 px-2">{item.assessment.name}</td>
                   <td className="py-1.5 px-2">{item.result.expectedMark}</td>

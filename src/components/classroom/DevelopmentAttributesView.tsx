@@ -18,7 +18,7 @@ const DevelopmentAttributesView: React.FC<DevelopmentAttributesViewProps> = ({ s
       setLoading(true);
       setError(null);
       try {
-        const studentId = student._id || student.id;
+        const studentId = student.id;
         if (!studentId) {
           setError('Missing student id.');
           setLoading(false);
@@ -98,7 +98,7 @@ const DevelopmentAttributesView: React.FC<DevelopmentAttributesViewProps> = ({ s
             // Fallback: use attr.attribute.name if attr.name is missing
             const label = attr.name || (attr.attribute && attr.attribute.name) || 'Attribute';
             return (
-              <div key={attr._id} className="grid grid-cols-[150px_1fr] gap-2 items-center"> {/* Reduced gap */}
+              <div key={attr.id} className="grid grid-cols-[150px_1fr] gap-2 items-center"> {/* Reduced gap */}
                 <div className="text-sm font-medium text-gray-700">
                   {label}
                 </div>

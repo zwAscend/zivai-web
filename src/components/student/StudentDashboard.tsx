@@ -24,7 +24,7 @@ import StudentResults from './StudentResults';
 // A new type and a mock service for Subject, as it's not in api.ts
 // In a real app, this would be in your services/api.ts
 // type Subject = {
-//   _id: string;
+//   id: string;
 //   name: string;
 //   // ... other subject properties
 // };
@@ -36,7 +36,15 @@ import StudentResults from './StudentResults';
 
 type NavItemKey = 'overview' | 'plan' | 'stats' | 'messages' | 'assignments' | 'results';
 
-const StatCard = ({ icon: Icon, title, value, color, change }) => (
+type StatCardProps = {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  value: React.ReactNode;
+  color: string;
+  change?: string;
+};
+
+const StatCard: React.FC<StatCardProps> = ({ icon: Icon, title, value, color, change }) => (
   <motion.div
     className="bg-white p-6 rounded-2xl shadow-sm hover:shadow-lg transition-shadow duration-300 flex flex-col justify-between"
     variants={{
@@ -120,7 +128,7 @@ const StudentDashboard: React.FC = () => {
         setSubjects(fetchedSubjects);
         console.log("this is all the subjects", fetchedSubjects);
 
-        const studentId = studentData?._id || studentData?.id;
+        const studentId = studentData?.id;
         if (studentId) {
           try {
             const plans = await developmentService.getAllPlansForStudent(studentId, 'Active');
@@ -145,7 +153,7 @@ const StudentDashboard: React.FC = () => {
     window.location.href = '/login';
   };
 
-  const navItems = [
+  const navItems: Array<{ key: NavItemKey; label: string; icon: React.ComponentType<{ className?: string }> }> = [
     { key: 'overview', label: 'Dashboard', icon: LayoutDashboard },
     { key: 'plan', label: 'My Plan', icon: BookOpen },
     { key: 'assignments', label: 'Assignments', icon: FileText },
@@ -343,7 +351,7 @@ const StudentDashboard: React.FC = () => {
               >
                 <option value="all">All Subjects</option>
                 {subjects.map(subject => (
-                  <option key={subject._id} value={subject._id}>
+                  <option key={subject.id} value={subject.id}>
                     {`${subject.code}: ${subject.name}`}
                   </option>
                 ))}

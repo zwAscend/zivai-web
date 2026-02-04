@@ -80,7 +80,7 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
   // Update selected student when ID changes
   React.useEffect(() => {
     if (selectedStudentId) {
-      const student = students.find(s => s._id === selectedStudentId);
+      const student = students.find(s => s.id === selectedStudentId);
       setSelectedStudent(student || null);
     } else {
       setSelectedStudent(null);
@@ -95,7 +95,7 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
 
     try {
       setIsGenerating(true);
-      const student = students.find(s => s._id === selectedStudentId);
+      const student = students.find(s => s.id === selectedStudentId);
       if (!student) throw new Error('Selected student not found');
       if (!selectedSubject?.id) throw new Error('No subject selected. Please select a subject first.');
 
@@ -109,11 +109,10 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
       if (Array.isArray(studentAttributesResponse)) {
         studentAttributesResponse.forEach((item: any) => {
           if (item.attribute && (typeof item.current === 'number' || typeof item.potential === 'number')) {
-            const attributeId = item.attribute._id || item.attribute.id;
+            const attributeId = item.attribute.id;
             if (attributeId) {
-              if (!subjectAttributes.some(attr => attr._id === attributeId || attr.id === attributeId)) {
+              if (!subjectAttributes.some(attr => attr.id === attributeId)) {
                 subjectAttributes.push({
-                  _id: attributeId,
                   id: attributeId,
                   name: item.attribute.name || `Attribute ${attributeId}`,
                   description: item.attribute.description || '',
@@ -144,7 +143,7 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
       );
 
       const formattedSubjectAttributes = subjectAttributes.map(attr => ({
-        _id: attr._id || attr.id || 'unknown',
+        id: attr.id || 'unknown',
         name: attr.name || 'Unnamed Attribute',
         description: attr.description || ''
       }));
@@ -153,7 +152,7 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
 
       if (formattedSubjectAttributes.length === 0) {
         formattedSubjectAttributes.push({
-          _id: 'default-attribute',
+          id: 'default-attribute',
           name: 'Overall Performance',
           description: 'General performance across all subject metrics'
         });
@@ -168,8 +167,7 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
 
       const planData = {
         student: {
-          _id: student._id,
-          id: student.id || student._id,
+          id: student.id,
           firstName: student.firstName,
           lastName: student.lastName,
           email: student.email || '',
@@ -218,7 +216,7 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
       
       const assignedPlan = await developmentService.assignPlanToStudent(
         selectedStudentId, 
-        createdPlan._id,
+        createdPlan.id,
         selectedSubject?.id || subjectId
       );
       
@@ -300,7 +298,7 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
                 </SelectTrigger>
                 <SelectContent>
                   {students.map((student) => (
-                    <SelectItem key={student._id} value={student._id}>
+                    <SelectItem key={student.id} value={student.id}>
                       <div className="flex items-center gap-3 py-1">
                         <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
                           <span className="text-xs font-medium text-gray-600">

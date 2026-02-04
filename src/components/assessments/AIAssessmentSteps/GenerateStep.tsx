@@ -9,7 +9,7 @@ export interface GenerateStepProps {
     difficulty: string;
     selectedAttributes: string[];
   };
-  attributes: Array<{ _id: string; name: string }>;
+  attributes: Array<{ id: string; name: string }>;
   uploadedFile?: File | null;
 }
 
@@ -18,7 +18,7 @@ export function GenerateStep({ formData, attributes, uploadedFile }: GenerateSte
   
   // Get attribute names for display
   const selectedAttributeNames = selectedAttributes
-    .map(id => attributes.find(a => a._id === id)?.name)
+    .map(id => attributes.find(a => a.id === id)?.name)
     .filter(Boolean);
 
   // Format question types for display

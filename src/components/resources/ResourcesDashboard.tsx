@@ -12,7 +12,7 @@ import { AIAssessmentModal } from '../assessments/AIAssessmentModal';
 
 // --- Type Definitions ---
 export interface Subject {
-    _id: string;
+    id: string;
     name: string;
     code?: string;
     resourceCount: number;
@@ -23,9 +23,9 @@ export interface Subject {
     others: number;
 }
 export interface RecentUpload {
-    _id: string; name: string; type: string; createdAt: string;
-    subject: { _id: string; name: string; code?: string; };
-    uploadedBy: { _id: string; firstName: string; lastName: string; };
+    id: string; name: string; type: string; createdAt: string;
+    subject: { id: string; name: string; code?: string; };
+    uploadedBy: { id: string; firstName: string; lastName: string; };
 }
 export interface QuickAccessItem {
     id: string; name: string; class: string; classId: string;
@@ -72,12 +72,12 @@ const ResourcesDashboard: React.FC = () => {
             const countsData = countsRes.data || {};
             const updatedSubjects = subjectData.map((subject: any) => ({
                 ...subject,
-                resourceCount: countsData[subject._id]?.count || 0,
-                lastUpdated: countsData[subject._id]?.lastUpdated ? new Date(countsData[subject._id].lastUpdated).toISOString() : '',
-                documents: countsData[subject._id]?.documents || 0,
-                images: countsData[subject._id]?.images || 0,
-                videos: countsData[subject._id]?.videos || 0,
-                others: countsData[subject._id]?.others || 0,
+                resourceCount: countsData[subject.id]?.count || 0,
+                lastUpdated: countsData[subject.id]?.lastUpdated ? new Date(countsData[subject.id].lastUpdated).toISOString() : '',
+                documents: countsData[subject.id]?.documents || 0,
+                images: countsData[subject.id]?.images || 0,
+                videos: countsData[subject.id]?.videos || 0,
+                others: countsData[subject.id]?.others || 0,
             }));
             setSubjects(updatedSubjects);
             setRecentUploads(recentRes.data || []);
@@ -106,16 +106,16 @@ const ResourcesDashboard: React.FC = () => {
             return b.resourceCount - a.resourceCount;
         });
         setQuickAccess(sortedSubjects.slice(0, 3).map(subject => ({
-            id: subject._id,
+            id: subject.id,
             name: `Resources for ${subject.name}`,
             class: subject.name,
-            classId: subject._id,
+            classId: subject.id,
         })));
     }, [subjects]);
 
     // --- Event Handlers ---
     const handleClassNavigation = (classId: string) => {
-        const subjectToNavigate = subjects.find(c => c._id === classId);
+        const subjectToNavigate = subjects.find(c => c.id === classId);
         if (subjectToNavigate) {
             setSelectedClass(subjectToNavigate);
         }
@@ -146,12 +146,12 @@ const ResourcesDashboard: React.FC = () => {
     }
 
     if (selectedClass) {
-        return <ResourcesView classId={selectedClass._id} className={selectedClass.name} classCode={selectedClass.code} onBack={() => setSelectedClass(null)} onUploadClick={() => handleUploadClick(selectedClass)} />;
+        return <ResourcesView classId={selectedClass.id} className={selectedClass.name} classCode={selectedClass.code} onBack={() => setSelectedClass(null)} onUploadClick={() => handleUploadClick(selectedClass)} />;
     }
 
     return (
         <div className="flex h-screen bg-slate-50 text-slate-900">
-            <Sidebar onUploadClick={() => handleUploadClick()} onCreateAssignment={() => handleCreateAssignment(subjects[0]?._id)} recentUploads={recentUploads} />
+            <Sidebar onUploadClick={() => handleUploadClick()} onCreateAssignment={() => handleCreateAssignment(subjects[0]?.id)} recentUploads={recentUploads} />
             <main className="flex-1 p-8 overflow-y-auto">
                 <header className="flex justify-between items-center mb-8">
                     <div className="flex items-center space-x-4">
@@ -183,9 +183,9 @@ const ResourcesDashboard: React.FC = () => {
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                 {filteredSubjects.map((subject) => (
                                     <SubjectCard 
-                                        key={subject._id} 
+                                        key={subject.id} 
                                         subject={subject} 
-                                        onNavigate={(subject) => handleClassNavigation(subject._id)} 
+                                        onNavigate={(subject) => handleClassNavigation(subject.id)} 
                                         onUpload={handleUploadClick} 
                                     />
                                 ))}

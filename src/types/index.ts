@@ -16,11 +16,17 @@ export type NotificationPriority = 'low' | 'medium' | 'high' | 'urgent';
 
 // User Interface - Represents a user in the system (student, teacher, admin)
 export interface User {
-  _id: string; // MongoDB's default ID
+  id: string;
+  email: string;
+  phoneNumber?: string;
   firstName: string;
   lastName: string;
-  email: string;
-  role: UserRole; // Derived from isAdmin/isTeacher fields on backend
+  username?: string;
+  roles?: string[];
+  isAdmin?: boolean;
+  isTeacher?: boolean;
+  role?: UserRole | string; // Derived from isAdmin/isTeacher fields on backend
+  studentId?: string;
   avatar?: string; // Optional avatar URL
   createdAt?: Date; // Mongoose timestamps
   updatedAt?: Date; // Mongoose timestamps
@@ -29,8 +35,7 @@ export interface User {
 
 // Student Interface - Represents a student profile
 export interface Student {
-  _id: string; // MongoDB's default ID
-  id: string; // The explicit 'id' field from your studentModel.js
+  id: string;
   firstName: string;
   lastName: string;
   email: string;
@@ -71,7 +76,7 @@ export interface Step {
 
 // NEW: Plan Interface - Represents a plan TEMPLATE (from planModel.js)
 export interface Plan {
-  _id: string;
+  id: string;
   name: string;
   description: string;
   progress: number; // This is the default progress for the template (likely 0)
@@ -90,7 +95,7 @@ export interface Plan {
 // DevelopmentPlan Interface - Represents a student's assigned, progress-tracked instance of a plan
 // This combines fields from Plan and StudentPlan models.
 export interface DevelopmentPlan {
-  _id: string; // The _id of the StudentPlan document
+  id: string;
   student: string; // Student ID (from StudentPlan)
   plan: Plan; // The populated Plan template (from StudentPlan.plan reference)
   startDate: Date; // From StudentPlan
@@ -133,7 +138,7 @@ export interface QuestionOption {
 
 // Question Interface - Represents a single question in an assessment
 export interface Question {
-  _id?: string;
+  id?: string;
   text: string;
   type: QuestionType;
   options?: QuestionOption[]; // For multiple choice questions
@@ -152,7 +157,7 @@ export interface Question {
 
 // Assessment Interface - Represents an assessment definition
 export interface Assessment {
-  _id: string;
+  id: string;
   name: string;
   description: string;
   type: AssessmentType;
@@ -164,15 +169,15 @@ export interface Assessment {
   isAIEnhanced?: boolean;
   questions: Question[] | string; // Can be array of questions or JSON string
   resource?: string; // ID of the linked resource/document
-  createdBy: string | { _id: string; firstName: string; lastName: string };
-  lastModifiedBy: string | { _id: string; firstName: string; lastName: string };
+  createdBy: string | { id: string; firstName: string; lastName: string };
+  lastModifiedBy: string | { id: string; firstName: string; lastName: string };
   createdAt?: Date;
   updatedAt?: Date;
 }
 
 // Result Interface - Represents a student's submission/result for an assessment
 export interface Result {
-  _id: string;
+  id: string;
   student: string; // Student ID
   assessment: string; // Assessment ID
   expectedMark: number;
@@ -188,7 +193,7 @@ export interface Result {
 export interface StudentAssessmentResult {
   assessment: Assessment; // The full assessment definition
   result: { // The student's specific result details
-    _id: string;
+    id: string;
     expectedMark: number;
     actualMark: number;
     grade: string;
@@ -201,9 +206,9 @@ export interface StudentAssessmentResult {
 
 // ChatMessage Interface - Represents a single message in a chat conversation
 export interface ChatMessage {
-  id: string; // Maps to _id from backend
+  id: string; // Maps to id from backend
   sender: { // Populated sender details from User model
-    _id: string;
+    id: string;
     firstName: string;
     lastName: string;
     avatar?: string; // Include if you populate avatar as well
@@ -219,7 +224,7 @@ export interface ChatMessage {
 
 // Resource Interface - Represents an uploaded file/resource
 export interface Resource {
-  id: string; // Maps to _id from backend
+  id: string;
   name: string;
   type: ResourceType;
   size: string; // Formatted string like "5.2 MB"
@@ -230,7 +235,7 @@ export interface Resource {
   classes: string[]; // Array of Subject IDs this resource is associated with
   downloads: number;
   uploadedBy?: { // Populated uploader details from User model
-    _id: string;
+    id: string;
     firstName: string;
     lastName: string;
   };
@@ -265,22 +270,23 @@ export interface ClassResource {
 
 // SubjectAttribute Interface - Represents a specific attribute defined for a subject
 export interface SubjectAttribute {
-  _id: string;
+  id: string;
   name: string;
   description: string;
   category: AttributeCategory;
   subjectId: string; // The ID of the subject this attribute belongs to
+  attributeId?: string;
   createdAt?: Date;
   updatedAt?: Date;
 }
 
 // Subject Interface - Represents a single subject
 export interface Subject {
-  _id: string;
+  id: string;
   code: string; // E.g., "HCC301"
   name: string; // E.g., "Network Security"
   description: string;
-  teacher: string | { _id: string; firstName: string; lastName: string; }; // Teacher ID or populated Teacher object
+  teacher: string | { id: string; firstName: string; lastName: string; }; // Teacher ID or populated Teacher object
   students?: string[]; // Array of student IDs enrolled
   resources?: string[]; // Array of resource IDs associated (if not using resourceCounts)
   resourceCounts?: { // Pre-calculated counts
@@ -298,7 +304,7 @@ export interface Subject {
 
 // Submission Interface - Represents a student's assignment submission
 export interface Submission {
-  _id: string;
+  id: string;
   student: string | Student;
   assessment: string | Assessment;
   submissionType: SubmissionType;
@@ -337,7 +343,7 @@ export interface Submission {
 
 // Notification Interface - Represents system notifications
 export interface Notification {
-  _id: string;
+  id: string;
   recipient: string | User;
   type: NotificationType;
   title: string;

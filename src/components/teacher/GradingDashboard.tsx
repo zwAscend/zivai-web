@@ -25,15 +25,14 @@ interface GradingStats {
 }
 
 interface PendingSubmission {
-  _id: string;
+  id: string;
   student: {
-    _id: string;
     id: string;
     firstName: string;
     lastName: string;
   };
   assessment: {
-    _id: string;
+    id: string;
     name: string;
     type: string;
     maxScore: number;
@@ -264,7 +263,7 @@ const GradingDashboard: React.FC = () => {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredSubmissions.map((submission) => (
-                  <tr key={submission._id} className="hover:bg-gray-50">
+                  <tr key={submission.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
                         <div className="text-sm font-medium text-gray-900">
@@ -302,7 +301,7 @@ const GradingDashboard: React.FC = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <button
-                        onClick={() => handleReviewSubmission(submission._id)}
+                        onClick={() => handleReviewSubmission(submission.id)}
                         className="text-blue-600 hover:text-blue-800 text-sm font-medium"
                       >
                         Review
