@@ -2,7 +2,6 @@ import React, { createContext, useContext, useState, ReactNode } from 'react';
 
 interface Subject {
   id: string;
-  _id?: string;
   code: string;
   name: string;
 }

@@ -98,7 +98,7 @@ const CalendarView: React.FC = () => {
         start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 9, 0),
         end: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 10, 30),
         type: 'lecture',
-        subjectId: subjects[0]?._id || 'subject1',
+        subjectId: subjects[0]?.id || 'subject1',
         subjectName: 'HCC301 - Network Security',
         location: 'Room 101',
         color: '#3b82f6',
@@ -115,7 +115,7 @@ const CalendarView: React.FC = () => {
         description: 'SQL Queries and Normalization Lab',
         start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 3, 23, 59),
         type: 'assignment_due',
-        subjectId: subjects[1]?._id || 'subject2',
+        subjectId: subjects[1]?.id || 'subject2',
         subjectName: 'HCC202 - Database Systems',
         allDay: true,
         color: '#ef4444',
@@ -149,7 +149,7 @@ const CalendarView: React.FC = () => {
         start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 10, 0),
         end: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 12, 0),
         type: 'exam',
-        subjectId: subjects[0]?._id || 'subject1',
+        subjectId: subjects[0]?.id || 'subject1',
         subjectName: 'HCC301 - Network Security',
         location: 'Main Hall',
         color: '#8b5cf6',
@@ -212,7 +212,7 @@ const CalendarView: React.FC = () => {
         allDay: eventData.allDay,
         type: eventData.type,
         subjectId: eventData.subjectId || undefined,
-        subjectName: eventData.subjectId ? subjects.find(c => c._id === eventData.subjectId)?.name : undefined,
+        subjectName: eventData.subjectId ? subjects.find(c => c.id === eventData.subjectId)?.name : undefined,
         location: eventData.location,
         recurring: eventData.recurring.enabled ? eventData.recurring : undefined,
         reminders: eventData.reminders,
@@ -250,7 +250,7 @@ const CalendarView: React.FC = () => {
         allDay: eventData.allDay,
         type: eventData.type,
         subjectId: eventData.subjectId || undefined,
-        subjectName: eventData.subjectId ? subjects.find(c => c._id === eventData.subjectId)?.name : undefined,
+        subjectName: eventData.subjectId ? subjects.find(c => c.id === eventData.subjectId)?.name : undefined,
         location: eventData.location,
         recurring: eventData.recurring.enabled ? eventData.recurring : undefined,
         reminders: eventData.reminders,
@@ -447,7 +447,7 @@ return (
             <SelectContent>
               <SelectItem value="all">All Subjects</SelectItem>
               {subjects.map((subject) => (
-                <SelectItem key={subject._id} value={subject._id}>
+                <SelectItem key={subject.id} value={subject.id}>
                   {subject.code}
                 </SelectItem>
               ))}

@@ -112,7 +112,7 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
       const updatedPlans = await developmentService.getAllPlansForStudent(studentId);
       setAllStudentDevelopmentPlans(updatedPlans);
 
-      const newPlanItem = updatedPlans.find((p: DevelopmentPlan) => p.plan._id === newPlan._id);
+      const newPlanItem = updatedPlans.find((p: DevelopmentPlan) => p.plan.id === newPlan.id);
       setCurrentDisplayPlan(newPlanItem || updatedPlans[0]);
       toast.success('Development plan created successfully');
     } catch (error) {
@@ -190,10 +190,10 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
           <div className="space-y-1">
             {allStudentDevelopmentPlans.map((planItem) => (
               <button
-                key={planItem._id}
+                key={planItem.id}
                 onClick={() => handlePlanSelect(planItem)}
                 className={`w-full p-1.5 rounded-lg text-[10px] font-medium transition-all duration-300 flex justify-between items-center
-                  ${planItem._id === currentDisplayPlan._id
+                  ${planItem.id === currentDisplayPlan.id
                     ? 'bg-cyan-500 text-white'
                     : 'bg-gray-100 text-gray-800 hover:bg-gray-200'}
                 `}
@@ -381,14 +381,14 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
         <h3 className="text-[10px] font-semibold text-gray-800 mb-1.5 px-1">Students</h3>
         <div className="space-y-1">
           {allStudents.map((s) => {
-            const studentPlan = allStudentDevelopmentPlans.find(plan => plan.student === s._id);
+            const studentPlan = allStudentDevelopmentPlans.find(plan => plan.student === s.id);
             
             return (
               <div
-                key={s._id}
-                onClick={() => handleStudentSelect(s._id)}
+                key={s.id}
+                onClick={() => handleStudentSelect(s.id)}
                 className={`cursor-pointer bg-white rounded p-1 shadow-sm transition-all duration-300 border 
-                  ${s._id === selectedStudent?._id
+                  ${s.id === selectedStudent?.id
                     ? 'border-cyan-500 ring-1 ring-cyan-300'
                     : 'hover:shadow-md hover:border-gray-300'}
                 `}

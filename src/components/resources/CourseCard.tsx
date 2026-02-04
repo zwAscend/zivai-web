@@ -3,7 +3,7 @@ import { FileText, Folder, MoreVertical, Upload } from 'lucide-react';
 
 interface SubjectCardProps {
   subject: {
-    _id: string;
+    id: string;
     name: string;
     code: string;
     resourceCount?: number;

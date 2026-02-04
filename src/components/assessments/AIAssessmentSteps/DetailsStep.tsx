@@ -350,11 +350,11 @@ export function DetailsStep({
           <div className="grid gap-3 max-h-60 overflow-y-auto p-1">
             {attributes.map((attribute) => (
               <button
-                key={attribute._id}
+                key={attribute.id}
                 type="button"
-                onClick={() => toggleAttribute(attribute._id)}
+                onClick={() => toggleAttribute(attribute.id)}
                 className={`p-4 rounded-lg border-2 text-left transition-all ${
-                  formData.selectedAttributes.includes(attribute._id)
+                  formData.selectedAttributes.includes(attribute.id)
                     ? 'border-indigo-500 bg-indigo-50'
                     : 'border-gray-200 hover:border-gray-300 hover:bg-gray-50'
                 }`}
@@ -370,11 +370,11 @@ export function DetailsStep({
                     <p className="text-sm text-gray-600">{attribute.description}</p>
                   </div>
                   <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${
-                    formData.selectedAttributes.includes(attribute._id)
+                    formData.selectedAttributes.includes(attribute.id)
                       ? 'border-indigo-500 bg-indigo-500'
                       : 'border-gray-300'
                   }`}>
-                    {formData.selectedAttributes.includes(attribute._id) && (
+                    {formData.selectedAttributes.includes(attribute.id) && (
                       <CheckCircle className="w-4 h-4 text-white" />
                     )}
                   </div>

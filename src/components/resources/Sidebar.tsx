@@ -5,9 +5,9 @@ import { clsx } from 'clsx';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface RecentUpload {
-    _id: string; name: string; type: string; createdAt: string;
-    subject: { _id: string; name: string; code?: string; };
-    uploadedBy: { _id: string; firstName: string; lastName: string; };
+    id: string; name: string; type: string; createdAt: string;
+    subject: { id: string; name: string; code?: string; };
+    uploadedBy: { id: string; firstName: string; lastName: string; };
 }
 
 interface SidebarProps {
@@ -85,7 +85,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onUploadClick, onCreateAssignment, re
           </h3>
           <div className="space-y-1">
             {recentUploads.length > 0 ? recentUploads.map(upload => (
-                <div key={upload._id} className={clsx("flex items-center gap-3 p-2.5 text-sm rounded-md", isCollapsed && "justify-center")} title={isCollapsed ? `${upload.name} in ${upload.subject.name}` : undefined}>
+                <div key={upload.id} className={clsx("flex items-center gap-3 p-2.5 text-sm rounded-md", isCollapsed && "justify-center")} title={isCollapsed ? `${upload.name} in ${upload.subject.name}` : undefined}>
                   <div className="flex-shrink-0">{getFileIcon(upload.type)}</div>
                   {!isCollapsed && (
                     <div className="min-w-0">

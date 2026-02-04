@@ -17,7 +17,7 @@ export const planningService = {
   /**
    * Generate a personalized development plan by calling the agent API
    */
-  async generateDevelopmentPlan(params: GeneratePlanParams): Promise<Omit<Plan, '_id'>> {
+  async generateDevelopmentPlan(params: GeneratePlanParams): Promise<Omit<Plan, 'id'>> {
     try {
       const { student, subjectId, subjectName, attributes, studentAttributes, targetScores } = params;
 
@@ -41,7 +41,7 @@ export const planningService = {
       const generatedPlan = await response.json();
 
       // The API returns the full plan, so we just return it
-      const { _id, ...planWithoutId } = generatedPlan;
+      const { id, ...planWithoutId } = generatedPlan;
       return planWithoutId;
     } catch (error) {
       console.error('Error generating development plan:', error);
@@ -60,7 +60,15 @@ export const planningService = {
     studentAttributes: StudentAttributes,
     targetScores: Record<string, number>
   ): any {
-    const attributeDetails = [];
+    type AttributeDetail = {
+      name: string;
+      currentScore: string;
+      potentialScore: string;
+      targetScore: string;
+      gap: string;
+      weight: string;
+    };
+    const attributeDetails: AttributeDetail[] = [];
     let currentWeightedScore = student.overall || 0;
 
     if (studentAttributes) {
@@ -83,7 +91,7 @@ export const planningService = {
         let attributeName = attributeId;
         if (attributes && Array.isArray(attributes)) {
           const matchingAttr = attributes.find(attr =>
-            attr.id === attributeId || attr._id === attributeId || attr.attributeId === attributeId
+            attr.id === attributeId || attr.attributeId === attributeId
           );
           if (matchingAttr && matchingAttr.name) {
             attributeName = matchingAttr.name;
@@ -103,7 +111,7 @@ export const planningService = {
           gap: `${gap}%`,
           weight: `${typeof attrData.weight === 'number' ? attrData.weight : 1}`
         };
-      }).filter(Boolean);
+      }).filter((attr): attr is AttributeDetail => attr !== null);
 
       attributeDetails.push(...processedAttributes);
       const totalWeight = attributeDetails.reduce((sum, attr) => sum + parseFloat(attr.weight), 0);

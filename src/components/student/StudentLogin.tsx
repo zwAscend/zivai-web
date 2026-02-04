@@ -27,7 +27,7 @@ const StudentLogin: React.FC<StudentLoginProps> = ({ onLogin }) => {
         const mockUser = {
           token: 'mock-student-token',
           user: {
-            _id: studentId,
+            id: studentId,
             studentId: studentId,
             role: 'student',
             firstName: 'Student',

@@ -322,7 +322,7 @@ const EventModal: React.FC<EventModalProps> = ({
                   <SelectContent>
                     <SelectItem value="none">No subject</SelectItem>
                     {subjects.map((subject, index) => {
-                      const subjectValue = subject._id || subject.id || subject.code || '';
+                      const subjectValue = subject.id || subject.code || '';
                       const subjectKey = `${subjectValue || 'subject'}-${index}`;
                       return (
                         <SelectItem key={subjectKey} value={subjectValue}>
@@ -490,7 +490,7 @@ const EventModal: React.FC<EventModalProps> = ({
                         )}
                         {formData.subjectId && (
                           <p className="text-xs text-blue-600 mt-2">
-                            {subjects.find(c => c._id === formData.subjectId)?.name}
+                            {subjects.find(c => c.id === formData.subjectId)?.name}
                           </p>
                         )}
                       </div>

@@ -6,10 +6,18 @@ import { TrendingUp, Award, Target, Zap, CheckCircle, Clock } from 'lucide-react
 
 interface StudentStatsProps {
   student: Student;
+  selectedSubjectId?: string;
 }
 
+type MetricCardProps = {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: React.ReactNode;
+  color: string;
+};
+
 // ✨ NEW: A more compact card for displaying a key metric.
-const MetricCard = ({ icon: Icon, label, value, color }) => (
+const MetricCard: React.FC<MetricCardProps> = ({ icon: Icon, label, value, color }) => (
   <div className="flex items-center p-4 bg-slate-50 rounded-xl">
     <div className={`flex-shrink-0 w-10 h-10 flex items-center justify-center rounded-lg mr-4 ${color}`}>
       <Icon className="w-5 h-5 text-white" />
@@ -21,15 +29,18 @@ const MetricCard = ({ icon: Icon, label, value, color }) => (
   </div>
 );
 
-const StudentStats: React.FC<StudentStatsProps> = ({ student }) => {
+const StudentStats: React.FC<StudentStatsProps> = ({ student, selectedSubjectId }) => {
   const [attributes, setAttributes] = useState<StudentAttributes | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchAttributes = async () => {
-      if (student.subjects && student.subjects.length > 0) {
+      const subjectId = selectedSubjectId && selectedSubjectId !== 'all'
+        ? selectedSubjectId
+        : student.subjects?.[0];
+      if (subjectId) {
         try {
-          const attrs = await developmentService.getStudentAttributes(student._id, student.subjects[0]);
+          const attrs = await developmentService.getStudentAttributes(student.id, subjectId);
           setAttributes(attrs);
         } catch (error) {
           console.error('Failed to fetch student attributes:', error);

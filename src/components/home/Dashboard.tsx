@@ -10,7 +10,7 @@ import { CalendarEvent, EventFormData } from '../../types/calendar';
 import { subjectService } from '../../services/api';
 
 interface Assessment {
-  _id: string;
+  id: string;
   name: string;
   description: string;
   type: string;
@@ -23,9 +23,8 @@ interface Assessment {
 }
 
 interface AssessmentResult {
-  _id: string;
+  id: string;
   student: {
-    _id: string;
     id: string;
     firstName: string;
     lastName: string;
@@ -41,7 +40,6 @@ interface AssessmentResult {
 }
 
 interface Student {
-  _id: string;
   id: string;
   firstName: string;
   lastName: string;
@@ -57,10 +55,10 @@ interface Student {
 }
 
 interface DevelopmentPlan {
-  _id: string;
+  id: string;
   student: string;
   plan: {
-    _id: string;
+    id: string;
     name: string;
     description: string;
     progress: number;
@@ -74,9 +72,9 @@ interface DevelopmentPlan {
         name: string;
         score: number;
         color: string;
-        _id: string;
+        id: string;
       }[];
-      _id: string;
+      id: string;
     }[];
     steps: {
       title: string;
@@ -103,10 +101,10 @@ interface StudentPerformance {
 }
 
 interface StudentAttribute {
-  _id: string;
+  id: string;
   student: string;
   attribute: {
-    _id: string;
+    id: string;
     name: string;
     description: string;
     category: string;
@@ -325,7 +323,7 @@ const Dashboard: React.FC = () => {
         allDay: eventData.allDay,
         type: eventData.type,
         subjectId: eventData.subjectId || undefined,
-        subjectName: eventData.subjectId ? subjects.find(c => c._id === eventData.subjectId)?.name : undefined,
+        subjectName: eventData.subjectId ? subjects.find(c => c.id === eventData.subjectId)?.name : undefined,
         location: eventData.location,
         color: '#3b82f6',
         backgroundColor: '#3b82f6',
@@ -382,15 +380,15 @@ const Dashboard: React.FC = () => {
           setLatestAssessment(latest);
           console.log("Latest assessment:", latest);
   
-          const results = await fetchAssessmentResults(latest._id);
+          const results = await fetchAssessmentResults(latest.id);
           console.log("Assessment results:", results);
   
           const subjectResults = results.filter(result => 
-            subjectStudents.some(student => student._id === result.student._id)
+            subjectStudents.some(student => student.id === result.student.id)
           );
   
           const performance: StudentPerformance[] = subjectResults.map(result => ({
-            studentId: result.student._id,
+            studentId: result.student.id,
             firstName: result.student.firstName,
             lastName: result.student.lastName,
             score: result.actualMark
@@ -409,13 +407,13 @@ const Dashboard: React.FC = () => {
           let developmentData: StudentDevelopment;
   
           if (student.activePlan) {
-            const developmentPlan = await fetchStudentDevelopmentPlan(student._id, selectedSubject.id);
+            const developmentPlan = await fetchStudentDevelopmentPlan(student.id, selectedSubject.id);
             if (developmentPlan && developmentPlan.status === 'Active') {
-              const attributes = await getStudentAttributes(student._id, selectedSubject.id, developmentPlan.plan.skills);
+              const attributes = await getStudentAttributes(student.id, selectedSubject.id, developmentPlan.plan.skills);
               const sessionsAvailable = Math.ceil(developmentPlan.plan.eta / 3);
   
               developmentData = {
-                studentId: student._id,
+                studentId: student.id,
                 firstName: student.firstName,
                 lastName: student.lastName,
                 overall: student.overall,
@@ -426,9 +424,9 @@ const Dashboard: React.FC = () => {
                 hasActivePlan: true
               };
             } else {
-              const attributes = await getStudentAttributes(student._id, selectedSubject.id);
+              const attributes = await getStudentAttributes(student.id, selectedSubject.id);
               developmentData = {
-                studentId: student._id,
+                studentId: student.id,
                 firstName: student.firstName,
                 lastName: student.lastName,
                 overall: student.overall,
@@ -440,9 +438,9 @@ const Dashboard: React.FC = () => {
               };
             }
           } else {
-            const attributes = await getStudentAttributes(student._id, selectedSubject.id);
+            const attributes = await getStudentAttributes(student.id, selectedSubject.id);
             developmentData = {
-              studentId: student._id,
+              studentId: student.id,
               firstName: student.firstName,
               lastName: student.lastName,
               overall: student.overall,

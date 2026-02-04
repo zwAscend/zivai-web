@@ -52,7 +52,7 @@ Format the response as a JSON array of question objects with the following struc
 
     // Format the response
     const formattedQuestions = questions.map((q: any, index: number) => ({
-      _id: `temp_${Date.now()}_${index}`,
+      id: `temp_${Date.now()}_${index}`,
       text: q.text,
       type: q.type || 'multiple_choice',
       options: q.options || [],

@@ -1,7 +1,6 @@
 // src/components/layout/Header.tsx
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { NavLink } from '../../types';
 import { Home, LayoutGrid, Mail, Calendar, LogOut, ChevronDown, X, Bell } from 'lucide-react';
 import { PieChart, Pie, Cell } from 'recharts';
 import { authService, notificationService, studentService } from '../../services/api';
@@ -15,12 +14,18 @@ interface HeaderProps {
   setActiveTab: (tab: string) => void;
 }
 
+interface NavLink {
+  name: string;
+  path: string;
+  active: boolean;
+  icon: 'home' | 'grid' | 'mail' | 'calendar';
+}
+
 const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
   const currentUser = authService.getCurrentUser();
   const navigate = useNavigate();
 
   interface Subject {
-    _id: string;
     id: string;
     code: string;
     name: string;
@@ -50,7 +55,7 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab }) => {
         if (response.data && Array.isArray(response.data)) {
           const subjectsWithIds = response.data.map(subject => ({
             ...subject,
-            id: subject.id || subject._id
+            id: subject.id
           }));
 
           setSubjects(subjectsWithIds);

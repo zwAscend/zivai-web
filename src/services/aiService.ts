@@ -2,7 +2,7 @@ import { fetchData } from './api';
 import { Assessment, SubjectAttribute, Question } from '../types';
 
 interface AttributeInput {
-  _id: string;
+  id: string;
   name: string;
   description?: string;
 }
@@ -104,7 +104,7 @@ export const aiService = {
         const attributes = await Promise.all(
           (params.attributes as string[]).map(attrId => 
             fetchData<SubjectAttribute>(`/api/subjects/attributes/${attrId}`)
-              .catch(() => ({ _id: attrId, name: `Attribute ${attrId}`, description: '' }))
+              .catch(() => ({ id: attrId, name: `Attribute ${attrId}`, description: '' }))
           )
         );
         attributeNames = attributes.map(attr => attr.name);
@@ -116,13 +116,13 @@ export const aiService = {
       } else {
         // If we already have objects with name property, just extract the names
         attributeNames = (params.attributes as any[]).map(attr => 
-          typeof attr === 'object' && attr !== null ? attr.name || `Attribute ${attr._id || 'unknown'}` : String(attr)
+          typeof attr === 'object' && attr !== null ? attr.name || `Attribute ${attr.id || 'unknown'}` : String(attr)
         );
         
         // Create attributes object for the API
         (params.attributes as any[]).forEach(attr => {
           if (typeof attr === 'object' && attr !== null) {
-            attributesObject[attr.name || attr._id] = attr.description || attr.name || attr._id;
+            attributesObject[attr.name || attr.id] = attr.description || attr.name || attr.id;
           }
         });
       }
@@ -181,7 +181,7 @@ export const aiService = {
       
       // Transform to match the expected Question type
       return generatedQuestions.map((q: any, index: number) => ({
-        _id: `temp_${Date.now()}_${index}`,
+        id: `temp_${Date.now()}_${index}`,
         text: q.text,
         type: q.type || 'multiple_choice',
         options: q.options || [],

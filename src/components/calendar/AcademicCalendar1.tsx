@@ -39,7 +39,7 @@ interface CalendarEvent {
 }
 
 interface Subject {
-  _id: string;
+  id: string;
   code: string;
   name: string;
 }
@@ -99,8 +99,8 @@ const AcademicCalendar: React.FC = () => {
         setLoading(true);
         // Mock subjects data
         const mockSubjects: Subject[] = [
-          { _id: 'hcc301', code: 'HCC301', name: 'Network Security' },
-          { _id: 'hcc401', code: 'HCC401', name: 'Advanced Networking' },
+          { id: 'hcc301', code: 'HCC301', name: 'Network Security' },
+          { id: 'hcc401', code: 'HCC401', name: 'Advanced Networking' },
         ];
         
         const eventsData = await loadMockEvents();
@@ -374,7 +374,7 @@ const AcademicCalendar: React.FC = () => {
               <SelectContent>
                 <SelectItem value="all">All Subjects</SelectItem>
                 {subjects.map((subject) => (
-                  <SelectItem key={subject._id} value={subject._id}>
+                  <SelectItem key={subject.id} value={subject.id}>
                     {subject.code} - {subject.name}
                   </SelectItem>
                 ))}
