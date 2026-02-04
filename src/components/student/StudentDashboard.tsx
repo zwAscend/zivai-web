@@ -123,7 +123,10 @@ const StudentDashboard: React.FC = () => {
 
         // Fetch subject data for each subject ID using a more efficient method if possible
         const fetchedSubjects = await Promise.all(
-          studentData?.subjects?.map(subjectId => subjectService.getSubjectById(subjectId)) || []
+          studentData?.subjects
+            ?.map(subject => typeof subject === 'string' ? subject : subject?.id)
+            .filter(Boolean)
+            .map(subjectId => subjectService.getSubjectById(subjectId)) || []
         );
         setSubjects(fetchedSubjects);
         console.log("this is all the subjects", fetchedSubjects);
