@@ -25,7 +25,7 @@ export interface CalendarEvent {
 }
 
 export type EventType = 
-  | 'lecture' 
+  | 'lesson' 
   | 'lab' 
   | 'assignment_due' 
   | 'exam' 
