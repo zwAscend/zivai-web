@@ -44,7 +44,7 @@ export interface Student {
   performance: string; // E.g., 'Excellent', 'Good', 'Needs Improvement'
   engagement: string; // E.g., 'High', 'Medium', 'Low'
   // References to other models
-  subjects?: string[]; // Array of Subject IDs the student is enrolled in
+  subjects?: Array<string | Subject>; // Array of Subject IDs or populated Subject objects
   activePlan?: DevelopmentPlan; // The student's currently active development plan (populated)
   attributes?: StudentAttributes; // Aggregated student attributes (transformed object)
   // Derived or aggregated fields (not directly from student model, but useful for frontend)
@@ -185,6 +185,7 @@ export interface Result {
   grade: string; // E.g., 'A+', 'B', 'Pass'
   feedback?: string; // Optional feedback
   submittedDate: Date;
+  externalAssessmentData?: any;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -310,6 +311,7 @@ export interface Submission {
   submissionType: SubmissionType;
   content: string; // File path, text content, or URL
   originalFileName?: string;
+  originalFilename?: string;
   fileSize?: number;
   mimeType?: string;
   submittedAt: Date;

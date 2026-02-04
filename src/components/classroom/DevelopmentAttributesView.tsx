@@ -30,8 +30,9 @@ const DevelopmentAttributesView: React.FC<DevelopmentAttributesViewProps> = ({ s
         setPlan(activePlan);
         // If the student is enrolled in subjects, use the first subject for attributes (or adjust as needed)
         const subjectId = student.subjects && student.subjects.length > 0 ? student.subjects[0] : null;
-        if (subjectId) {
-          const attrs = await developmentService.getStudentAttributes(studentId, subjectId);
+        const resolvedSubjectId = typeof subjectId === 'string' ? subjectId : subjectId?.id;
+        if (resolvedSubjectId) {
+          const attrs = await developmentService.getStudentAttributes(studentId, resolvedSubjectId);
           setAttributes(attrs);
         } else {
           setAttributes(null);

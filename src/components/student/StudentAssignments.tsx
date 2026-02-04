@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AlertCircle, Calendar, CheckCircle, Clock, FileText, Loader2, Upload, X, Eye } from 'lucide-react';
-import { Assessment, Result, Submission } from '../../types';
+import { Assessment, Result, Submission, SubmissionPayload, Student } from '../../types';
 import { Dialog } from '@headlessui/react';
 import { assessmentService, studentService, submissionService } from '../../services/api';
 import { externalAssessmentService } from '../../services/externalAssessmentService';
@@ -55,7 +55,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
         const [student, submissions] = await Promise.all([
           studentService.getStudent(studentId).catch(error => {
             console.error('Error fetching student:', error);
-            return { subjects: [] };
+            return null;
           }),
           submissionService.getStudentSubmissions(studentId).catch(error => {
             console.error('Error fetching submissions:', error);
@@ -68,7 +68,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
           if (selectedSubjectId && selectedSubjectId !== 'all') {
             return [selectedSubjectId];
           }
-          return (student.subjects || [])
+          return (student?.subjects || [])
             .map(subject => typeof subject === 'string' ? subject : subject?.id)
             .filter(Boolean) as string[];
         })();
