@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
-import { authService } from '../services/api';
+import { authService } from '../../services/api';
 
 // Zod schema for validation
 const userSchema = z.object({
