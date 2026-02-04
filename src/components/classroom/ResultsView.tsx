@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { Student, StudentAssessmentResult } from '../../types';
 import { User } from 'lucide-react';
 // Correctly import the service function
-import { assessmentService } from '../services/api'; // Adjust path if your api.ts is elsewhere
+import { assessmentService } from '../../services/api';
 
 interface ResultsViewProps {
   student: Student;
