@@ -9,6 +9,7 @@ import EventModal from '../calendar/EventModal';
 import { CalendarEvent, EventFormData } from '../../types/calendar';
 import { subjectService } from '../../services/api';
 import { calendarService } from '../../services/calendarService';
+import { authService } from '../../services/api';
 
 interface Assessment {
   id: string;
@@ -157,6 +158,7 @@ const fetchStudentAttributes = async (studentId: string, subjectId: string): Pro
 };
 
 const Dashboard: React.FC = () => {
+  const currentUser = authService.getCurrentUser();
   const navigate = useNavigate();
 
   const [currentStudentIndex, setCurrentStudentIndex] = useState(0);
@@ -324,7 +326,10 @@ const Dashboard: React.FC = () => {
 
   const handleCreateEvent = async (eventData: EventFormData) => {
     try {
-      const createdEvent = await calendarService.createEvent(eventData);
+      const createdEvent = await calendarService.createEvent({
+        ...eventData,
+        createdBy: currentUser?.id,
+      });
       const typeColors: Record<string, { color: string; border: string; background: string; text: string }> = {
         lesson: { color: '#3b82f6', background: '#3b82f6', border: '#2563eb', text: '#ffffff' },
         lab: { color: '#10b981', background: '#10b981', border: '#059669', text: '#ffffff' },

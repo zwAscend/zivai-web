@@ -54,6 +54,8 @@ export interface EventFormData {
     endDate: string;
   };
   reminders?: any;
+  createdBy?: string;
+  schoolId?: string;
 }
 
 export interface CalendarView {
