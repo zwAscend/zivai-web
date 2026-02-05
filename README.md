@@ -58,3 +58,13 @@ VITE_API_URL=http://localhost:5000/api
 ## Notes
 - UI/UX is not being altered in this phase; updates focus on naming, docs, and service wiring.
 - See `zivAI Documentation.md` for system architecture and design reference.
+
+## Recent frontend updates (admin portal)
+- **Admin management screens**: Users, Subjects, Classes, Edge Nodes.
+- **Edge nodes**: Create/Edit/Delete supported via `/api/admin/edge-nodes` (custom confirm dialog, toast notifications).
+- **Subjects**:
+  - Exam board selection now uses a dropdown (`ZIMSEC`, `CAMBRIDGE`).
+  - Grades/forms are selectable (Form 1–Form 6) and displayed in the subject table.
+- **UX**:
+  - Default browser confirms removed; custom admin confirmation dialogs used instead.
+  - Loading placeholders (skeletons) used in admin tables.

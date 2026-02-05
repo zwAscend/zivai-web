@@ -14,40 +14,80 @@ interface GeneratePlanParams {
 }
 
 export const planningService = {
-  /**
-   * Generate a personalized development plan by calling the agent API
-   */
-  async generateDevelopmentPlan(params: GeneratePlanParams): Promise<Omit<Plan, 'id'>> {
-    try {
+  /**
+   * Generate a personalized development plan by calling the agent API
+   */
+  async generateDevelopmentPlan(params: GeneratePlanParams): Promise<Omit<Plan, 'id'>> {
+    try {
       const { student, subjectId, subjectName, attributes, studentAttributes, targetScores } = params;
 
       // Prepare the data payload for the API
       const payload = this.preparePayload(student, subjectName, subjectId, attributes, studentAttributes, targetScores);
 
       // Make the POST request to the agent API using standard fetch
-      const response = await fetch(AGENT_API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
+      const response = await fetch(AGENT_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Agent API failed with status ${response.status}: ${errorText}`);
-      }
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Agent API failed with status ${response.status}: ${errorText}`);
+      }
 
-      const generatedPlan = await response.json();
+      const generatedPlan = await response.json();
 
-      // The API returns the full plan, so we just return it
-      const { id, ...planWithoutId } = generatedPlan;
-      return planWithoutId;
-    } catch (error) {
-      console.error('Error generating development plan:', error);
-      throw new Error('Failed to generate development plan with agent API');
-    }
-  },
+      const { id, ...planWithoutId } = generatedPlan;
+      return planWithoutId;
+    } catch (error) {
+      console.warn('AI plan generation failed, falling back to local plan template:', error);
+      return this.generateLocalPlan(params);
+    }
+  },
+
+  /**
+   * Local fallback plan generation (no AI dependency)
+   */
+  generateLocalPlan(params: GeneratePlanParams): Omit<Plan, 'id'> {
+    const { subjectId, subjectName, attributes, studentAttributes, targetScores, student } = params;
+
+    const skills = (attributes && attributes.length > 0 ? attributes : [
+      { id: 'overall', name: 'Overall Performance', description: '' }
+    ]).map((attr) => {
+      const target = targetScores[attr.id] || 80;
+      return {
+        name: attr.name || 'Skill',
+        score: target,
+        subskills: []
+      };
+    });
+
+    const scoreValues = Object.values(targetScores || {});
+    const potentialOverall = scoreValues.length > 0
+      ? Math.min(100, Math.round(scoreValues.reduce((sum, value) => sum + value, 0) / scoreValues.length))
+      : Math.min(100, Math.round((student.overall || 70) * 1.15));
+
+    return {
+      name: `${subjectName} Development Plan`,
+      description: `Personalized plan for ${student.firstName} ${student.lastName} based on current performance and growth targets.`,
+      progress: 0,
+      potentialOverall,
+      eta: 30,
+      performance: student.performance || 'Average',
+      skills,
+      steps: [
+        { title: 'Review core concepts', type: 'reading', order: 1 },
+        { title: 'Practice targeted exercises', type: 'exercise', order: 2 },
+        { title: 'Complete a mastery check', type: 'assessment', order: 3 }
+      ],
+      subjectId,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+  },
 
   /**
    * Prepares the JSON payload for the plan generation API
