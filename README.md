@@ -68,3 +68,8 @@ VITE_API_URL=http://localhost:5000/api
 - **UX**:
   - Default browser confirms removed; custom admin confirmation dialogs used instead.
   - Loading placeholders (skeletons) used in admin tables.
+
+## Recent frontend updates (LMS wiring)
+- **Development plans**: UI now consumes real `/api/development` endpoints; AI generation falls back to a local plan template if AI services are unavailable.
+- **Resources**: UI is wired to `/api/resources` (counts, recent, subject resources, upload/download).
+- **Calendar**: Events are created/updated via `/api/calendar/events` (backend resolves creator/school when not supplied).
