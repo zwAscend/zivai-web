@@ -72,11 +72,21 @@ const CalendarView: React.FC = () => {
     try {
       setLoading(true);
       const [eventsData, subjectsData] = await Promise.all([
-        loadMockEvents(), // Replace with calendarService.getEvents() when backend is ready
+        calendarService.getEvents().catch(() => []),
         subjectService.getSubjects().catch(() => [])
       ]);
+
+      const normalizedEvents = eventsData.map((event) => ({
+        ...event,
+        start: event.start ? new Date(event.start) : new Date(),
+        end: event.end ? new Date(event.end) : undefined,
+        color: event.color || getEventTypeColor(event.type),
+        backgroundColor: event.backgroundColor || getEventTypeColor(event.type),
+        borderColor: event.borderColor || getEventTypeBorderColor(event.type),
+        textColor: event.textColor || '#ffffff',
+      }));
       
-      setEvents(eventsData);
+      setEvents(normalizedEvents);
       setSubjects(subjectsData);
     } catch (error) {
       console.error('Error loading calendar data:', error);
@@ -84,82 +94,6 @@ const CalendarView: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
-
-  // Mock events for demonstration
-  const loadMockEvents = async (): Promise<CalendarEvent[]> => {
-    const now = new Date();
-    return [
-      {
-        id: '1',
-        title: 'Network Security Lesson',
-        description: 'Introduction to Firewalls and Intrusion Detection',
-        start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 9, 0),
-        end: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 10, 30),
-        type: 'lesson',
-        subjectId: subjects[0]?.id || 'subject1',
-        subjectName: 'HCC301 - Network Security',
-        location: 'Room 101',
-        color: '#3b82f6',
-        backgroundColor: '#3b82f6',
-        borderColor: '#2563eb',
-        textColor: '#ffffff',
-        createdBy: 'teacher1',
-        createdAt: now,
-        updatedAt: now,
-      },
-      {
-        id: '2',
-        title: 'Database Lab Assignment Due',
-        description: 'SQL Queries and Normalization Lab',
-        start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 3, 23, 59),
-        type: 'assignment_due',
-        subjectId: subjects[1]?.id || 'subject2',
-        subjectName: 'HCC202 - Database Systems',
-        allDay: true,
-        color: '#ef4444',
-        backgroundColor: '#ef4444',
-        borderColor: '#dc2626',
-        textColor: '#ffffff',
-        createdBy: 'teacher1',
-        createdAt: now,
-        updatedAt: now,
-      },
-      {
-        id: '3',
-        title: 'Office Hours',
-        description: 'Student consultations and Q&A',
-        start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 5, 14, 0),
-        end: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 5, 16, 0),
-        type: 'office_hours',
-        location: 'Office 205',
-        color: '#06b6d4',
-        backgroundColor: '#06b6d4',
-        borderColor: '#0891b2',
-        textColor: '#ffffff',
-        createdBy: 'teacher1',
-        createdAt: now,
-        updatedAt: now,
-      },
-      {
-        id: '4',
-        title: 'Mid-term Exam',
-        description: 'Comprehensive examination covering chapters 1-5',
-        start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 10, 0),
-        end: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 7, 12, 0),
-        type: 'exam',
-        subjectId: subjects[0]?.id || 'subject1',
-        subjectName: 'HCC301 - Network Security',
-        location: 'Main Hall',
-        color: '#8b5cf6',
-        backgroundColor: '#8b5cf6',
-        borderColor: '#7c3aed',
-        textColor: '#ffffff',
-        createdBy: 'teacher1',
-        createdAt: now,
-        updatedAt: now,
-      }
-    ];
   };
 
   // Event handlers
