@@ -9,9 +9,12 @@ import { Calendar as CalendarIcon, Plus, Download, Eye, EyeOff, ChevronLeft, Che
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
+import { calendarService } from '../../services/calendarService';
+import { subjectService } from '../../services/api';
+import { useToast } from '../ui/use-toast';
 
 // Define types locally to avoid import conflicts
-type EventType = 'lecture' | 'lab' | 'assignment_due' | 'exam' | 'quiz' | 'meeting' | 'office_hours' | 'workshop' | 'seminar' | 'presentation' | 'project_due' | 'holiday';
+type EventType = 'lesson' | 'lab' | 'assignment_due' | 'exam' | 'quiz' | 'meeting' | 'office_hours' | 'workshop' | 'seminar' | 'presentation' | 'project_due' | 'holiday';
 
 interface CalendarEvent {
   id: string;
@@ -58,7 +61,7 @@ const CALENDAR_VIEWS: CalendarViewOption[] = [
 ];
 
 const EVENT_TYPE_COLORS: Record<EventType, { bg: string; border: string; text: string }> = {
-  lecture: { bg: '#3b82f6', border: '#2563eb', text: '#ffffff' },
+  lesson: { bg: '#3b82f6', border: '#2563eb', text: '#ffffff' },
   lab: { bg: '#10b981', border: '#059669', text: '#ffffff' },
   assignment_due: { bg: '#ef4444', border: '#dc2626', text: '#ffffff' },
   exam: { bg: '#8b5cf6', border: '#7c3aed', text: '#ffffff' },
@@ -74,6 +77,7 @@ const EVENT_TYPE_COLORS: Record<EventType, { bg: string; border: string; text: s
 
 const AcademicCalendar: React.FC = () => {
   const calendarRef = useRef<FullCalendar>(null);
+  const { toast } = useToast();
   
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
@@ -86,27 +90,31 @@ const AcademicCalendar: React.FC = () => {
   const [filterType, setFilterType] = useState<EventType | 'all'>('all');
   const [hiddenEventTypes, setHiddenEventTypes] = useState<Set<EventType>>(new Set());
 
-  // Mock toast function - replace with your actual toast implementation
-  const toast = {
-    success: (message: string) => console.log('Success:', message),
-    error: (message: string) => console.log('Error:', message),
-  };
-
   // Load initial data
   useEffect(() => {
     const loadData = async () => {
       try {
         setLoading(true);
-        // Mock subjects data
-        const mockSubjects: Subject[] = [
-          { id: 'hcc301', code: 'HCC301', name: 'Network Security' },
-          { id: 'hcc401', code: 'HCC401', name: 'Advanced Networking' },
-        ];
-        
-        const eventsData = await loadMockEvents();
-        
-        setSubjects(mockSubjects);
-        setEvents(eventsData);
+        const [subjectsData, eventsData] = await Promise.all([
+          subjectService.getSubjects().catch(() => []),
+          calendarService.getEvents().catch(() => []),
+        ]);
+
+        const normalizedEvents = eventsData.map(event => {
+          const colors = EVENT_TYPE_COLORS[event.type as EventType];
+          return {
+            ...event,
+            start: new Date(event.start),
+            end: event.end ? new Date(event.end) : undefined,
+            color: event.color || colors?.bg,
+            backgroundColor: event.backgroundColor || colors?.bg,
+            borderColor: event.borderColor || colors?.border,
+            textColor: event.textColor || colors?.text,
+          };
+        });
+
+        setSubjects(subjectsData as Subject[]);
+        setEvents(normalizedEvents as CalendarEvent[]);
       } catch (error) {
         console.error('Error loading calendar data:', error);
         toast.error('Failed to load calendar data');
@@ -117,106 +125,6 @@ const AcademicCalendar: React.FC = () => {
 
     loadData();
   }, []);
-
-  // Mock events for demonstration
-  const loadMockEvents = async (): Promise<CalendarEvent[]> => {
-    const now = new Date();
-    const mockEvents: CalendarEvent[] = [
-      {
-        id: '1',
-        title: 'Network Security Lecture',
-        description: 'Introduction to Firewalls and Intrusion Detection',
-        start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 9, 0),
-        end: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 10, 30),
-        type: 'lecture',
-        subjectId: 'hcc301',
-        subjectName: 'HCC301 - Network Security',
-        location: 'Room 101',
-        color: EVENT_TYPE_COLORS.lecture.bg,
-        backgroundColor: EVENT_TYPE_COLORS.lecture.bg,
-        borderColor: EVENT_TYPE_COLORS.lecture.border,
-        textColor: EVENT_TYPE_COLORS.lecture.text,
-        createdBy: 'teacher1',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
-      {
-        id: '2',
-        title: 'OSPF Lab Session',
-        description: 'Hands-on OSPF configuration and troubleshooting',
-        start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2, 14, 0),
-        end: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 2, 16, 0),
-        type: 'lab',
-        subjectId: 'hcc301',
-        subjectName: 'HCC301 - Network Security',
-        location: 'Computer Lab 2',
-        color: EVENT_TYPE_COLORS.lab.bg,
-        backgroundColor: EVENT_TYPE_COLORS.lab.bg,
-        borderColor: EVENT_TYPE_COLORS.lab.border,
-        textColor: EVENT_TYPE_COLORS.lab.text,
-        createdBy: 'teacher1',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
-      {
-        id: '3',
-        title: 'Network Design Assignment Due',
-        description: 'Submit your network topology design',
-        start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 5, 23, 59),
-        type: 'assignment_due',
-        allDay: false,
-        subjectId: 'hcc301',
-        subjectName: 'HCC301 - Network Security',
-        color: EVENT_TYPE_COLORS.assignment_due.bg,
-        backgroundColor: EVENT_TYPE_COLORS.assignment_due.bg,
-        borderColor: EVENT_TYPE_COLORS.assignment_due.border,
-        textColor: EVENT_TYPE_COLORS.assignment_due.text,
-        createdBy: 'teacher1',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
-      {
-        id: '4',
-        title: 'Mid-term Exam',
-        description: 'Comprehensive networking exam covering chapters 1-5',
-        start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 10, 10, 0),
-        end: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 10, 12, 0),
-        type: 'exam',
-        subjectId: 'hcc301',
-        subjectName: 'HCC301 - Network Security',
-        location: 'Exam Hall A',
-        color: EVENT_TYPE_COLORS.exam.bg,
-        backgroundColor: EVENT_TYPE_COLORS.exam.bg,
-        borderColor: EVENT_TYPE_COLORS.exam.border,
-        textColor: EVENT_TYPE_COLORS.exam.text,
-        createdBy: 'teacher1',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
-      {
-        id: '5',
-        title: 'Office Hours',
-        description: 'Available for student consultations',
-        start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 3, 15, 0),
-        end: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 3, 17, 0),
-        type: 'office_hours',
-        location: 'Office 205',
-        color: EVENT_TYPE_COLORS.office_hours.bg,
-        backgroundColor: EVENT_TYPE_COLORS.office_hours.bg,
-        borderColor: EVENT_TYPE_COLORS.office_hours.border,
-        textColor: EVENT_TYPE_COLORS.office_hours.text,
-        recurring: {
-          frequency: 'weekly',
-          interval: 1,
-        },
-        createdBy: 'teacher1',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }
-    ];
-
-    return mockEvents;
-  };
 
   // Filter events based on selected filters
   const filteredEvents = events.filter(event => {

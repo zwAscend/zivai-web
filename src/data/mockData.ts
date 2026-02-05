@@ -498,7 +498,7 @@ Chairperson`
     id: '4',
     sender: 'Thabani Moyo',
     title: 'Trueeeeee',
-    preview: 'Hie sir, Do we have a lecture tod...',
+    preview: 'Hie sir, Do we have a lesson today...',
     time: '08:17',
     read: false
   },
@@ -540,7 +540,7 @@ export const upcomingActivities: UpcomingActivity[] = [
   {
     id: '1',
     subject: 'HCC301',
-    title: 'OSPF Lecturer',
+    title: 'OSPF Lesson',
     time: '09:00',
     link: 'https://us02web.zoom.us/j/12345678901'
   },
@@ -586,7 +586,7 @@ export const mockClasses: ClassResource[] = [
 ];
 
 export const mockQuickAccess: QuickAccessItem[] = [
-  { id: 'f1', name: 'Lecture Notes - Week 5', class: 'HCC301' },
+  { id: 'f1', name: 'Lesson Notes - Week 5', class: 'HCC301' },
   { id: 'f2', name: 'Lab Exercises', class: 'HCC302' },
   { id: 'f3', name: 'Project Templates', class: 'HCC303' },
   { id: 'f4', name: 'AI Assignment 2', class: 'HCC305' },
