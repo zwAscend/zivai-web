@@ -13,6 +13,7 @@ interface CalendarIntegrationProps {
 
 const CalendarIntegration: React.FC<CalendarIntegrationProps> = ({ onClose }) => {
   const { toast } = useToast();
+  const integrationsEnabled = import.meta.env.VITE_CALENDAR_INTEGRATIONS === 'true';
   const [integrations, setIntegrations] = useState({
     googleCalendar: { connected: false, email: '' },
     outlookCalendar: { connected: false, email: '' },
@@ -23,6 +24,10 @@ const CalendarIntegration: React.FC<CalendarIntegrationProps> = ({ onClose }) =>
 
   const handleConnect = async (provider: string) => {
     try {
+      if (!integrationsEnabled) {
+        toast.error('Calendar integrations are not enabled yet');
+        return;
+      }
       setSyncInProgress(true);
       
       // Simulate connection process
@@ -62,6 +67,10 @@ const CalendarIntegration: React.FC<CalendarIntegrationProps> = ({ onClose }) =>
 
   const handleSync = async () => {
     try {
+      if (!integrationsEnabled) {
+        toast.error('Calendar integrations are not enabled yet');
+        return;
+      }
       setSyncInProgress(true);
       
       // Simulate sync process
@@ -77,6 +86,10 @@ const CalendarIntegration: React.FC<CalendarIntegrationProps> = ({ onClose }) =>
   };
 
   const exportCalendar = () => {
+    if (!integrationsEnabled) {
+      toast.error('Calendar export is not enabled yet');
+      return;
+    }
     // Create ICS file content
     const icsContent = `BEGIN:VCALENDAR
 VERSION:2.0
@@ -87,7 +100,7 @@ BEGIN:VEVENT
 UID:sample-event@ems.edu
 DTSTART:20250325T090000Z
 DTEND:20250325T103000Z
-SUMMARY:Network Security Lecture
+SUMMARY:Network Security Lesson
 DESCRIPTION:Introduction to Firewalls and Intrusion Detection Systems
 LOCATION:Room 101
 END:VEVENT

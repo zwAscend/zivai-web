@@ -25,7 +25,7 @@ interface UpcomingEventsProps {
 }
 
 const EVENT_TYPE_ICONS: Record<EventType, string> = {
-  lecture: '📚',
+  lesson: '📚',
   lab: '🔬',
   assignment_due: '📝',
   exam: '📋',
@@ -58,88 +58,14 @@ const UpcomingEvents: React.FC<UpcomingEventsProps> = ({
   const loadUpcomingEvents = async () => {
     try {
       setLoading(true);
-      // For now, using mock data. In production, this would call the API
-      const mockEvents = await loadMockUpcomingEvents();
-      setEvents(mockEvents);
+      const upcoming = await calendarService.getUpcomingEvents(limit);
+      setEvents(upcoming);
     } catch (error) {
       console.error('Error loading upcoming events:', error);
       toast.error('Failed to load upcoming events');
     } finally {
       setLoading(false);
     }
-  };
-
-  const loadMockUpcomingEvents = async (): Promise<CalendarEvent[]> => {
-    const now = new Date();
-    return [
-      {
-        id: '1',
-        title: 'Network Security Lecture',
-        description: 'OSPF Routing Protocols',
-        start: new Date(now.getTime() + 2 * 60 * 60 * 1000), // 2 hours from now
-        end: new Date(now.getTime() + 3.5 * 60 * 60 * 1000),
-        type: 'lecture',
-        subjectId: 'hcc301',
-        subjectName: 'HCC301',
-        location: 'Room 101',
-        createdBy: 'teacher1',
-        createdAt: now,
-        updatedAt: now,
-      },
-      {
-        id: '2',
-        title: 'Lab Assignment Due',
-        description: 'VLAN Configuration Lab',
-        start: new Date(now.getTime() + 24 * 60 * 60 * 1000), // Tomorrow
-        type: 'assignment_due',
-        subjectId: 'hcc301',
-        subjectName: 'HCC301',
-        allDay: true,
-        createdBy: 'teacher1',
-        createdAt: now,
-        updatedAt: now,
-      },
-      {
-        id: '3',
-        title: 'Office Hours',
-        description: 'Student consultations',
-        start: new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000), // 3 days from now
-        end: new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000 + 2 * 60 * 60 * 1000),
-        type: 'office_hours',
-        location: 'Office 205',
-        createdBy: 'teacher1',
-        createdAt: now,
-        updatedAt: now,
-      },
-      {
-        id: '4',
-        title: 'Database Systems Quiz',
-        description: 'SQL Queries and Normalization',
-        start: new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000), // 5 days from now
-        end: new Date(now.getTime() + 5 * 24 * 60 * 60 * 1000 + 60 * 60 * 1000),
-        type: 'quiz',
-        subjectId: 'hcc202',
-        subjectName: 'HCC202',
-        location: 'Lab 3',
-        createdBy: 'teacher1',
-        createdAt: now,
-        updatedAt: now,
-      },
-      {
-        id: '5',
-        title: 'Project Presentation',
-        description: 'Final project presentations',
-        start: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000), // 1 week from now
-        end: new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000 + 3 * 60 * 60 * 1000),
-        type: 'presentation',
-        subjectId: 'hcc303',
-        subjectName: 'HCC303',
-        location: 'Auditorium',
-        createdBy: 'teacher1',
-        createdAt: now,
-        updatedAt: now,
-      }
-    ];
   };
 
   // Filter events based on selected filters
@@ -200,7 +126,7 @@ const UpcomingEvents: React.FC<UpcomingEventsProps> = ({
 
   const getEventTypeColor = (type: EventType) => {
     switch (type) {
-      case 'lecture': return 'bg-blue-100 text-blue-800';
+      case 'lesson': return 'bg-blue-100 text-blue-800';
       case 'lab': return 'bg-green-100 text-green-800';
       case 'assignment_due': return 'bg-red-100 text-red-800';
       case 'exam': return 'bg-purple-100 text-purple-800';

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
@@ -35,7 +35,7 @@ interface EventModalProps {
 }
 
 const EVENT_TYPES: { value: EventType; label: string; color: string; icon: string }[] = [
-  { value: 'lecture', label: 'Lecture', color: 'bg-blue-500', icon: '📚' },
+  { value: 'lesson', label: 'Lesson', color: 'bg-blue-500', icon: '📚' },
   { value: 'lab', label: 'Lab Session', color: 'bg-green-500', icon: '🔬' },
   { value: 'assignment_due', label: 'Assignment Due', color: 'bg-red-500', icon: '📝' },
   { value: 'exam', label: 'Exam', color: 'bg-purple-500', icon: '📋' },
@@ -66,7 +66,7 @@ const EventModal: React.FC<EventModalProps> = ({
     start: '',
     end: '',
     allDay: false,
-    type: 'lecture',
+    type: 'lesson',
     subjectId: '',
     location: '',
     recurring: {
@@ -198,7 +198,7 @@ const EventModal: React.FC<EventModalProps> = ({
 
   // Add this function to check if we should show preview
   const shouldShowPreview = () => {
-    return !!(formData.title || formData.location || formData.subjectId || formData.type !== 'lecture');
+    return !!(formData.title || formData.location || formData.subjectId || formData.type !== 'lesson');
   };
 
   return (
@@ -215,6 +215,9 @@ const EventModal: React.FC<EventModalProps> = ({
                 <DialogTitle className="text-2xl font-bold text-white">
                   {event ? 'Edit Event' : 'Create New Event'}
                 </DialogTitle>
+                <DialogDescription className="sr-only">
+                  Calendar event form
+                </DialogDescription>
                 <p className="text-blue-100 mt-1">
                   {event ? 'Update event details' : 'Add a new event to your calendar'}
                 </p>

@@ -60,7 +60,7 @@ const EventDetailsModal: React.FC<EventDetailsModalProps> = ({
 
   const getEventTypeColor = (type: string) => {
     switch (type) {
-      case 'lecture': return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'lesson': return 'bg-blue-100 text-blue-800 border-blue-200';
       case 'lab': return 'bg-green-100 text-green-800 border-green-200';
       case 'assignment_due': return 'bg-red-100 text-red-800 border-red-200';
       case 'exam': return 'bg-purple-100 text-purple-800 border-purple-200';

@@ -31,11 +31,11 @@ import { Badge } from '../ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { useToast } from '../ui/use-toast';
 
-type EventType = 'lecture' | 'lab' | 'assignment_due' | 'exam' | 'quiz' | 'meeting' | 'office_hours' | 'workshop' | 'seminar' | 'presentation' | 'project_due' | 'holiday';
+type EventType = 'lesson' | 'lab' | 'assignment_due' | 'exam' | 'quiz' | 'meeting' | 'office_hours' | 'workshop' | 'seminar' | 'presentation' | 'project_due' | 'holiday';
 
 // Define event types as a constant array for iteration
 const EVENT_TYPES: EventType[] = [
-  'lecture', 'lab', 'assignment_due', 'exam', 'quiz', 'meeting', 
+  'lesson', 'lab', 'assignment_due', 'exam', 'quiz', 'meeting', 
   'office_hours', 'workshop', 'seminar', 'presentation', 'project_due', 'holiday'
 ];
 
@@ -93,11 +93,11 @@ const CalendarView: React.FC = () => {
     return [
       {
         id: '1',
-        title: 'Network Security Lecture',
+        title: 'Network Security Lesson',
         description: 'Introduction to Firewalls and Intrusion Detection',
         start: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 9, 0),
         end: new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 10, 30),
-        type: 'lecture',
+        type: 'lesson',
         subjectId: subjects[0]?.id || 'subject1',
         subjectName: 'HCC301 - Network Security',
         location: 'Room 101',
@@ -189,9 +189,21 @@ const CalendarView: React.FC = () => {
     };
 
     try {
-      // Update in backend when ready
-      // await calendarService.updateEvent(event.id, updatedEvent);
-      
+      await calendarService.updateEvent(event.id, {
+        title: updatedEvent.title,
+        description: updatedEvent.description,
+        start: updatedEvent.start instanceof Date ? updatedEvent.start.toISOString() : String(updatedEvent.start),
+        end: updatedEvent.end
+          ? (updatedEvent.end instanceof Date ? updatedEvent.end.toISOString() : String(updatedEvent.end))
+          : '',
+        allDay: !!updatedEvent.allDay,
+        type: updatedEvent.type,
+        subjectId: updatedEvent.subjectId || '',
+        location: updatedEvent.location || '',
+        recurring: updatedEvent.recurring ? { ...updatedEvent.recurring } : { enabled: false, frequency: 'weekly', interval: 1, endDate: '' },
+        reminders: updatedEvent.reminders,
+      });
+
       setEvents(prev => prev.map(e => e.id === event.id ? updatedEvent : e));
       toast.success('Event updated successfully');
     } catch (error) {
@@ -203,32 +215,18 @@ const CalendarView: React.FC = () => {
 
   const handleCreateEvent = async (eventData: EventFormData) => {
     try {
-      const newEvent: CalendarEvent = {
-        id: `temp-${Date.now()}`,
-        title: eventData.title,
-        description: eventData.description,
-        start: new Date(eventData.start),
-        end: eventData.end ? new Date(eventData.end) : undefined,
-        allDay: eventData.allDay,
-        type: eventData.type,
-        subjectId: eventData.subjectId || undefined,
-        subjectName: eventData.subjectId ? subjects.find(c => c.id === eventData.subjectId)?.name : undefined,
-        location: eventData.location,
-        recurring: eventData.recurring.enabled ? eventData.recurring : undefined,
-        reminders: eventData.reminders,
-        color: getEventTypeColor(eventData.type),
-        backgroundColor: getEventTypeColor(eventData.type),
-        borderColor: getEventTypeBorderColor(eventData.type),
-        textColor: '#ffffff',
-        createdBy: 'current-user',
-        createdAt: new Date(),
-        updatedAt: new Date(),
+      const createdEvent = await calendarService.createEvent(eventData);
+      const normalizedEvent: CalendarEvent = {
+        ...createdEvent,
+        start: new Date(createdEvent.start),
+        end: createdEvent.end ? new Date(createdEvent.end) : undefined,
+        color: createdEvent.color || getEventTypeColor(createdEvent.type),
+        backgroundColor: createdEvent.backgroundColor || getEventTypeColor(createdEvent.type),
+        borderColor: createdEvent.borderColor || getEventTypeBorderColor(createdEvent.type),
+        textColor: createdEvent.textColor || '#ffffff',
       };
 
-      // Create in backend when ready
-      // const createdEvent = await calendarService.createEvent(eventData);
-      
-      setEvents(prev => [...prev, newEvent]);
+      setEvents(prev => [...prev, normalizedEvent]);
       setShowEventModal(false);
       toast.success('Event created successfully');
     } catch (error) {
@@ -260,9 +258,8 @@ const CalendarView: React.FC = () => {
         updatedAt: new Date(),
       };
 
-      // Update in backend when ready
-      // await calendarService.updateEvent(selectedEvent.id, eventData);
-      
+      await calendarService.updateEvent(selectedEvent.id, eventData);
+
       setEvents(prev => prev.map(e => e.id === selectedEvent.id ? updatedEvent : e));
       setShowEventModal(false);
       setShowDetailsModal(false);
@@ -275,9 +272,8 @@ const CalendarView: React.FC = () => {
 
   const handleDeleteEvent = async (eventId: string) => {
     try {
-      // Delete from backend when ready
-      // await calendarService.deleteEvent(eventId);
-      
+      await calendarService.deleteEvent(eventId);
+
       setEvents(prev => prev.filter(e => e.id !== eventId));
       setShowDetailsModal(false);
       toast.success('Event deleted successfully');
@@ -315,7 +311,7 @@ const CalendarView: React.FC = () => {
   // Event type colors
   const getEventTypeColor = (type: EventType): string => {
     const colors = {
-      lecture: '#3b82f6',
+      lesson: '#3b82f6',
       lab: '#10b981',
       assignment_due: '#ef4444',
       exam: '#8b5cf6',
@@ -333,7 +329,7 @@ const CalendarView: React.FC = () => {
 
   const getEventTypeBorderColor = (type: EventType): string => {
     const colors = {
-      lecture: '#2563eb',
+      lesson: '#2563eb',
       lab: '#059669',
       assignment_due: '#dc2626',
       exam: '#7c3aed',

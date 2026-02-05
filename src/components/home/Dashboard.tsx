@@ -8,6 +8,7 @@ import CalendarWidget from '../calendar/CalendarWidget';
 import EventModal from '../calendar/EventModal';
 import { CalendarEvent, EventFormData } from '../../types/calendar';
 import { subjectService } from '../../services/api';
+import { calendarService } from '../../services/calendarService';
 
 interface Assessment {
   id: string;
@@ -179,46 +180,48 @@ const Dashboard: React.FC = () => {
     loadSubjects();
   }, []);
 
-  // Mock calendar events
+  // Calendar events from API
   useEffect(() => {
-    const mockEvents: CalendarEvent[] = [
-      {
-        id: '1',
-        title: 'Network Security Lecture',
-        description: 'OSPF Routing Protocols',
-        start: new Date(Date.now() + 2 * 60 * 60 * 1000),
-        end: new Date(Date.now() + 3.5 * 60 * 60 * 1000),
-        type: 'lecture',
-        subjectId: selectedSubject?.id || 'subject1',
-        subjectName: selectedSubject?.name || 'Network Security',
-        location: 'Room 101',
-        color: '#3b82f6',
-        backgroundColor: '#3b82f6',
-        borderColor: '#2563eb',
-        textColor: '#ffffff',
-        createdBy: 'teacher1',
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
-      {
-        id: '2',
-        title: 'Assignment Due',
-        description: 'Network Configuration Lab',
-        start: new Date(Date.now() + 24 * 60 * 60 * 1000),
-        type: 'assignment_due',
-        subjectId: selectedSubject?.id || 'subject1',
-        subjectName: selectedSubject?.name || 'Network Security',
-        allDay: true,
-        color: '#ef4444',
-        backgroundColor: '#ef4444',
-        borderColor: '#dc2626',
-        textColor: '#ffffff',
-        createdBy: 'teacher1',
-        createdAt: new Date(),
-        updatedAt: new Date(),
+    const loadCalendarEvents = async () => {
+      try {
+        const events = await calendarService.getUpcomingEvents(10);
+        const filtered = selectedSubject?.id
+          ? events.filter(event => event.subjectId === selectedSubject.id)
+          : events;
+        const typeColors: Record<string, { color: string; border: string; background: string; text: string }> = {
+          lesson: { color: '#3b82f6', background: '#3b82f6', border: '#2563eb', text: '#ffffff' },
+          lab: { color: '#10b981', background: '#10b981', border: '#059669', text: '#ffffff' },
+          assignment_due: { color: '#ef4444', background: '#ef4444', border: '#dc2626', text: '#ffffff' },
+          exam: { color: '#8b5cf6', background: '#8b5cf6', border: '#7c3aed', text: '#ffffff' },
+          quiz: { color: '#f59e0b', background: '#f59e0b', border: '#d97706', text: '#ffffff' },
+          meeting: { color: '#6b7280', background: '#6b7280', border: '#4b5563', text: '#ffffff' },
+          office_hours: { color: '#06b6d4', background: '#06b6d4', border: '#0891b2', text: '#ffffff' },
+          workshop: { color: '#6366f1', background: '#6366f1', border: '#4f46e5', text: '#ffffff' },
+          seminar: { color: '#ec4899', background: '#ec4899', border: '#db2777', text: '#ffffff' },
+          presentation: { color: '#eab308', background: '#eab308', border: '#ca8a04', text: '#000000' },
+          project_due: { color: '#dc2626', background: '#dc2626', border: '#b91c1c', text: '#ffffff' },
+          holiday: { color: '#059669', background: '#059669', border: '#047857', text: '#ffffff' },
+        };
+
+        const normalized = filtered.map(event => {
+          const colors = typeColors[event.type];
+          return {
+            ...event,
+            color: event.color || colors?.color,
+            backgroundColor: event.backgroundColor || colors?.background,
+            borderColor: event.borderColor || colors?.border,
+            textColor: event.textColor || colors?.text,
+          };
+        });
+
+        setCalendarEvents(normalized);
+      } catch (error) {
+        console.error('Error loading calendar events:', error);
+        setCalendarEvents([]);
       }
-    ];
-    setCalendarEvents(mockEvents);
+    };
+
+    loadCalendarEvents();
   }, [selectedSubject]);
   
   const fetchStudentsBySubject = async (subjectId: string): Promise<Student[]> => {
@@ -314,27 +317,33 @@ const Dashboard: React.FC = () => {
 
   const handleCreateEvent = async (eventData: EventFormData) => {
     try {
-      const newEvent: CalendarEvent = {
-        id: `temp-${Date.now()}`,
-        title: eventData.title,
-        description: eventData.description,
-        start: new Date(eventData.start),
-        end: eventData.end ? new Date(eventData.end) : undefined,
-        allDay: eventData.allDay,
-        type: eventData.type,
-        subjectId: eventData.subjectId || undefined,
-        subjectName: eventData.subjectId ? subjects.find(c => c.id === eventData.subjectId)?.name : undefined,
-        location: eventData.location,
-        color: '#3b82f6',
-        backgroundColor: '#3b82f6',
-        borderColor: '#2563eb',
-        textColor: '#ffffff',
-        createdBy: 'current-user',
-        createdAt: new Date(),
-        updatedAt: new Date(),
+      const createdEvent = await calendarService.createEvent(eventData);
+      const typeColors: Record<string, { color: string; border: string; background: string; text: string }> = {
+        lesson: { color: '#3b82f6', background: '#3b82f6', border: '#2563eb', text: '#ffffff' },
+        lab: { color: '#10b981', background: '#10b981', border: '#059669', text: '#ffffff' },
+        assignment_due: { color: '#ef4444', background: '#ef4444', border: '#dc2626', text: '#ffffff' },
+        exam: { color: '#8b5cf6', background: '#8b5cf6', border: '#7c3aed', text: '#ffffff' },
+        quiz: { color: '#f59e0b', background: '#f59e0b', border: '#d97706', text: '#ffffff' },
+        meeting: { color: '#6b7280', background: '#6b7280', border: '#4b5563', text: '#ffffff' },
+        office_hours: { color: '#06b6d4', background: '#06b6d4', border: '#0891b2', text: '#ffffff' },
+        workshop: { color: '#6366f1', background: '#6366f1', border: '#4f46e5', text: '#ffffff' },
+        seminar: { color: '#ec4899', background: '#ec4899', border: '#db2777', text: '#ffffff' },
+        presentation: { color: '#eab308', background: '#eab308', border: '#ca8a04', text: '#000000' },
+        project_due: { color: '#dc2626', background: '#dc2626', border: '#b91c1c', text: '#ffffff' },
+        holiday: { color: '#059669', background: '#059669', border: '#047857', text: '#ffffff' },
+      };
+      const colors = typeColors[createdEvent.type] || typeColors.lesson;
+      const normalizedEvent: CalendarEvent = {
+        ...createdEvent,
+        start: new Date(createdEvent.start),
+        end: createdEvent.end ? new Date(createdEvent.end) : undefined,
+        color: createdEvent.color || colors.color,
+        backgroundColor: createdEvent.backgroundColor || colors.background,
+        borderColor: createdEvent.borderColor || colors.border,
+        textColor: createdEvent.textColor || colors.text,
       };
 
-      setCalendarEvents(prev => [...prev, newEvent]);
+      setCalendarEvents(prev => [...prev, normalizedEvent]);
       setShowEventModal(false);
       setSelectedDate(null);
     } catch (error) {
