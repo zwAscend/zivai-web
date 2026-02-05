@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'; 
+import { useState, useEffect } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import Dashboard from './components/home/Dashboard';
@@ -12,12 +12,23 @@ import MainLayout from './components/layout/MainLayout';
 import StudentDashboard from './components/student/StudentDashboard';
 import NotFound from './components/pages/NotFound';
 import DevelopmentPage from './pages/DevelopmentPage';
+import AdminUsersPage from './components/admin/pages/AdminUsersPage';
+import AdminDashboardPage from './components/admin/pages/AdminDashboardPage';
+import AdminSubjectsPage from './components/admin/pages/AdminSubjectsPage';
+import AdminClassesPage from './components/admin/pages/AdminClassesPage';
+import AdminEdgeNodesPage from './components/admin/pages/AdminEdgeNodesPage';
 
 function App() {
-  const [activeTab, setActiveTab] = useState('home');
+  const [activeTab, setActiveTab] = useState('dashboard');
   const [isAuthenticated, setIsAuthenticated] = useState(!!localStorage.getItem('token'));
   const navigate = useNavigate();
   const location = useLocation();
+
+  const userStr = localStorage.getItem('user');
+  const user = userStr ? JSON.parse(userStr) : null;
+  const isAdmin = !!user?.isAdmin || user?.role === 'admin';
+  const isTeacher = !!user?.isTeacher || user?.role === 'teacher';
+  const isStudent = user?.role === 'student' && !!user?.studentId;
 
   useEffect(() => {
     const handleStorageChange = () => {
@@ -33,6 +44,13 @@ function App() {
     }
   }, [isAuthenticated, location.pathname, navigate]);
 
+  useEffect(() => {
+    const normalized = location.pathname.replace(/^\//, '');
+    if (normalized) {
+      setActiveTab(normalized);
+    }
+  }, [location.pathname]);
+
   return (
     <AuthProvider>
       <Routes>
@@ -40,59 +58,47 @@ function App() {
           path="/login"
           element={
             isAuthenticated ? (
-              (() => {
-                const userStr = localStorage.getItem('user');
-                const user = userStr ? JSON.parse(userStr) : null;
-                const isAdmin = user?.isAdmin ?? false;
-                const isTeacher = user?.isTeacher ?? false;
-                const isStudent = user?.role === 'student' && !!user?.studentId;
-
-                if (isAdmin || isTeacher) {
-                  return <Navigate to="/dashboard" replace />;
-                } else if (isStudent) {
-                  return <Navigate to="/student/dashboard" replace />;
-                } else {
-                  // Default to main dashboard for users without a linked student profile
-                  return <Navigate to="/dashboard" replace />;
-                }
-              })()
+              isAdmin ? (
+                <Navigate to="/admin/dashboard" replace />
+              ) : isTeacher ? (
+                <Navigate to="/dashboard" replace />
+              ) : isStudent ? (
+                <Navigate to="/student/dashboard" replace />
+              ) : (
+                <Navigate to="/dashboard" replace />
+              )
             ) : (
-              <Login onLogin={() => {
-                setIsAuthenticated(true);
-                const userStr = localStorage.getItem('user');
-                const user = userStr ? JSON.parse(userStr) : null;
-                const isAdmin = user?.isAdmin ?? false;
-                const isTeacher = user?.isTeacher ?? false;
-                const isStudent = user?.role === 'student' && !!user?.studentId;
+              <Login
+                onLogin={() => {
+                  setIsAuthenticated(true);
+                  const latest = localStorage.getItem('user');
+                  const current = latest ? JSON.parse(latest) : null;
+                  const currentIsAdmin = !!current?.isAdmin || current?.role === 'admin';
+                  const currentIsTeacher = !!current?.isTeacher || current?.role === 'teacher';
+                  const currentIsStudent = current?.role === 'student' && !!current?.studentId;
 
-                if (isAdmin || isTeacher) {
-                  navigate('/dashboard', { replace: true });
-                } else if (isStudent) {
-                  navigate('/student/dashboard', { replace: true });
-                } else {
-                  navigate('/dashboard', { replace: true });
-                }
-              }} />
+                  if (currentIsAdmin) {
+                    navigate('/admin/dashboard', { replace: true });
+                  } else if (currentIsTeacher) {
+                    navigate('/dashboard', { replace: true });
+                  } else if (currentIsStudent) {
+                    navigate('/student/dashboard', { replace: true });
+                  } else {
+                    navigate('/dashboard', { replace: true });
+                  }
+                }}
+              />
             )
           }
         />
 
         <Route
           path="/student/dashboard"
-          element={
-            isAuthenticated ? (
-              <StudentDashboard />
-            ) : (
-              <Navigate to="/login" replace />
-            )
-          }
+          element={isAuthenticated && isStudent ? <StudentDashboard /> : <Navigate to="/login" replace />}
         />
 
-        {isAuthenticated && (
-          <Route
-            path="/"
-            element={<MainLayout activeTab={activeTab} setActiveTab={setActiveTab} />}
-          >
+        {isAuthenticated && !isAdmin && (
+          <Route path="/" element={<MainLayout activeTab={activeTab} setActiveTab={setActiveTab} portalType="teacher" />}>
             <Route index element={<Dashboard />} />
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="staffroom" element={<Inbox />} />
@@ -102,6 +108,21 @@ function App() {
             <Route path="resources" element={<ResourcesDashboard />} />
             <Route path="grading" element={<GradingDashboard />} />
           </Route>
+        )}
+
+        {isAuthenticated && isAdmin && (
+          <>
+            <Route path="/" element={<Navigate to="/admin/dashboard" replace />} />
+            <Route path="/dashboard" element={<Navigate to="/admin/dashboard" replace />} />
+            <Route path="/admin" element={<MainLayout activeTab={activeTab} setActiveTab={setActiveTab} portalType="admin" />}>
+              <Route index element={<Navigate to="/admin/dashboard" replace />} />
+              <Route path="dashboard" element={<AdminDashboardPage />} />
+              <Route path="users" element={<AdminUsersPage />} />
+              <Route path="subjects" element={<AdminSubjectsPage />} />
+              <Route path="classes" element={<AdminClassesPage />} />
+              <Route path="edge-nodes" element={<AdminEdgeNodesPage />} />
+            </Route>
+          </>
         )}
 
         <Route path="*" element={<NotFound />} />

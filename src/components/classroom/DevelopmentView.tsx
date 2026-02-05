@@ -122,7 +122,31 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
   };
 
   if (loading) {
-    return <div className="flex justify-center items-center h-full text-sm">Loading development data...</div>;
+    return (
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 h-[60vh] p-0">
+        <div className="lg:col-span-2 col-span-12 bg-white rounded-lg shadow p-2 space-y-2">
+          <h2 className="text-sm font-bold">Student</h2>
+          <div className="h-24 bg-slate-200 rounded animate-pulse" />
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="h-8 bg-slate-200 rounded animate-pulse" />
+          ))}
+        </div>
+        <div className="lg:col-span-7 col-span-12 bg-white rounded-lg shadow p-2">
+          <h2 className="text-sm font-bold mb-3">Development Plan</h2>
+          <div className="grid grid-cols-5 gap-2">
+            {Array.from({ length: 10 }).map((_, i) => (
+              <div key={i} className="h-24 bg-slate-200 rounded animate-pulse" />
+            ))}
+          </div>
+        </div>
+        <div className="lg:col-span-3 col-span-12 bg-white rounded-lg shadow p-2 space-y-2">
+          <h2 className="text-sm font-bold">Plan Steps</h2>
+          {Array.from({ length: 7 }).map((_, i) => (
+            <div key={i} className="h-10 bg-slate-200 rounded animate-pulse" />
+          ))}
+        </div>
+      </div>
+    );
   }
 
   if (error) {

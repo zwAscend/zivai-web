@@ -47,8 +47,38 @@ const DevelopmentAttributesView: React.FC<DevelopmentAttributesViewProps> = ({ s
   }, [student]);
 
   if (loading) {
-    // Reduced padding and font
-    return <div className="p-4 text-sm">Loading development data...</div>;
+    return (
+      <div className="bg-white rounded-lg shadow-md p-2 max-h-[400px] overflow-y-auto">
+        <div className="flex items-center mb-4 sticky top-0 bg-white z-10 p-2 border-b">
+          <div className="w-10 h-10 bg-black rounded-full flex items-center justify-center mr-3">
+            <User className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold">{student.firstName}</h2>
+            <p className="text-base">{student.lastName}</p>
+          </div>
+          <div className="ml-auto text-right">
+            <div className="text-xl font-bold">{student.overall}</div>
+            <div className="text-sm text-gray-500">OVR</div>
+          </div>
+        </div>
+        <div className="mb-2 border-t border-b py-2">
+          <div className="grid grid-cols-[120px_1fr] gap-2 items-center">
+            <div className="text-base font-semibold text-gray-700">Loading Plan...</div>
+            <div className="h-2 bg-slate-200 rounded animate-pulse" />
+          </div>
+        </div>
+        <div className="space-y-2">
+          <h3 className="text-base font-bold text-gray-700 mb-2">Attributes</h3>
+          {Array.from({ length: 6 }).map((_, index) => (
+            <div key={index} className="grid grid-cols-[150px_1fr] gap-2 items-center">
+              <div className="h-4 bg-slate-200 rounded animate-pulse" />
+              <div className="h-2 bg-slate-200 rounded animate-pulse" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   if (error) {

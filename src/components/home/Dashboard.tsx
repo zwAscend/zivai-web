@@ -142,7 +142,14 @@ const fetchStudentAttributes = async (studentId: string, subjectId: string): Pro
       `http://localhost:5000/api/development/attributes/student/${studentId}/subject/${subjectId}`,
       { headers: { Authorization: `Bearer ${token}` } }
     );
-    return response.data;
+    const payload = response.data;
+    if (Array.isArray(payload)) {
+      return payload as StudentAttribute[];
+    }
+    if (Array.isArray(payload?.data)) {
+      return payload.data as StudentAttribute[];
+    }
+    return [];
   } catch (error) {
     console.error('Error fetching student attributes:', error);
     return [];
@@ -295,11 +302,11 @@ const Dashboard: React.FC = () => {
     if (attributes.length < 6) {
       const studentAttributes = await fetchStudentAttributes(studentId, subjectId);
       const existingNames = new Set(attributes.map(attr => attr.name.toLowerCase()));
-      const additionalAttributes = studentAttributes
-        .filter(attr => !existingNames.has(attr.attribute.name.toLowerCase()))
+      const additionalAttributes = (Array.isArray(studentAttributes) ? studentAttributes : [])
+        .filter(attr => attr?.attribute?.name && !existingNames.has(attr.attribute.name.toLowerCase()))
         .map(attr => ({
           name: attr.attribute.name,
-          value: attr.current,
+          value: Number(attr.current) || 0,
         }))
         .sort((a, b) => a.value - b.value)
         .slice(0, 6 - attributes.length);
@@ -545,8 +552,17 @@ const Dashboard: React.FC = () => {
             <div className="bg-gray-50 p-4 rounded-lg shadow h-full flex flex-col">
               <h2 className="text-xl font-bold mb-4">STUDENT PERFORMANCE</h2>
               {loading ? (
-                <div className="flex-1 flex items-center justify-center">
-                  <p>Loading assessment data...</p>
+                <div className="flex-1 space-y-3">
+                  <div className="h-5 w-40 bg-slate-200 rounded animate-pulse" />
+                  {Array.from({ length: 6 }).map((_, index) => (
+                    <div key={index} className="flex items-center justify-between py-2 border-b border-gray-100">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-slate-200 animate-pulse" />
+                        <div className="h-4 w-28 bg-slate-200 rounded animate-pulse" />
+                      </div>
+                      <div className="h-4 w-10 bg-slate-200 rounded animate-pulse" />
+                    </div>
+                  ))}
                 </div>
               ) : latestAssessment ? (
                 <>
@@ -598,8 +614,24 @@ const Dashboard: React.FC = () => {
           >
             <h2 className="text-lg font-bold mb-2">STUDENT DEVELOPMENT</h2>
             {loading ? (
-              <div className="flex-1 flex items-center justify-center">
-                <p className="text-sm">Loading development data...</p>
+              <div className="space-y-3">
+                <div className="flex items-start gap-3">
+                  <div className="w-16 h-16 rounded-full bg-slate-200 animate-pulse" />
+                  <div className="space-y-2 flex-1">
+                    <div className="h-5 w-24 bg-slate-200 rounded animate-pulse" />
+                    <div className="h-4 w-32 bg-slate-200 rounded animate-pulse" />
+                    <div className="h-6 w-20 bg-slate-200 rounded animate-pulse" />
+                  </div>
+                </div>
+                <div className="h-2 w-full bg-slate-200 rounded animate-pulse" />
+                <div className="grid grid-cols-6 gap-2">
+                  {Array.from({ length: 6 }).map((_, index) => (
+                    <div key={index} className="space-y-1">
+                      <div className="h-3 w-full bg-slate-200 rounded animate-pulse" />
+                      <div className="h-5 w-6 bg-slate-200 rounded animate-pulse" />
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : studentsWithPlans.length > 0 ? (
               <AnimatePresence mode="wait">

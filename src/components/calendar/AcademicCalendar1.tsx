@@ -366,10 +366,19 @@ const AcademicCalendar: React.FC = () => {
       {/* Calendar */}
       <div className="flex-1 p-6 overflow-hidden">
         {loading ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mx-auto mb-4"></div>
-              <p className="text-gray-600">Loading calendar...</p>
+          <div className="h-full space-y-3">
+            <div className="grid grid-cols-7 gap-2">
+              {Array.from({ length: 7 }).map((_, i) => (
+                <div key={i} className="h-6 bg-slate-200 rounded animate-pulse" />
+              ))}
+            </div>
+            <div className="grid grid-cols-7 gap-2 h-[calc(100%-2.25rem)]">
+              {Array.from({ length: 35 }).map((_, i) => (
+                <div key={i} className="bg-slate-100 border border-slate-200 rounded p-1">
+                  <div className="h-3 w-6 bg-slate-200 rounded animate-pulse mb-1" />
+                  <div className="h-3 w-full bg-slate-200 rounded animate-pulse" />
+                </div>
+              ))}
             </div>
           </div>
         ) : (

@@ -79,8 +79,47 @@ const ResultsView: React.FC<ResultsViewProps> = ({ student }) => {
   }, [student.id]);
 
   if (loading) {
-    // Reduced padding
-    return <div className="p-4 text-sm">Loading results...</div>;
+    return (
+      <div className="bg-white rounded-lg shadow-lg p-2 max-h-[400px] overflow-y-auto">
+        <div className="flex items-center mb-4 sticky top-0 bg-white z-10 p-2 border-b">
+          <div className="w-10 h-10 bg-black rounded-full flex items-center justify-center mr-3">
+            <User className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold">{student.firstName}</h2>
+            <p className="text-base">{student.lastName}</p>
+          </div>
+          <div className="ml-auto">
+            <span className="text-xl font-bold">{student.overall}</span>
+            <span className="text-sm ml-2">OVR</span>
+          </div>
+        </div>
+
+        <div className="bg-gray-100 rounded-lg p-1">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left">
+                <th className="py-1.5 px-2">Assessment</th>
+                <th className="py-1.5 px-2">Expected Mark</th>
+                <th className="py-1.5 px-2">Actual Mark</th>
+                <th className="py-1.5 px-2">Grade</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: 7 }).map((_, index) => (
+                <tr key={index} className="border-t border-gray-200">
+                  {Array.from({ length: 4 }).map((__, colIndex) => (
+                    <td key={colIndex} className="py-1.5 px-2">
+                      <div className="h-4 bg-slate-200 rounded animate-pulse" />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
   }
 
   if (error || !results || results.length === 0) {

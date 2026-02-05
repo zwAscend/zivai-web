@@ -6,14 +6,15 @@ import Header from './Header';
 interface MainLayoutProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
+  portalType?: 'teacher' | 'admin';
   children?: ReactNode;
 }
 
-const MainLayout: React.FC<MainLayoutProps> = ({ activeTab, setActiveTab, children }) => {
+const MainLayout: React.FC<MainLayoutProps> = ({ activeTab, setActiveTab, portalType = 'teacher', children }) => {
   return (
     <div className="min-h-screen bg-blue-700 p-6">
       <div className="container mx-auto">
-        <Header activeTab={activeTab} setActiveTab={setActiveTab} />
+        <Header activeTab={activeTab} setActiveTab={setActiveTab} portalType={portalType} />
         <main className="animate-fadeIn">
           {children || <Outlet />}
         </main>

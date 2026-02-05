@@ -53,8 +53,34 @@ const StudentStats: React.FC<StudentStatsProps> = ({ student, selectedSubjectId 
 
   if (loading) {
     return (
-      <div className="text-center p-6 bg-white rounded-xl shadow-sm">
-        Loading statistics...
+      <div className="bg-white rounded-xl shadow-sm p-6">
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+          <div className="lg:col-span-2 space-y-6">
+            <div className="bg-blue-50 rounded-xl p-6 space-y-3">
+              <div className="h-6 w-40 bg-blue-100 rounded animate-pulse" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="h-16 bg-blue-100 rounded animate-pulse" />
+                ))}
+              </div>
+            </div>
+            <div className="bg-blue-50 rounded-xl p-6 space-y-2">
+              <div className="h-6 w-36 bg-blue-100 rounded animate-pulse" />
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="h-4 bg-blue-100 rounded animate-pulse" />
+              ))}
+            </div>
+          </div>
+          <div className="lg:col-span-3 bg-blue-50 rounded-xl p-6 space-y-3">
+            <div className="h-6 w-32 bg-blue-100 rounded animate-pulse" />
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="space-y-1">
+                <div className="h-4 w-44 bg-blue-100 rounded animate-pulse" />
+                <div className="h-2 bg-blue-100 rounded animate-pulse" />
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     );
   }

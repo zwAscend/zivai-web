@@ -419,7 +419,20 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
   if (loading) {
     return (
       <div className="bg-white rounded-lg shadow p-6">
-        <div className="text-center">Loading assignments...</div>
+        <div className="space-y-4">
+          <div className="h-7 w-40 bg-blue-100 rounded animate-pulse" />
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="bg-blue-50 rounded-lg p-4 space-y-2">
+              <div className="h-5 w-52 bg-blue-100 rounded animate-pulse" />
+              <div className="h-4 w-full bg-blue-100 rounded animate-pulse" />
+              <div className="grid grid-cols-3 gap-3">
+                <div className="h-4 bg-blue-100 rounded animate-pulse" />
+                <div className="h-4 bg-blue-100 rounded animate-pulse" />
+                <div className="h-4 bg-blue-100 rounded animate-pulse" />
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
@@ -603,7 +616,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
             {selectedFeedback?.assessment ? (
               <div className="space-y-4 max-h-[70vh] overflow-y-auto">
                 {/* Assessment Summary */}
-                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-lg border border-blue-200">
+                <div className="bg-gradient-to-r from-blue-50 to-blue-100 p-4 rounded-lg border border-blue-200">
                   <h4 className="font-medium text-blue-800 mb-3">Assessment Summary</h4>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                     <div className="text-center p-3 bg-white rounded-md shadow-sm">
@@ -726,31 +739,31 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
 
                 {/* Document Information */}
                 {(selectedFeedback.filename || selectedFeedback.module) && (
-                  <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-200">
-                    <h4 className="font-medium text-indigo-800 mb-2">Submission Information</h4>
+                  <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                    <h4 className="font-medium text-blue-800 mb-2">Submission Information</h4>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
                       {selectedFeedback.filename && (
                         <div>
-                          <span className="text-indigo-600 font-medium">File:</span>
-                          <p className="text-indigo-800">{selectedFeedback.filename}</p>
+                          <span className="text-blue-600 font-medium">File:</span>
+                          <p className="text-blue-800">{selectedFeedback.filename}</p>
                         </div>
                       )}
                       {selectedFeedback.module && (
                         <div>
-                          <span className="text-indigo-600 font-medium">Module:</span>
-                          <p className="text-indigo-800">{selectedFeedback.module}</p>
+                          <span className="text-blue-600 font-medium">Module:</span>
+                          <p className="text-blue-800">{selectedFeedback.module}</p>
                         </div>
                       )}
                       {selectedFeedback.content_type && (
                         <div>
-                          <span className="text-indigo-600 font-medium">File Type:</span>
-                          <p className="text-indigo-800">{selectedFeedback.content_type}</p>
+                          <span className="text-blue-600 font-medium">File Type:</span>
+                          <p className="text-blue-800">{selectedFeedback.content_type}</p>
                         </div>
                       )}
                       {selectedFeedback.pages && (
                         <div>
-                          <span className="text-indigo-600 font-medium">Pages:</span>
-                          <p className="text-indigo-800">{selectedFeedback.pages}</p>
+                          <span className="text-blue-600 font-medium">Pages:</span>
+                          <p className="text-blue-800">{selectedFeedback.pages}</p>
                         </div>
                       )}
                     </div>
