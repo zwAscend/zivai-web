@@ -21,7 +21,7 @@ import {
 import { CalendarEvent, EventFormData } from '../../types/calendar';
 import { Subject } from '../../types';
 import { calendarService } from '../../services/calendarService';
-import { subjectService } from '../../services/api';
+import { authService, subjectService } from '../../services/api';
 import EventModal from './EventModal';
 import EventDetailsModal from './EventDetailsModal';
 import CalendarIntegration from './CalendarIntegration';
@@ -40,6 +40,7 @@ const EVENT_TYPES: EventType[] = [
 
 const CalendarView: React.FC = () => {
   const { toast } = useToast();
+  const currentUser = authService.getCurrentUser();
   
   // Ref for FullCalendar API
   const calendarRef = useRef<FullCalendar>(null);
@@ -135,6 +136,7 @@ const CalendarView: React.FC = () => {
         location: updatedEvent.location || '',
         recurring: updatedEvent.recurring ? { ...updatedEvent.recurring } : { enabled: false, frequency: 'weekly', interval: 1, endDate: '' },
         reminders: updatedEvent.reminders,
+        createdBy: currentUser?.id,
       });
 
       setEvents(prev => prev.map(e => e.id === event.id ? updatedEvent : e));
@@ -148,7 +150,10 @@ const CalendarView: React.FC = () => {
 
   const handleCreateEvent = async (eventData: EventFormData) => {
     try {
-      const createdEvent = await calendarService.createEvent(eventData);
+      const createdEvent = await calendarService.createEvent({
+        ...eventData,
+        createdBy: currentUser?.id,
+      });
       const normalizedEvent: CalendarEvent = {
         ...createdEvent,
         start: new Date(createdEvent.start),
@@ -191,7 +196,10 @@ const CalendarView: React.FC = () => {
         updatedAt: new Date(),
       };
 
-      await calendarService.updateEvent(selectedEvent.id, eventData);
+      await calendarService.updateEvent(selectedEvent.id, {
+        ...eventData,
+        createdBy: currentUser?.id,
+      });
 
       setEvents(prev => prev.map(e => e.id === selectedEvent.id ? updatedEvent : e));
       setShowEventModal(false);
