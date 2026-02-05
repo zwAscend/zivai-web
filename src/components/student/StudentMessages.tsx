@@ -47,7 +47,15 @@ const StudentMessages: React.FC<StudentMessagesProps> = ({ studentId }) => {
   if (loading) {
     return (
       <div className="bg-white rounded-lg shadow p-6">
-        <div className="text-center">Loading messages...</div>
+        <div className="space-y-4">
+          <div className="h-6 w-44 bg-blue-100 rounded animate-pulse" />
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className={`flex ${i % 2 === 0 ? 'justify-start' : 'justify-end'}`}>
+              <div className="w-2/3 h-12 bg-blue-100 rounded-lg animate-pulse" />
+            </div>
+          ))}
+          <div className="h-10 bg-blue-100 rounded animate-pulse mt-2" />
+        </div>
       </div>
     );
   }

@@ -17,7 +17,6 @@ import {
   List,
   Clock,
   Eye,
-  Loader2
 } from 'lucide-react';
 import { CalendarEvent, EventFormData } from '../../types/calendar';
 import { Subject } from '../../types';
@@ -374,17 +373,6 @@ const CalendarView: React.FC = () => {
     setShowEventModal(true);
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-72 bg-white rounded-lg shadow">
-        <div className="text-center">
-          <Loader2 className="w-6 h-6 animate-spin text-blue-500 mx-auto mb-3" />
-          <p className="text-gray-600 text-sm">Loading calendar...</p>
-        </div>
-      </div>
-    );
-  }
-
   // New render function for event content to make text smaller
   const renderEventContent = (eventInfo: any) => {
     return (
@@ -494,51 +482,69 @@ return (
       {/* Calendar Area */}
       <main className="flex-1 overflow-hidden p-3">
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-3 h-full">
-          <FullCalendar
-            ref={calendarRef}
-            plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin, listPlugin]}
-            headerToolbar={false}
-            initialView={calendarView}
-            editable={true}
-            selectable={true}
-            selectMirror={true}
-            weekends={true}
-            events={calendarEvents}
-            select={handleDateClick}
-            eventClick={handleEventClick}
-            eventDrop={handleEventDrop}
-            eventResize={handleEventDrop}
-            datesSet={(arg) => setCalendarTitle(arg.view.title)}
-            eventDisplay="block"
-            displayEventTime={true}
-            eventTimeFormat={{
-              hour: 'numeric',
-              minute: '2-digit',
-              meridiem: 'short'
-            }}
-            slotLabelFormat={{
-              hour: 'numeric',
-              minute: '2-digit',
-              meridiem: 'short'
-            }}
-            dayHeaderFormat={{ weekday: 'short', day: 'numeric' }}
-            titleFormat={{ year: 'numeric', month: 'long' }}
-            eventClassNames="cursor-pointer hover:opacity-80 transition-opacity"
-            dayCellClassNames={() => 'text-xs p-1'}
-            slotMinTime="06:00:00"
-            slotMaxTime="22:00:00"
-            allDaySlot={true}
-            nowIndicator={true}
-            scrollTime="08:00:00"
-            eventOverlap={false}
-            slotEventOverlap={false}
-            
-            // --- Compact Props ---
-            height="100%"
-            dayMaxEvents={4}            // show up to 4 events per day before +n
-            dayMaxEventRows={4}       // limit event rows within each day cell
-            eventContent={renderEventContent}
-          />
+          {loading ? (
+            <div className="h-full space-y-3">
+              <div className="grid grid-cols-7 gap-2">
+                {Array.from({ length: 7 }).map((_, i) => (
+                  <div key={i} className="h-6 bg-slate-200 rounded animate-pulse" />
+                ))}
+              </div>
+              <div className="grid grid-cols-7 gap-2 h-[calc(100%-2.25rem)]">
+                {Array.from({ length: 35 }).map((_, i) => (
+                  <div key={i} className="bg-slate-100 border border-slate-200 rounded p-1">
+                    <div className="h-3 w-6 bg-slate-200 rounded animate-pulse mb-1" />
+                    <div className="h-3 w-full bg-slate-200 rounded animate-pulse" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <FullCalendar
+              ref={calendarRef}
+              plugins={[dayGridPlugin, timeGridPlugin, interactionPlugin, listPlugin]}
+              headerToolbar={false}
+              initialView={calendarView}
+              editable={true}
+              selectable={true}
+              selectMirror={true}
+              weekends={true}
+              events={calendarEvents}
+              select={handleDateClick}
+              eventClick={handleEventClick}
+              eventDrop={handleEventDrop}
+              eventResize={handleEventDrop}
+              datesSet={(arg) => setCalendarTitle(arg.view.title)}
+              eventDisplay="block"
+              displayEventTime={true}
+              eventTimeFormat={{
+                hour: 'numeric',
+                minute: '2-digit',
+                meridiem: 'short'
+              }}
+              slotLabelFormat={{
+                hour: 'numeric',
+                minute: '2-digit',
+                meridiem: 'short'
+              }}
+              dayHeaderFormat={{ weekday: 'short', day: 'numeric' }}
+              titleFormat={{ year: 'numeric', month: 'long' }}
+              eventClassNames="cursor-pointer hover:opacity-80 transition-opacity"
+              dayCellClassNames={() => 'text-xs p-1'}
+              slotMinTime="06:00:00"
+              slotMaxTime="22:00:00"
+              allDaySlot={true}
+              nowIndicator={true}
+              scrollTime="08:00:00"
+              eventOverlap={false}
+              slotEventOverlap={false}
+              
+              // --- Compact Props ---
+              height="100%"
+              dayMaxEvents={4}            // show up to 4 events per day before +n
+              dayMaxEventRows={4}       // limit event rows within each day cell
+              eventContent={renderEventContent}
+            />
+          )}
         </div>
       </main>
 

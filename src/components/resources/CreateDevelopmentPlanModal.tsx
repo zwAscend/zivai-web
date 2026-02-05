@@ -286,39 +286,52 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
                 <span className="text-red-500">*</span>
               </div>
 
-              <Select
-                value={selectedStudentId}
-                onValueChange={setSelectedStudentId}
-                disabled={isFetchingStudents || isGenerating}
-              >
-                <SelectTrigger className="w-full h-12">
-                  <SelectValue placeholder={
-                    isFetchingStudents ? 'Loading students...' : 'Choose a student...'
-                  } />
-                </SelectTrigger>
-                <SelectContent>
-                  {students.map((student) => (
-                    <SelectItem key={student.id} value={student.id}>
-                      <div className="flex items-center gap-3 py-1">
-                        <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
-                          <span className="text-xs font-medium text-gray-600">
-                            {student.firstName[0]}{student.lastName[0]}
-                          </span>
-                        </div>
-                        <div>
-                          <p className="font-medium">{student.firstName} {student.lastName}</p>
-                          <p className="text-xs text-gray-500">{student.id}</p>
-                        </div>
+              {isFetchingStudents ? (
+                <div className="border rounded-md p-3 space-y-2">
+                  <div className="h-5 w-36 bg-slate-200 rounded animate-pulse" />
+                  {Array.from({ length: 4 }).map((_, index) => (
+                    <div key={index} className="flex items-center gap-3">
+                      <div className="w-8 h-8 rounded-full bg-slate-200 animate-pulse" />
+                      <div className="space-y-1 flex-1">
+                        <div className="h-4 w-28 bg-slate-200 rounded animate-pulse" />
+                        <div className="h-3 w-20 bg-slate-200 rounded animate-pulse" />
                       </div>
-                    </SelectItem>
-                  ))}
-                  {students.length === 0 && !isFetchingStudents && (
-                    <div className="px-3 py-2 text-sm text-gray-500">
-                      No students available
                     </div>
-                  )}
-                </SelectContent>
-              </Select>
+                  ))}
+                </div>
+              ) : (
+                <Select
+                  value={selectedStudentId}
+                  onValueChange={setSelectedStudentId}
+                  disabled={isGenerating}
+                >
+                  <SelectTrigger className="w-full h-12">
+                    <SelectValue placeholder="Choose a student..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {students.map((student) => (
+                      <SelectItem key={student.id} value={student.id}>
+                        <div className="flex items-center gap-3 py-1">
+                          <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
+                            <span className="text-xs font-medium text-gray-600">
+                              {student.firstName[0]}{student.lastName[0]}
+                            </span>
+                          </div>
+                          <div>
+                            <p className="font-medium">{student.firstName} {student.lastName}</p>
+                            <p className="text-xs text-gray-500">{student.id}</p>
+                          </div>
+                        </div>
+                      </SelectItem>
+                    ))}
+                    {students.length === 0 && (
+                      <div className="px-3 py-2 text-sm text-gray-500">
+                        No students available
+                      </div>
+                    )}
+                  </SelectContent>
+                </Select>
+              )}
 
               {/* Selected Student Preview */}
               {selectedStudent && (

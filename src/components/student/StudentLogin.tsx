@@ -8,7 +8,7 @@ interface StudentLoginProps {
 }
 
 const StudentLogin: React.FC<StudentLoginProps> = ({ onLogin }) => {
-  const [studentId, setStudentId] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -20,28 +20,19 @@ const StudentLogin: React.FC<StudentLoginProps> = ({ onLogin }) => {
     setLoading(true);
 
     try {
-      // For demo purposes, we'll use a simple authentication
-      // In a real app, you'd have a proper student authentication endpoint
-      if (studentId && password) {
-        // Mock authentication - in reality, this would call your backend
-        const mockUser = {
-          token: 'mock-student-token',
-          user: {
-            id: studentId,
-            studentId: studentId,
-            role: 'student',
-            firstName: 'Student',
-            lastName: 'User'
-          }
-        };
-        
-        localStorage.setItem('token', mockUser.token);
-        localStorage.setItem('user', JSON.stringify(mockUser.user));
-        onLogin();
-        navigate('/student/dashboard');
-      } else {
-        setError('Please enter your student ID and password');
+      const response = await authService.login(email, password);
+      const user = response?.user as any;
+      const isStudent = user?.role === 'student' && !!user?.studentId;
+
+      if (!isStudent) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        setError('This account is not a student account.');
+        return;
       }
+
+      onLogin();
+      navigate('/student/dashboard');
     } catch (err: any) {
       setError(err.message || 'Login failed');
     } finally {
@@ -68,16 +59,14 @@ const StudentLogin: React.FC<StudentLoginProps> = ({ onLogin }) => {
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Student ID
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Student Email</label>
             <div className="relative">
               <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
               <input
-                type="text"
-                value={studentId}
-                onChange={(e) => setStudentId(e.target.value)}
-                placeholder="Enter your student ID (e.g., 000001)"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="Enter your student email"
                 className="w-full pl-10 pr-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 required
               />
@@ -85,9 +74,7 @@ const StudentLogin: React.FC<StudentLoginProps> = ({ onLogin }) => {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Password
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
             <div className="relative">
               <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
               <input
@@ -110,21 +97,13 @@ const StudentLogin: React.FC<StudentLoginProps> = ({ onLogin }) => {
           </button>
         </form>
 
-        <div className="mt-6 text-center">
-          <p className="text-sm text-gray-600">
-            Demo Student IDs: 000001, 000002, 000003
-          </p>
-          <p className="text-xs text-gray-500 mt-1">
-            Use any password for demo purposes
-          </p>
+        <div className="mt-6 text-center text-sm text-gray-600">
+          Use your school-managed student account credentials.
         </div>
 
         <div className="mt-6 text-center">
-          <a 
-            href="/login" 
-            className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-          >
-            Are you a teacher? Click here
+          <a href="/login" className="text-blue-600 hover:text-blue-800 text-sm font-medium">
+            Teacher/Admin login
           </a>
         </div>
       </div>

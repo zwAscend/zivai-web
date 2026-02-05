@@ -68,30 +68,30 @@ const StatCard: React.FC<StatCardProps> = ({ icon: Icon, title, value, color, ch
 const DashboardSkeleton = () => (
   <div className="flex">
     <div className="w-64 bg-white h-screen p-4">
-      <div className="h-10 bg-slate-200 rounded mb-8 animate-pulse"></div>
+      <div className="h-10 bg-blue-100 rounded mb-8 animate-pulse"></div>
       <div className="space-y-4">
         {[...Array(4)].map((_, i) => (
-          <div key={i} className="h-10 bg-slate-200 rounded animate-pulse"></div>
+          <div key={i} className="h-10 bg-blue-100 rounded animate-pulse"></div>
         ))}
       </div>
       <div className="absolute bottom-4 w-56">
-        <div className="h-12 bg-slate-200 rounded animate-pulse"></div>
+        <div className="h-12 bg-blue-100 rounded animate-pulse"></div>
       </div>
     </div>
     <div className="flex-1 p-8">
-      <div className="h-12 bg-slate-200 rounded mb-8 w-1/3 animate-pulse"></div>
+      <div className="h-12 bg-blue-100 rounded mb-8 w-1/3 animate-pulse"></div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
         {[...Array(3)].map((_, i) => (
-          <div key={i} className="h-36 bg-white rounded-2xl p-6 animate-pulse">
-            <div className="h-6 w-1/2 bg-slate-200 rounded mb-4"></div>
-            <div className="h-10 w-1/3 bg-slate-200 rounded"></div>
+          <div key={i} className="h-36 bg-blue-50 rounded-2xl p-6 animate-pulse">
+            <div className="h-6 w-1/2 bg-blue-100 rounded mb-4"></div>
+            <div className="h-10 w-1/3 bg-blue-100 rounded"></div>
           </div>
         ))}
       </div>
-      <div className="h-64 bg-white rounded-2xl p-6 animate-pulse">
-        <div className="h-8 w-1/4 bg-slate-200 rounded mb-6"></div>
-        <div className="h-10 w-full bg-slate-200 rounded mb-4"></div>
-        <div className="h-4 w-3/4 bg-slate-200 rounded"></div>
+      <div className="h-64 bg-blue-50 rounded-2xl p-6 animate-pulse">
+        <div className="h-8 w-1/4 bg-blue-100 rounded mb-6"></div>
+        <div className="h-10 w-full bg-blue-100 rounded mb-4"></div>
+        <div className="h-4 w-3/4 bg-blue-100 rounded"></div>
       </div>
     </div>
   </div>
@@ -229,17 +229,17 @@ const StudentDashboard: React.FC = () => {
                     <div className="flex items-center gap-4">
                       <div className="w-full bg-slate-200 rounded-full h-3">
                         <motion.div
-                          className="bg-indigo-600 h-3 rounded-full"
+                          className="bg-blue-600 h-3 rounded-full"
                           initial={{ width: 0 }}
                           animate={{ width: `${activePlan.currentProgress}%` }}
                           transition={{ duration: 1, ease: "easeOut" }}
                         />
                       </div>
-                      <span className="text-lg font-bold text-indigo-600">{activePlan.currentProgress}%</span>
+                      <span className="text-lg font-bold text-blue-600">{activePlan.currentProgress}%</span>
                     </div>
                     <button
                       onClick={() => setActiveView('plan')}
-                      className="mt-6 inline-flex items-center text-indigo-600 font-semibold hover:text-indigo-800 transition-colors"
+                      className="mt-6 inline-flex items-center text-blue-600 font-semibold hover:text-blue-800 transition-colors"
                     >
                       View Full Plan <ChevronRight className="w-4 h-4 ml-1" />
                     </button>
@@ -294,7 +294,7 @@ const StudentDashboard: React.FC = () => {
         <div>
           <h2 className="text-2xl font-bold text-red-600 mb-2">An Error Occurred</h2>
           <p className="text-slate-600 mb-6">{error || 'Student data could not be found.'}</p>
-          <button onClick={handleLogout} className="bg-indigo-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-indigo-700">
+          <button onClick={handleLogout} className="bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700">
             Return to Login
           </button>
         </div>
@@ -306,7 +306,7 @@ const StudentDashboard: React.FC = () => {
     <div className="min-h-screen bg-slate-100 flex">
       {/* Sidebar Navigation */}
       <aside className="w-64 bg-white shadow-md flex-shrink-0 flex flex-col">
-        <div className="p-6 text-2xl font-bold text-indigo-600 border-b border-slate-200">
+        <div className="p-6 text-2xl font-bold text-blue-600 border-b border-slate-200">
           Student Portal
         </div>
         <nav className="flex-grow p-4">
@@ -316,7 +316,7 @@ const StudentDashboard: React.FC = () => {
               onClick={() => setActiveView(key)}
               className={`w-full flex items-center px-4 py-3 my-1 rounded-lg text-left font-semibold transition-all duration-200 ${
                 activeView === key
-                  ? 'bg-indigo-600 text-white shadow-lg'
+                  ? 'bg-blue-600 text-white shadow-lg'
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-800'
               }`}
             >
@@ -350,7 +350,7 @@ const StudentDashboard: React.FC = () => {
               <select
                 value={selectedSubjectId}
                 onChange={(e) => setSelectedSubjectId(e.target.value)}
-                className="p-2 border border-slate-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
+                className="p-2 border border-slate-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
               >
                 <option value="all">All Subjects</option>
                 {subjects.map(subject => (

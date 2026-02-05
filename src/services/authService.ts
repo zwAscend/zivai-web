@@ -1,27 +1,11 @@
-import axios from 'axios';
-import { fetchData, API_URL } from './http';
+import { fetchData } from './http';
 import { User } from '../types';
 
 export const authService = {
   async login(email: string, password: string): Promise<{ token: string; user: User }> {
-    try {
-      const response = await axios.post<{ token: string; user: User }>(`${API_URL}/auth/login`, { email, password });
-      if (response.data?.token) {
-        localStorage.setItem('token', response.data.token);
-      }
-      if (response.data?.user) {
-        localStorage.setItem('user', JSON.stringify(response.data.user));
-      }
-      return response.data;
-    } catch (error: any) {
-      throw new Error(error.response?.data?.message || 'Login failed');
-    }
-  },
-
-  async register(userData: Partial<User>): Promise<{ token: string; user: User }> {
-    const data = await fetchData<{ token: string; user: User }>('/auth/register', {
+    const data = await fetchData<{ token: string; user: User }>('/auth/login', {
       method: 'POST',
-      body: JSON.stringify(userData),
+      body: JSON.stringify({ email, password }),
     });
 
     if (data?.token) {
@@ -32,6 +16,10 @@ export const authService = {
     }
 
     return data;
+  },
+
+  async register(_userData: Partial<User>): Promise<{ token: string; user: User }> {
+    throw new Error('Registration is not enabled yet. Contact your administrator.');
   },
 
   logout(): void {
