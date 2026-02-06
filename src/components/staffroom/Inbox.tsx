@@ -1,11 +1,172 @@
-import React, { useState } from 'react';
-import { Message } from '../../types';
-import { messages } from '../../data/mockData';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
+import { ChatMessage } from '../../types';
+import { authService, chatService, UnreadChatCount } from '../../services/api';
 import { Inbox as InboxIcon, Users } from 'lucide-react';
+import { getChatWsUrl } from '../../utils/ws';
+
+interface InboxMessage {
+  id: string;
+  sender: string;
+  title: string;
+  preview: string;
+  time: string;
+  read: boolean;
+  fullContent?: string;
+  studentId: string;
+}
 
 const Inbox: React.FC = () => {
   const [activeTab, setActiveTab] = useState('inbox');
-  const [selectedMessage, setSelectedMessage] = useState<Message | null>(messages[0]);
+  const [threads, setThreads] = useState<UnreadChatCount[]>([]);
+  const [selectedMessage, setSelectedMessage] = useState<InboxMessage | null>(null);
+  const [conversation, setConversation] = useState<ChatMessage[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [draftMessage, setDraftMessage] = useState('');
+  const [sending, setSending] = useState(false);
+  const socketRef = useRef<WebSocket | null>(null);
+  const currentUser = authService.getCurrentUser();
+  const wsUrl = useMemo(() => getChatWsUrl(), []);
+  const location = useLocation();
+  const preselectedStudentId = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get('studentId') || '';
+  }, [location.search]);
+
+  useEffect(() => {
+    const loadThreads = async () => {
+      try {
+        const data = await chatService.getUnreadCounts();
+        setThreads(data);
+        if (data.length > 0) {
+          const preferred = preselectedStudentId
+            ? data.find((thread) => thread.studentId === preselectedStudentId)
+            : undefined;
+          const first = preferred || data[0];
+          setSelectedMessage(toInboxMessage(first, []));
+        }
+      } catch (error) {
+        console.error('Failed to load chat threads:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadThreads();
+  }, [preselectedStudentId]);
+
+  useEffect(() => {
+    const loadMessages = async () => {
+      if (!selectedMessage) {
+        setConversation([]);
+        return;
+      }
+      try {
+        const messages = await chatService.getMessages(selectedMessage.studentId);
+        setConversation(messages);
+        const updated = toInboxMessage(
+          {
+            studentId: selectedMessage.studentId,
+            studentName: selectedMessage.sender,
+            unreadCount: selectedMessage.read ? 0 : 1,
+            lastMessage: messages[messages.length - 1]?.content,
+            lastMessageTime: messages[messages.length - 1]?.timestamp,
+          },
+          messages
+        );
+        setSelectedMessage(updated);
+      } catch (error) {
+        console.error('Failed to load messages:', error);
+      }
+    };
+    loadMessages();
+  }, [selectedMessage?.studentId]);
+
+  useEffect(() => {
+    if (!selectedMessage?.studentId || !wsUrl) {
+      return;
+    }
+
+    const socket = new WebSocket(`${wsUrl}?studentId=${selectedMessage.studentId}`);
+    socketRef.current = socket;
+
+    socket.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data) as ChatMessage;
+        setConversation((prev) => {
+          if (prev.some((message) => message.id === payload.id)) {
+            return prev;
+          }
+          return [...prev, payload];
+        });
+        setThreads((prev) =>
+          prev.map((thread) =>
+            thread.studentId === selectedMessage.studentId
+              ? {
+                  ...thread,
+                  lastMessage: payload.content,
+                  lastMessageTime: payload.timestamp,
+                  unreadCount: payload.isTeacher ? thread.unreadCount : thread.unreadCount + 1,
+                }
+              : thread
+          )
+        );
+      } catch (error) {
+        console.error('Failed to parse socket message:', error);
+      }
+    };
+
+    return () => {
+      socket.close();
+    };
+  }, [selectedMessage?.studentId, wsUrl]);
+
+  const toInboxMessage = (thread: UnreadChatCount, messages: ChatMessage[]): InboxMessage => {
+    const lastMessage = thread.lastMessage || messages[messages.length - 1]?.content || 'No messages yet.';
+    const lastTimeRaw = thread.lastMessageTime || messages[messages.length - 1]?.timestamp;
+    const time = lastTimeRaw ? new Date(lastTimeRaw).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    const fullContent = messages.length > 0
+      ? messages.map(msg => `${msg.sender.firstName} ${msg.sender.lastName}: ${msg.content}`).join('\n\n')
+      : undefined;
+
+    return {
+      id: thread.studentId,
+      studentId: thread.studentId,
+      sender: thread.studentName || 'Student',
+      title: lastMessage.length > 60 ? `${lastMessage.slice(0, 60)}...` : lastMessage,
+      preview: lastMessage,
+      time,
+      read: thread.unreadCount === 0,
+      fullContent,
+    };
+  };
+
+  const sortedConversation = [...conversation].sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  );
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedMessage || !draftMessage.trim() || sending) {
+      return;
+    }
+    setSending(true);
+    try {
+      const sent = await chatService.sendMessage(selectedMessage.studentId, draftMessage.trim(), currentUser?.id);
+      setConversation((prev) => [...prev, sent]);
+      setThreads((prev) =>
+        prev.map((thread) =>
+          thread.studentId === selectedMessage.studentId
+            ? { ...thread, lastMessage: sent.content, lastMessageTime: sent.timestamp }
+            : thread
+        )
+      );
+      setDraftMessage('');
+    } catch (error) {
+      console.error('Failed to send message:', error);
+    } finally {
+      setSending(false);
+    }
+  };
 
   return (
     <div className="flex h-[calc(100vh-180px)]">
@@ -33,7 +194,26 @@ const Inbox: React.FC = () => {
         </div>
 
         <div className="divide-y">
-          {messages.map((message) => (
+          {loading && (
+            <div className="p-4 space-y-4">
+              {Array.from({ length: 5 }).map((_, index) => (
+                <div key={index} className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-full bg-blue-100 animate-pulse" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-4 w-32 bg-blue-100 rounded animate-pulse" />
+                    <div className="h-3 w-40 bg-blue-100 rounded animate-pulse" />
+                    <div className="h-3 w-24 bg-blue-100 rounded animate-pulse" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {!loading && threads.length === 0 && (
+            <div className="p-4 text-sm text-gray-500">No messages yet.</div>
+          )}
+          {!loading && threads.map((thread) => {
+            const message = toInboxMessage(thread, []);
+            return (
             <div
               key={message.id}
               className={`p-4 hover:bg-gray-100 cursor-pointer ${
@@ -60,61 +240,77 @@ const Inbox: React.FC = () => {
                 </div>
               </div>
             </div>
-          ))}
+          )})}
         </div>
       </div>
 
-      {/* Right Side - Message Content */}
-      <div className="w-3/5 bg-white p-6 overflow-y-auto">
+      {/* Right Side - Chat Thread */}
+      <div className="w-3/5 bg-white p-6 flex flex-col">
+        {!selectedMessage && (
+          <div className="flex-1 flex items-center justify-center text-gray-500">
+            Select a conversation to start chatting.
+          </div>
+        )}
         {selectedMessage && (
           <>
-            <div className="flex mb-4 items-center">
-              <div className="w-12 h-12 bg-black rounded-full flex items-center justify-center mr-4">
-                <svg viewBox="0 0 24 24" width="24" height="24" stroke="white" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+            <div className="flex items-center border-b pb-4">
+              <div className="w-10 h-10 bg-black rounded-full flex items-center justify-center mr-3">
+                <svg viewBox="0 0 24 24" width="20" height="20" stroke="white" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
                   <circle cx="12" cy="7" r="4"></circle>
                 </svg>
               </div>
               <div>
-                <h3 className="text-lg font-semibold">{selectedMessage.sender === 'Eujin Blank' ? 'Eujin' : selectedMessage.sender}</h3>
-                <p className="text-gray-600">Blank</p>
+                <h3 className="text-lg font-semibold">{selectedMessage.sender}</h3>
+                <p className="text-sm text-gray-500">Student chat</p>
               </div>
-              <div className="ml-auto flex">
-                <button className="mx-2 text-gray-600">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                  </svg>
-                </button>
-                <button className="mx-2 text-gray-600">
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                  </svg>
-                </button>
+              <div className="ml-auto text-xs text-gray-400">
+                {wsUrl ? 'Live' : 'Offline'}
               </div>
             </div>
 
-            <div className="mb-6">
-              <h2 className="text-xl font-bold mb-4">{selectedMessage.title}</h2>
-              
-              {selectedMessage.fullContent ? (
-                <div className="whitespace-pre-line">
-                  {selectedMessage.fullContent.split('\n').map((line, i) => (
-                    <p key={i} className="mb-4">{line}</p>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-gray-700">{selectedMessage.preview}</p>
+            <div className="flex-1 overflow-y-auto py-4 space-y-3">
+              {sortedConversation.length === 0 && (
+                <div className="text-sm text-gray-500">No messages yet. Start the conversation.</div>
               )}
+              {sortedConversation.map((message) => {
+                const isOwn = message.sender?.id && currentUser?.id
+                  ? message.sender.id === currentUser.id
+                  : message.isTeacher === true;
+                return (
+                  <div key={message.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
+                    <div
+                      className={`max-w-[70%] rounded-2xl px-4 py-2 ${
+                        isOwn ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-800'
+                      }`}
+                    >
+                      <p className="text-sm whitespace-pre-line">{message.content}</p>
+                      <p className={`text-[10px] mt-1 ${isOwn ? 'text-blue-100' : 'text-gray-500'}`}>
+                        {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
-            <div className="flex gap-4 mt-12">
-              <button className="bg-blue-500 text-white rounded-md py-2 px-8 hover:bg-blue-600 transition-colors">
-                Reply
+            <form onSubmit={handleSendMessage} className="border-t pt-4 flex gap-2">
+              <input
+                type="text"
+                value={draftMessage}
+                onChange={(e) => setDraftMessage(e.target.value)}
+                placeholder="Type your message..."
+                className="flex-1 px-4 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={sending}
+              />
+              <button
+                type="submit"
+                disabled={!draftMessage.trim() || sending}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Send
               </button>
-              <button className="bg-blue-500 text-white rounded-md py-2 px-8 hover:bg-blue-600 transition-colors">
-                Forward
-              </button>
-            </div>
+            </form>
           </>
         )}
       </div>

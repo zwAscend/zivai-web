@@ -1,13 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { upcomingActivities, students as mockStudents } from '../../data/mockData';
 import { motion, AnimatePresence } from 'framer-motion';
 import CalendarWidget from '../calendar/CalendarWidget';
 import EventModal from '../calendar/EventModal';
 import { CalendarEvent, EventFormData } from '../../types/calendar';
-import { subjectService } from '../../services/api';
+import { assessmentService, chatService, developmentService, studentService, subjectService } from '../../services/api';
 import { calendarService } from '../../services/calendarService';
 import { authService } from '../../services/api';
 
@@ -138,17 +136,32 @@ interface StudentDevelopment {
 
 const fetchStudentAttributes = async (studentId: string, subjectId: string): Promise<StudentAttribute[]> => {
   try {
-    const token = localStorage.getItem('token');
-    const response = await axios.get(
-      `http://localhost:5000/api/development/attributes/student/${studentId}/subject/${subjectId}`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    const payload = response.data;
+    const payload = await developmentService.getStudentAttributes(studentId, subjectId);
     if (Array.isArray(payload)) {
       return payload as StudentAttribute[];
     }
-    if (Array.isArray(payload?.data)) {
-      return payload.data as StudentAttribute[];
+    if (payload && typeof payload === 'object') {
+      return Object.entries(payload).map(([attributeId, attributeData]) => {
+        const data = attributeData as any;
+        return {
+          id: attributeId,
+          student: studentId,
+          attribute: {
+            id: attributeId,
+            name: data?.name || attributeId,
+            description: data?.description || '',
+            category: data?.category || 'Core Concepts',
+            subjectId,
+            createdAt: data?.createdAt || '',
+            updatedAt: data?.updatedAt || ''
+          },
+          current: Number(data?.currentScore ?? data?.current ?? 0),
+          potential: Number(data?.potentialScore ?? data?.potential ?? 0),
+          lastAssessed: data?.lastAssessed || '',
+          createdAt: data?.createdAt || '',
+          updatedAt: data?.updatedAt || ''
+        };
+      });
     }
     return [];
   } catch (error) {
@@ -173,8 +186,7 @@ const Dashboard: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [subjects, setSubjects] = useState<any[]>([]);
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>([]);
-
-  const baseUrl = 'http://localhost:5000';
+  const [staffRoomItems, setStaffRoomItems] = useState<Array<{ id: string; name: string; preview: string; time: string; unread: boolean }>>([]);
 
   // Load subjects for calendar
   useEffect(() => {
@@ -232,14 +244,45 @@ const Dashboard: React.FC = () => {
 
     loadCalendarEvents();
   }, [selectedSubject]);
+
+  useEffect(() => {
+    const loadStaffRoom = async () => {
+      try {
+        const [threads, subjectStudents] = await Promise.all([
+          chatService.getUnreadCounts().catch(() => []),
+          selectedSubject?.id ? studentService.getStudents(selectedSubject.id).catch(() => []) : Promise.resolve([])
+        ]);
+
+        const allowedIds = selectedSubject?.id
+          ? new Set((subjectStudents || []).map(student => student.id))
+          : null;
+
+        const filteredThreads = allowedIds
+          ? threads.filter(thread => allowedIds.has(thread.studentId))
+          : threads;
+
+        const items = (filteredThreads || []).map((thread) => {
+          const time = thread.lastMessageTime ? new Date(thread.lastMessageTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+          return {
+            id: thread.studentId,
+            name: thread.studentName || 'Student',
+            preview: thread.lastMessage || 'No messages yet.',
+            time,
+            unread: thread.unreadCount > 0,
+          };
+        });
+        setStaffRoomItems(items);
+      } catch (error) {
+        console.error('Error loading staff room data:', error);
+        setStaffRoomItems([]);
+      }
+    };
+    loadStaffRoom();
+  }, [selectedSubject]);
   
   const fetchStudentsBySubject = async (subjectId: string): Promise<Student[]> => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${baseUrl}/api/students?subjectId=${subjectId}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      return response.data;
+      return await studentService.getStudents(subjectId);
     } catch (error) {
       console.error("Error fetching students:", error);
       return [];
@@ -248,11 +291,7 @@ const Dashboard: React.FC = () => {
 
   const fetchAssessmentsBySubject = async (subjectId: string): Promise<Assessment[]> => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${baseUrl}/api/assessments?subjectId=${subjectId}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      return response.data;
+      return await assessmentService.getAssessmentsBySubjectId(subjectId);
     } catch (error) {
       console.error("Error fetching assessments:", error);
       return [];
@@ -261,11 +300,7 @@ const Dashboard: React.FC = () => {
 
   const fetchAssessmentResults = async (assessmentId: string): Promise<AssessmentResult[]> => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${baseUrl}/api/assessments/${assessmentId}/results`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      return response.data;
+      return await assessmentService.getResults(assessmentId);
     } catch (error) {
       console.error("Error fetching assessment results:", error);
       return [];
@@ -274,11 +309,7 @@ const Dashboard: React.FC = () => {
 
   const fetchStudentDevelopmentPlan = async (studentId: string, subjectId: string): Promise<DevelopmentPlan | null> => {
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${baseUrl}/api/development/plans/student/${studentId}/subject/${subjectId}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-      return response.data;
+      return await developmentService.getStudentPlan(studentId, subjectId);
     } catch (error) {
       console.error("Error fetching development plan:", error);
       return null;
@@ -520,6 +551,7 @@ const Dashboard: React.FC = () => {
             events={calendarEvents}
             onDateSelect={handleDateSelect}
             onCreateEvent={handleDateSelect}
+            onEventClick={() => navigate('/calendar')}
             className="h-full"
           />
         </div>
@@ -531,8 +563,12 @@ const Dashboard: React.FC = () => {
             <div className="bg-gray-50 p-4 rounded-lg shadow h-full">
               <h2 className="text-xl font-bold mb-4">STAFF ROOM</h2>
               <div className="space-y-4">
-                {mockStudents.slice(0, 4).map((student, index) => (
-                  <div key={index} className="flex items-center pb-2 border-b">
+                {(staffRoomItems.length > 0 ? staffRoomItems.slice(0, 4) : []).map((student, index) => (
+                  <button
+                    key={index}
+                    onClick={() => navigate(`/staffroom?studentId=${student.id}`)}
+                    className="flex items-center pb-2 border-b w-full text-left hover:bg-gray-100 rounded-md px-2 -mx-2"
+                  >
                     <div className="w-10 h-10 bg-black rounded-full flex items-center justify-center mr-3">
                       <svg viewBox="0 0 24 24" width="20" height="20" stroke="white" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
@@ -540,14 +576,17 @@ const Dashboard: React.FC = () => {
                       </svg>
                     </div>
                     <div>
-                      <p className="font-medium">{student.firstName} {student.lastName}</p>
-                      <p className="text-xs text-gray-500">Good day sir, I can't see my...</p>
+                      <p className={`font-medium ${student.unread ? 'font-semibold' : ''}`}>{student.name}</p>
+                      <p className="text-xs text-gray-500">{student.preview}</p>
                     </div>
                     <div className="ml-auto text-xs text-gray-500">
-                      {['10:25', '09:55', '08:17', '07:48'][index]}
+                      {student.time}
                     </div>
-                  </div>
+                  </button>
                 ))}
+                {staffRoomItems.length === 0 && (
+                  <div className="text-sm text-gray-500">No messages yet.</div>
+                )}
               </div>
             </div>
           </div>
@@ -575,7 +614,11 @@ const Dashboard: React.FC = () => {
                   <div className="flex-1 overflow-y-auto max-h-96 pr-2">
                     {studentPerformance.length > 0 ? (
                       studentPerformance.map((student) => (
-                        <div key={student.studentId} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                        <button
+                          key={student.studentId}
+                          onClick={() => navigate(`/performance?studentId=${student.studentId}`)}
+                          className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0 w-full text-left hover:bg-gray-100 rounded-md px-2 -mx-2"
+                        >
                           <div className="flex items-center min-w-0">
                             <div className="w-8 h-8 bg-black rounded-full flex-shrink-0 flex items-center justify-center mr-3">
                               <svg viewBox="0 0 24 24" width="16" height="16" stroke="white" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
@@ -590,7 +633,7 @@ const Dashboard: React.FC = () => {
                           <div className="font-bold ml-2 whitespace-nowrap">
                             {student.score}%
                           </div>
-                        </div>
+                        </button>
                       ))
                     ) : (
                       <div className="text-center py-8 text-gray-500">
@@ -615,7 +658,7 @@ const Dashboard: React.FC = () => {
         <div className="flex-1 basis-[50%] overflow-auto">
           <div 
             className="bg-gray-50 p-3 rounded-lg shadow h-full cursor-pointer hover:bg-gray-100 transition-colors"
-            onClick={() => currentStudent && navigate(`/classroom/development/${currentStudent.studentId}`)}
+            onClick={() => currentStudent && navigate(`/development/${currentStudent.studentId}`)}
           >
             <h2 className="text-lg font-bold mb-2">STUDENT DEVELOPMENT</h2>
             {loading ? (

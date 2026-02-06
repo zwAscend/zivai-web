@@ -41,6 +41,7 @@ http://localhost:5173
 Create a `.env` file if you need to override API endpoints:
 ```
 VITE_API_URL=http://localhost:5000/api
+VITE_WS_URL=ws://localhost:5000/ws/chat
 ```
 
 ## Common endpoints used by the UI

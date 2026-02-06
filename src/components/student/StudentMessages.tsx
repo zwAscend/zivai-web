@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { ChatMessage } from '../../types';
 import { chatService } from '../../services/api';
 import { Send, MessageCircle } from 'lucide-react';
+import { getChatWsUrl } from '../../utils/ws';
 
 interface StudentMessagesProps {
   studentId: string;
@@ -12,6 +13,8 @@ const StudentMessages: React.FC<StudentMessagesProps> = ({ studentId }) => {
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const wsUrl = useMemo(() => getChatWsUrl(), []);
+  const socketRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     const fetchMessages = async () => {
@@ -27,6 +30,33 @@ const StudentMessages: React.FC<StudentMessagesProps> = ({ studentId }) => {
 
     fetchMessages();
   }, [studentId]);
+
+  useEffect(() => {
+    if (!studentId || !wsUrl) {
+      return;
+    }
+
+    const socket = new WebSocket(`${wsUrl}?studentId=${studentId}`);
+    socketRef.current = socket;
+
+    socket.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data) as ChatMessage;
+        setMessages((prev) => {
+          if (prev.some((message) => message.id === payload.id)) {
+            return prev;
+          }
+          return [...prev, payload];
+        });
+      } catch (error) {
+        console.error('Failed to parse socket message:', error);
+      }
+    };
+
+    return () => {
+      socket.close();
+    };
+  }, [studentId, wsUrl]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
