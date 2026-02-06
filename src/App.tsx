@@ -14,6 +14,7 @@ import NotFound from './components/pages/NotFound';
 import DevelopmentPage from './pages/DevelopmentPage';
 import DevelopmentOverviewPage from './pages/DevelopmentOverviewPage';
 import PerformancePage from './pages/PerformancePage';
+import TeacherStudentsPage from './pages/TeacherStudentsPage';
 import AdminUsersPage from './components/admin/pages/AdminUsersPage';
 import AdminDashboardPage from './components/admin/pages/AdminDashboardPage';
 import AdminSubjectsPage from './components/admin/pages/AdminSubjectsPage';
@@ -106,6 +107,8 @@ function App() {
             <Route path="staffroom" element={<Inbox />} />
             <Route path="calendar" element={<CalendarView />} />
             <Route path="classroom" element={<ClassroomView />} />
+            <Route path="students" element={<TeacherStudentsPage />} />
+            <Route path="assessments" element={<ResourcesDashboard />} />
             <Route path="performance" element={<PerformancePage />} />
             <Route path="development" element={<DevelopmentOverviewPage />} />
             <Route path="development/:studentId" element={<DevelopmentPage />} />

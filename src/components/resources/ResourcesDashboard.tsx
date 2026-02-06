@@ -142,7 +142,49 @@ const ResourcesDashboard: React.FC = () => {
     );
 
     if (loading) {
-        return <div className="flex h-screen items-center justify-center">Loading Dashboard...</div>;
+        return (
+            <div className="flex h-screen bg-slate-50 text-slate-900">
+                <div className="w-72 bg-white border-r border-slate-200 p-6 space-y-6">
+                    <div className="h-10 bg-slate-200 rounded animate-pulse" />
+                    <div className="space-y-3">
+                        {Array.from({ length: 4 }).map((_, index) => (
+                            <div key={index} className="h-10 bg-slate-200 rounded animate-pulse" />
+                        ))}
+                    </div>
+                    <div className="space-y-2">
+                        <div className="h-4 w-24 bg-slate-200 rounded animate-pulse" />
+                        {Array.from({ length: 5 }).map((_, index) => (
+                            <div key={index} className="h-8 bg-slate-200 rounded animate-pulse" />
+                        ))}
+                    </div>
+                </div>
+                <main className="flex-1 p-8 overflow-y-auto">
+                    <div className="flex justify-between items-center mb-8">
+                        <div className="flex items-center gap-4">
+                            <div className="h-10 w-10 rounded-full bg-slate-200 animate-pulse" />
+                            <div className="h-8 w-40 bg-slate-200 rounded animate-pulse" />
+                        </div>
+                        <div className="h-10 w-28 bg-slate-200 rounded animate-pulse" />
+                    </div>
+                    <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+                        <div className="xl:col-span-2 space-y-6">
+                            <div className="h-12 bg-slate-200 rounded animate-pulse" />
+                            <div className="h-6 w-40 bg-slate-200 rounded animate-pulse" />
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {Array.from({ length: 4 }).map((_, index) => (
+                                    <div key={index} className="h-36 bg-slate-200 rounded-lg animate-pulse" />
+                                ))}
+                            </div>
+                        </div>
+                        <div className="space-y-6">
+                            <div className="h-24 bg-slate-200 rounded-lg animate-pulse" />
+                            <div className="h-24 bg-slate-200 rounded-lg animate-pulse" />
+                            <div className="h-24 bg-slate-200 rounded-lg animate-pulse" />
+                        </div>
+                    </div>
+                </main>
+            </div>
+        );
     }
 
     if (selectedClass) {
