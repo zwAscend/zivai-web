@@ -15,7 +15,7 @@ interface AssessmentResult {
   difference: number;
 }
 
-const StudentResults: React.FC<StudentResultsProps> = ({ studentId }) => {
+const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubjectId }) => {
   const [results, setResults] = useState<AssessmentResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPeriod, setSelectedPeriod] = useState<'all' | 'semester' | 'month'>('all');
@@ -24,121 +24,55 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId }) => {
   useEffect(() => {
     const fetchResults = async () => {
       try {
-        // Mock data for demonstration - in real app, this would come from the API
-        const mockResults: AssessmentResult[] = [
-          {
-            assessment: {
-              id: '1',
-              name: 'Network Fundamentals Quiz',
-              description: 'Basic networking concepts',
-              type: 'Test',
-              maxScore: 50,
-              weight: 15,
-              dueDate: new Date('2024-01-15'),
-            },
-            result: {
-              id: 'r1',
-              student: studentId,
-              assessment: '1',
-              expectedMark: 35,
-              actualMark: 42,
-              grade: 'B+',
-              feedback: 'Good understanding of basic concepts',
-              submittedDate: new Date('2024-01-14'),
-            },
-            difference: 7
-          },
-          {
-            assessment: {
-              id: '2',
-              name: 'OSPF Configuration Lab',
-              description: 'Hands-on OSPF routing configuration',
-              type: 'Assignment',
-              maxScore: 100,
-              weight: 25,
-              dueDate: new Date('2024-01-22'),
-            },
-            result: {
-              id: 'r2',
-              student: studentId,
-              assessment: '2',
-              expectedMark: 75,
-              actualMark: 88,
-              grade: 'A',
-              feedback: 'Excellent configuration and documentation',
-              submittedDate: new Date('2024-01-21'),
-            },
-            difference: 13
-          },
-          {
-            assessment: {
-              id: '3',
-              name: 'Network Security Project',
-              description: 'Design secure network infrastructure',
-              type: 'Project',
-              maxScore: 100,
-              weight: 30,
-              dueDate: new Date('2024-02-05'),
-            },
-            result: {
-              id: 'r3',
-              student: studentId,
-              assessment: '3',
-              expectedMark: 80,
-              actualMark: 76,
-              grade: 'B+',
-              feedback: 'Good design but missing some security considerations',
-              submittedDate: new Date('2024-02-04'),
-            },
-            difference: -4
-          },
-          {
-            assessment: {
-              id: '4',
-              name: 'Switching Technologies Test',
-              description: 'VLANs, STP, and switching concepts',
-              type: 'Test',
-              maxScore: 75,
-              weight: 20,
-              dueDate: new Date('2024-02-12'),
-            },
-            result: {
-              id: 'r4',
-              student: studentId,
-              assessment: '4',
-              expectedMark: 55,
-              actualMark: 68,
-              grade: 'A-',
-              feedback: 'Strong improvement in switching concepts',
-              submittedDate: new Date('2024-02-11'),
-            },
-            difference: 13
-          },
-          {
-            assessment: {
-              id: '5',
-              name: 'Mid-term Examination',
-              description: 'Comprehensive networking exam',
-              type: 'Exam',
-              maxScore: 100,
-              weight: 35,
-              dueDate: new Date('2024-02-20'),
-            },
-            result: {
-              id: 'r5',
-              student: studentId,
-              assessment: '5',
-              expectedMark: 70,
-              actualMark: 82,
-              grade: 'A',
-              feedback: 'Comprehensive understanding demonstrated',
-              submittedDate: new Date('2024-02-20'),
-            },
-            difference: 12
-          }
-        ];
+        const assessments = selectedSubjectId
+          ? await assessmentService.getAssessmentsBySubjectId(selectedSubjectId)
+          : await assessmentService.getAssessments();
 
-        setResults(mockResults);
+        const assessmentResults = await Promise.all(
+          (assessments || []).map(async (assessment) => {
+            const rawAssessment = assessment as any;
+            const resultsForAssessment = await assessmentService.getResults(assessment.id, studentId).catch(() => []);
+            return resultsForAssessment.map(result => {
+              const assessmentType = rawAssessment.assessmentType || assessment.type || 'Test';
+              const resourceId = typeof assessment.resource === 'string'
+                ? assessment.resource
+                : rawAssessment.resource?.id || '';
+              const normalizedAssessment: Assessment = {
+                id: assessment.id,
+                name: assessment.name,
+                description: assessment.description || '',
+                type: assessmentType.charAt(0).toUpperCase() + assessmentType.slice(1),
+                maxScore: Number(assessment.maxScore ?? 100),
+                weight: Number(rawAssessment.weightPct ?? assessment.weight ?? 0),
+                dueDate: assessment.updatedAt ? new Date(assessment.updatedAt) : new Date(),
+                subjectId: rawAssessment.subject?.id || assessment.subjectId || '',
+                status: assessment.status || 'draft',
+                isAIEnhanced: Boolean(rawAssessment.aiEnhanced),
+                questions: [],
+                resource: resourceId,
+                createdBy: rawAssessment.createdBy || assessment.createdBy || '',
+                lastModifiedBy: rawAssessment.lastModifiedBy || assessment.lastModifiedBy || '',
+                createdAt: assessment.createdAt ? new Date(assessment.createdAt) : undefined,
+                updatedAt: assessment.updatedAt ? new Date(assessment.updatedAt) : undefined,
+              };
+
+              const submittedDate = result.submittedDate ? new Date(result.submittedDate) : new Date();
+              return {
+                assessment: normalizedAssessment,
+                result: {
+                  ...result,
+                  submittedDate,
+                  createdAt: result.createdAt ? new Date(result.createdAt) : undefined,
+                  updatedAt: result.updatedAt ? new Date(result.updatedAt) : undefined,
+                } as Result,
+                difference: Number(result.actualMark ?? 0) - Number(result.expectedMark ?? 0)
+              };
+            });
+          })
+        );
+
+        const flattened = assessmentResults.flat();
+        setResults(flattened);
       } catch (error) {
         console.error('Failed to fetch results:', error);
       } finally {
@@ -147,7 +81,7 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId }) => {
     };
 
     fetchResults();
-  }, [studentId]);
+  }, [studentId, selectedSubjectId]);
 
   // Filter results based on selected period and type
   const filteredResults = results.filter(result => {

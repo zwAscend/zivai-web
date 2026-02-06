@@ -14,10 +14,10 @@ export const chatService = {
     return fetchData<ChatMessage[]>(`/chat/messages/${studentId}`);
   },
 
-  sendMessage: async (studentId: string, content: string): Promise<ChatMessage> => {
+  sendMessage: async (studentId: string, content: string, senderId?: string): Promise<ChatMessage> => {
     return fetchData<ChatMessage>(`/chat/messages/${studentId}`, {
       method: 'POST',
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content, senderId }),
     });
   },
 

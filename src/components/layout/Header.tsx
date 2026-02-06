@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, LayoutGrid, Mail, Calendar, LogOut, ChevronDown, X, Bell, Shield, Users, BookOpen, GraduationCap, Cpu } from 'lucide-react';
+import { Home, LayoutGrid, Mail, Calendar, LogOut, ChevronDown, X, Bell, Shield, Users, BookOpen, GraduationCap, Cpu, TrendingUp, Target } from 'lucide-react';
 import { PieChart, Pie, Cell } from 'recharts';
 import { authService, notificationService, studentService, subjectService } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
@@ -23,7 +23,7 @@ interface NavLink {
   name: string;
   path: string;
   key: string;
-  icon: 'home' | 'grid' | 'mail' | 'calendar' | 'shield' | 'users' | 'subject' | 'class' | 'edge';
+  icon: 'home' | 'grid' | 'mail' | 'calendar' | 'shield' | 'users' | 'subject' | 'class' | 'edge' | 'performance' | 'resources' | 'grading' | 'development';
 }
 
 interface GradeCategory {
@@ -132,6 +132,10 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, portalType = '
         { name: 'Classroom', path: '/classroom', key: 'classroom', icon: 'grid' },
         { name: 'Staffroom', path: '/staffroom', key: 'staffroom', icon: 'mail' },
         { name: 'Calendar', path: '/calendar', key: 'calendar', icon: 'calendar' },
+        { name: 'Performance', path: '/performance', key: 'performance', icon: 'performance' },
+        { name: 'Resources', path: '/resources', key: 'resources', icon: 'resources' },
+        { name: 'Grading', path: '/grading', key: 'grading', icon: 'grading' },
+        { name: 'Development', path: '/development', key: 'development', icon: 'development' },
       ]
     : [
         { name: 'Admin Home', path: '/admin/dashboard', key: 'admin/dashboard', icon: 'shield' },
@@ -166,6 +170,14 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, portalType = '
         return <GraduationCap size={16} />;
       case 'edge':
         return <Cpu size={16} />;
+      case 'performance':
+        return <TrendingUp size={16} />;
+      case 'resources':
+        return <BookOpen size={16} />;
+      case 'grading':
+        return <GraduationCap size={16} />;
+      case 'development':
+        return <Target size={16} />;
       default:
         return null;
     }
