@@ -6,11 +6,11 @@ const DevelopmentPage: React.FC = () => {
   const { studentId } = useParams<{ studentId: string }>();
 
   if (!studentId) {
-    return <div className="p-4">No student selected for development view.</div>;
+    return <div>No student selected for development view.</div>;
   }
 
   return (
-    <div className="p-4">
+    <div>
       <DevelopmentView studentId={studentId} />
     </div>
   );

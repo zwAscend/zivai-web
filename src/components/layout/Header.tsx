@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, LayoutGrid, Mail, Calendar, LogOut, ChevronDown, X, Bell, Shield, Users, BookOpen, GraduationCap, Cpu, TrendingUp, Target } from 'lucide-react';
+import { Home, LayoutGrid, Mail, Calendar, LogOut, ChevronDown, X, Bell, Shield, Users, BookOpen, GraduationCap, Cpu, TrendingUp, Target, FileText } from 'lucide-react';
 import { PieChart, Pie, Cell } from 'recharts';
 import { authService, notificationService, studentService, subjectService } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
@@ -23,7 +23,7 @@ interface NavLink {
   name: string;
   path: string;
   key: string;
-  icon: 'home' | 'grid' | 'mail' | 'calendar' | 'shield' | 'users' | 'subject' | 'class' | 'edge' | 'performance' | 'resources' | 'grading' | 'development';
+  icon: 'home' | 'grid' | 'mail' | 'calendar' | 'shield' | 'users' | 'subject' | 'class' | 'edge' | 'performance' | 'resources' | 'grading' | 'development' | 'students' | 'assessment';
 }
 
 interface GradeCategory {
@@ -130,12 +130,14 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, portalType = '
     ? [
         { name: 'Home', path: '/dashboard', key: 'dashboard', icon: 'home' },
         { name: 'Classroom', path: '/classroom', key: 'classroom', icon: 'grid' },
-        { name: 'Staffroom', path: '/staffroom', key: 'staffroom', icon: 'mail' },
-        { name: 'Calendar', path: '/calendar', key: 'calendar', icon: 'calendar' },
-        { name: 'Performance', path: '/performance', key: 'performance', icon: 'performance' },
+        { name: 'Students', path: '/students', key: 'students', icon: 'students' },
         { name: 'Resources', path: '/resources', key: 'resources', icon: 'resources' },
-        { name: 'Grading', path: '/grading', key: 'grading', icon: 'grading' },
+        { name: 'Assessments', path: '/assessments', key: 'assessments', icon: 'assessment' },
         { name: 'Development', path: '/development', key: 'development', icon: 'development' },
+        { name: 'Performance', path: '/performance', key: 'performance', icon: 'performance' },
+        { name: 'Grading', path: '/grading', key: 'grading', icon: 'grading' },
+        { name: 'Chat', path: '/staffroom', key: 'staffroom', icon: 'mail' },
+        { name: 'Calendar', path: '/calendar', key: 'calendar', icon: 'calendar' },
       ]
     : [
         { name: 'Admin Home', path: '/admin/dashboard', key: 'admin/dashboard', icon: 'shield' },
@@ -178,6 +180,10 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, portalType = '
         return <GraduationCap size={16} />;
       case 'development':
         return <Target size={16} />;
+      case 'students':
+        return <Users size={16} />;
+      case 'assessment':
+        return <FileText size={16} />;
       default:
         return null;
     }
@@ -305,7 +311,7 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, portalType = '
         </div>
       </div>
 
-      <nav className="flex flex-wrap mt-2">
+      <nav className="flex flex-wrap gap-0 mt-2 w-full bg-white">
         {navLinks.map((link) => {
           const active = isLinkActive(link.path);
           return (
@@ -315,8 +321,8 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, portalType = '
                 setActiveTab(link.key);
                 navigate(link.path);
               }}
-              className={`flex items-center justify-center py-2 px-4 ${
-                active ? 'bg-blue-500 text-white' : 'bg-[#ececed] text-gray-700 hover:bg-gray-100'
+              className={`flex flex-1 min-w-[120px] items-center justify-center py-2 px-4 ${
+                active ? 'bg-blue-500 text-white' : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-200'
               } transition-colors duration-200`}
             >
               <span className="mr-2">{getIcon(link.icon)}</span>

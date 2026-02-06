@@ -117,8 +117,39 @@ const GradingDashboard: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+      <div className="min-h-screen bg-gray-50 p-6">
+        <div className="max-w-7xl mx-auto space-y-4">
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="flex items-center gap-4 mb-3">
+              <div className="h-9 w-9 rounded-full bg-slate-200 animate-pulse" />
+              <div className="h-6 w-48 bg-slate-200 rounded animate-pulse" />
+            </div>
+            <div className="h-4 w-80 bg-slate-200 rounded animate-pulse ml-14" />
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
+            {Array.from({ length: 5 }).map((_, index) => (
+              <div key={index} className="bg-white rounded-lg shadow p-3">
+                <div className="flex items-center gap-3">
+                  <div className="h-8 w-8 rounded-full bg-slate-200 animate-pulse" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-4 w-20 bg-slate-200 rounded animate-pulse" />
+                    <div className="h-5 w-16 bg-slate-200 rounded animate-pulse" />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="bg-white rounded-lg shadow p-4">
+            <div className="h-5 w-40 bg-slate-200 rounded animate-pulse mb-4" />
+            <div className="space-y-3">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <div key={index} className="h-14 bg-slate-200 rounded animate-pulse" />
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
     );
   }

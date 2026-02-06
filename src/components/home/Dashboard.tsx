@@ -556,12 +556,12 @@ const Dashboard: React.FC = () => {
           />
         </div>
 
-        {/* Staff Room + Performance */}
+        {/* Chat + Performance */}
         <div className="flex-1 basis-3/4 flex gap-4 mt-4 overflow-auto">
-          {/* Staff Room */}
+          {/* Chat */}
           <div className="w-1/2">
             <div className="bg-gray-50 p-4 rounded-lg shadow h-full">
-              <h2 className="text-xl font-bold mb-4">STAFF ROOM</h2>
+              <h2 className="text-xl font-bold mb-4">CHAT</h2>
               <div className="space-y-4">
                 {(staffRoomItems.length > 0 ? staffRoomItems.slice(0, 4) : []).map((student, index) => (
                   <button
