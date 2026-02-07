@@ -1,6 +1,6 @@
 // src/components/resources/Sidebar.tsx
 import React, { useState } from 'react';
-import { Menu, UploadCloud, FileText as CreateAssignmentIcon, CheckCircle, FileImage, FileVideo, FilePlus, Eye, BarChart3 } from 'lucide-react';
+import { Menu, UploadCloud, FileText as CreateAssignmentIcon, CheckCircle, FileImage, FileVideo, FilePlus, Eye, BarChart3, UserCheck } from 'lucide-react';
 import { clsx } from 'clsx';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -17,6 +17,8 @@ interface SidebarProps {
   onMarkAssessment?: () => void;
   onViewAssessments?: () => void;
   onAssessmentAnalysis?: () => void;
+  onStudentAnalysis?: () => void;
+  activeAction?: string;
   recentUploads: RecentUpload[];
 }
 
@@ -37,6 +39,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   onMarkAssessment,
   onViewAssessments,
   onAssessmentAnalysis,
+  onStudentAnalysis,
+  activeAction,
   recentUploads
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -46,7 +50,8 @@ const Sidebar: React.FC<SidebarProps> = ({
         { id: 'view-assessments', label: 'View Assessment', icon: Eye, onClick: onViewAssessments },
         { id: 'create-assessment', label: 'Create Assessment', icon: CreateAssignmentIcon, onClick: onCreateAssessment },
         { id: 'mark-assessment', label: 'Mark Assessment', icon: CheckCircle, onClick: onMarkAssessment },
-        { id: 'analysis-assessment', label: 'Assessment Analysis', icon: BarChart3, onClick: onAssessmentAnalysis },
+        { id: 'analysis-assessment', label: 'Class Analysis', icon: BarChart3, onClick: onAssessmentAnalysis },
+        { id: 'analysis-student', label: 'Student Analysis', icon: UserCheck, onClick: onStudentAnalysis },
       ]
     : [
         { id: 'upload', label: 'Upload Resource', icon: UploadCloud, onClick: onUploadClick },
@@ -76,7 +81,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                 onClick={onClick}
                 className={clsx(
                   "w-full flex items-center gap-3 p-2.5 rounded-md text-sm font-medium transition-colors",
-                  "text-slate-700 hover:bg-slate-100 hover:text-slate-900",
+                  id === activeAction
+                    ? "bg-blue-50 text-blue-700 border border-blue-200"
+                    : "text-slate-700 hover:bg-slate-100 hover:text-slate-900",
                   isCollapsed && "justify-center"
                 )}
                 title={isCollapsed ? label : undefined}

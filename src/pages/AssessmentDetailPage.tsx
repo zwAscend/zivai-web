@@ -36,6 +36,8 @@ const AssessmentDetailPage: React.FC = () => {
         onCreateAssessment={() => navigate('/assessments/create')}
         onMarkAssessment={() => navigate('/assessments/mark')}
         onAssessmentAnalysis={() => navigate(`/assessments/analysis${id ? `?assessmentId=${id}` : ''}`)}
+        onStudentAnalysis={() => navigate('/assessments/student-analysis')}
+        activeAction="view-assessments"
         recentUploads={[]}
       />
       <main className="flex-1 p-8 overflow-y-auto">

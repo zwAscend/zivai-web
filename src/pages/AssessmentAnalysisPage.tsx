@@ -117,6 +117,8 @@ const AssessmentAnalysisPage: React.FC = () => {
         onCreateAssessment={() => navigate('/assessments/create')}
         onMarkAssessment={() => navigate('/assessments/mark')}
         onAssessmentAnalysis={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+        onStudentAnalysis={() => navigate('/assessments/student-analysis')}
+        activeAction="analysis-assessment"
         recentUploads={[]}
       />
       <main className="flex-1 p-8 overflow-y-auto">
@@ -213,6 +215,31 @@ const AssessmentAnalysisPage: React.FC = () => {
                     <div className="text-xs text-gray-500">Pass rate</div>
                     <div className="font-semibold">{metrics.passRate}%</div>
                   </div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div className="bg-white rounded-lg shadow p-6">
+                  <h3 className="text-sm font-semibold text-gray-800 mb-3">Strengths</h3>
+                  <ul className="list-disc list-inside text-sm text-gray-600 space-y-1">
+                    {metrics.passRate >= 75 && <li>Strong pass rate indicates solid overall understanding.</li>}
+                    {metrics.averageScore >= 70 && <li>Average score suggests good mastery across topics.</li>}
+                    {metrics.submitted >= metrics.attempted && <li>High submission completion rate.</li>}
+                    {metrics.passRate < 75 && metrics.averageScore < 70 && (
+                      <li>No significant strengths detected yet. Continue monitoring.</li>
+                    )}
+                  </ul>
+                </div>
+                <div className="bg-white rounded-lg shadow p-6">
+                  <h3 className="text-sm font-semibold text-gray-800 mb-3">Weaknesses</h3>
+                  <ul className="list-disc list-inside text-sm text-gray-600 space-y-1">
+                    {metrics.passRate < 50 && <li>Low pass rate highlights overall performance gaps.</li>}
+                    {metrics.averageScore < 50 && <li>Average score is below target threshold.</li>}
+                    {metrics.failed > 0 && <li>{metrics.failed} students failed this assessment.</li>}
+                    {metrics.passRate >= 50 && metrics.averageScore >= 50 && metrics.failed === 0 && (
+                      <li>No major weaknesses detected. Review for specific topic-level gaps.</li>
+                    )}
+                  </ul>
                 </div>
               </div>
 
