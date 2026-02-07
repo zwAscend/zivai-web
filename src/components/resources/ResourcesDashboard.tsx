@@ -144,7 +144,7 @@ const ResourcesDashboard: React.FC = () => {
 
     if (loading) {
         return (
-            <div className="flex h-screen bg-slate-50 text-slate-900">
+            <div className="flex h-full bg-slate-50 text-slate-900 overflow-hidden">
                 <div className="w-72 bg-white border-r border-slate-200 p-6 space-y-6">
                     <div className="h-10 bg-slate-200 rounded animate-pulse" />
                     <div className="space-y-3">
@@ -193,7 +193,7 @@ const ResourcesDashboard: React.FC = () => {
     }
 
     return (
-        <div className="flex h-screen bg-slate-50 text-slate-900">
+        <div className="flex h-full bg-slate-50 text-slate-900 overflow-hidden">
             <Sidebar
                 mode="resources"
                 onUploadClick={() => handleUploadClick()}

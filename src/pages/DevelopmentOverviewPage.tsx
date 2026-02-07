@@ -28,7 +28,8 @@ const DevelopmentOverviewPage: React.FC = () => {
   }, [selectedSubject?.id]);
 
   return (
-    <div className="bg-gray-50 rounded-lg shadow p-4">
+    <div className="h-full overflow-y-auto">
+      <div className="bg-gray-50 rounded-lg shadow p-4">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-bold">Student Development</h2>
         <p className="text-sm text-gray-500">Select a student to view full plan details.</p>
@@ -66,6 +67,7 @@ const DevelopmentOverviewPage: React.FC = () => {
       ) : (
         <div className="text-sm text-gray-500">No students available for development plans.</div>
       )}
+      </div>
     </div>
   );
 };

@@ -64,7 +64,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         // ✨ UX Improvement: Sidebar is now animated and collapsible
         animate={{ width: isCollapsed ? '5rem' : '16rem' }}
         transition={{ duration: 0.3, ease: "easeInOut" }}
-        className="bg-white border-r border-slate-200 flex flex-col h-screen"
+        className="bg-white border-r border-slate-200 flex flex-col h-full"
     >
       <div className={clsx("p-4 border-b border-slate-200 flex items-center", isCollapsed ? "justify-center" : "justify-between")}>
         {!isCollapsed && <h2 className="text-lg font-bold text-slate-800">Actions</h2>}

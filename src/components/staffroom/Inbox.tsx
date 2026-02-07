@@ -169,7 +169,7 @@ const Inbox: React.FC = () => {
   };
 
   return (
-    <div className="flex h-[calc(100vh-180px)]">
+    <div className="flex h-full overflow-hidden">
       {/* Left Side - Message List */}
       <div className="w-2/5 bg-white border-r overflow-y-auto">
         <div className="flex border-b">

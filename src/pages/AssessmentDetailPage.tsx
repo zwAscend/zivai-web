@@ -29,7 +29,7 @@ const AssessmentDetailPage: React.FC = () => {
   }, [id]);
 
   return (
-    <div className="flex h-screen bg-slate-50 text-slate-900">
+    <div className="flex h-full bg-slate-50 text-slate-900 overflow-hidden">
       <Sidebar
         mode="assessments"
         onViewAssessments={() => navigate('/assessments')}
