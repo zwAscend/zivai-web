@@ -1,5 +1,5 @@
 import React, { forwardRef } from 'react';
-import { X, FileText, Download, Loader2, AlertCircle } from 'lucide-react'; // Added Loader2 and AlertCircle for loading/error states
+import { X, FileText, Download, AlertCircle } from 'lucide-react'; // Added AlertCircle for error states
 import type { Resource } from './ResourcesView'; // Import the Resource type
 
 // Update FilePreviewModalProps to accept Resource object and loading/error states
@@ -20,9 +20,10 @@ const FilePreviewModal = forwardRef<HTMLDivElement, FilePreviewModalProps>(
       // Display loading state
       if (isLoading) {
         return (
-          <div className="flex flex-col items-center justify-center p-8 text-gray-500">
-            <Loader2 className="w-12 h-12 animate-spin mb-4" />
-            <p>Loading preview...</p>
+          <div className="w-full p-6 space-y-4">
+            <div className="h-6 w-40 bg-slate-200 rounded animate-pulse" />
+            <div className="h-64 bg-slate-200 rounded animate-pulse" />
+            <div className="h-4 w-32 bg-slate-200 rounded animate-pulse" />
           </div>
         );
       }

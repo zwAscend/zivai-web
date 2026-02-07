@@ -64,7 +64,7 @@ const DevelopmentAttributesView: React.FC<DevelopmentAttributesViewProps> = ({ s
         </div>
         <div className="mb-2 border-t border-b py-2">
           <div className="grid grid-cols-[120px_1fr] gap-2 items-center">
-            <div className="text-base font-semibold text-gray-700">Loading Plan...</div>
+            <div className="h-4 bg-slate-200 rounded animate-pulse" />
             <div className="h-2 bg-slate-200 rounded animate-pulse" />
           </div>
         </div>
