@@ -484,7 +484,7 @@ const ResourcesView: React.FC<ResourcesViewProps> = ({
           </button>
         </div>
 
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
           <div className="relative flex-1 max-w-md">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
@@ -497,10 +497,15 @@ const ResourcesView: React.FC<ResourcesViewProps> = ({
             />
           </div>
 
-          <div className="flex items-center gap-2">
-            <button className="p-2 text-gray-600 hover:text-gray-900">
-              <Filter className="w-5 h-5" />
-            </button>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2 text-sm text-gray-500">
+              <Filter className="w-4 h-4" />
+              <span>Filters</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-500">Subject</span>
+              <span className="text-sm font-medium text-gray-700">{displayName}</span>
+            </div>
             <div className="h-6 w-px bg-gray-300 mx-1" />
             <ViewModeToggle
               currentMode={viewMode}

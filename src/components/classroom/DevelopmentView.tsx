@@ -181,7 +181,7 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
   const currentSkills = getCurrentSkills();
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 h-[100vh] overflow-hidden p-0">
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 h-full overflow-hidden p-0">
       {/* Modal */}
       {selectedStudent && (
         <CreateDevelopmentPlanModal

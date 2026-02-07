@@ -12,10 +12,10 @@ interface MainLayoutProps {
 
 const MainLayout: React.FC<MainLayoutProps> = ({ activeTab, setActiveTab, portalType = 'teacher', children }) => {
   return (
-    <div className="min-h-screen bg-blue-700 p-6">
-      <div className="container mx-auto">
+    <div className="h-screen bg-blue-700 p-6 overflow-hidden">
+      <div className="container mx-auto h-full flex flex-col">
         <Header activeTab={activeTab} setActiveTab={setActiveTab} portalType={portalType} />
-        <main className="animate-fadeIn">
+        <main className="animate-fadeIn flex-1 min-h-0 overflow-y-auto">
           {children || <Outlet />}
         </main>
       </div>

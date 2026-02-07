@@ -326,7 +326,7 @@ const CalendarView: React.FC = () => {
   }
 
 return (
-    <div className="flex flex-col h-[75vh] overflow-hidden bg-gray-50 p-2">
+    <div className="flex flex-col h-full overflow-hidden bg-gray-50 p-2">
 
       {/* Unified Custom Header with All Controls */}
       <header className="bg-white border-b border-gray-200 p-2 flex items-center justify-between z-10 flex-shrink-0">

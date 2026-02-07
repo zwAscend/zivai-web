@@ -115,7 +115,7 @@ const ClassroomView: React.FC = () => {
   // DevelopmentView is now opened via route /development/:studentId
 
   return (
-    <div className="space-y-2 relative transition-all duration-500 ease-in-out">
+    <div className="h-full overflow-y-auto space-y-2 relative transition-all duration-500 ease-in-out">
       {showChat && selectedStudent ? (
         <div className="relative bg-white rounded-lg shadow p-4">
           <button

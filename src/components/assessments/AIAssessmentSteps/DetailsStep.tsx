@@ -18,7 +18,7 @@ import {
   CheckCircle,
   AlertCircle
 } from 'lucide-react';
-import { SubjectAttribute, QuestionType, AssessmentType } from '@/types';
+import { SubjectAttribute, QuestionType, AssessmentType, Subject } from '@/types';
 
 interface DetailsStepProps {
   formData: {
@@ -49,6 +49,9 @@ interface DetailsStepProps {
   uploadedFile: File | null;
   setUploadedFile: (file: File | null) => void;
   isLoading: boolean;
+  subjects: Subject[];
+  selectedSubject: Subject | null;
+  setSelectedSubject: (subject: Subject | null) => void;
 }
 
 export function DetailsStep({ 
@@ -57,7 +60,10 @@ export function DetailsStep({
   attributes, 
   uploadedFile, 
   setUploadedFile,
-  isLoading 
+  isLoading,
+  subjects,
+  selectedSubject,
+  setSelectedSubject
 }: DetailsStepProps) {
   const [dragActive, setDragActive] = useState(false);
 
@@ -148,19 +154,48 @@ export function DetailsStep({
         </div>
         
         <div className="grid gap-6">
-          <div className="space-y-2">
-            <Label htmlFor="name" className="text-sm font-medium text-gray-700">
-              Assessment Name <span className="text-red-500">*</span>
-            </Label>
-            <Input
-              id="name"
-              name="name"
-              value={formData.name}
-              onChange={handleInputChange}
-              placeholder="e.g., Network Security Quiz - Chapter 5"
-              className="h-11"
-              required
-            />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              <Label htmlFor="subject" className="text-sm font-medium text-gray-700">
+                Subject <span className="text-red-500">*</span>
+              </Label>
+              <Select
+                value={selectedSubject?.id || ''}
+                onValueChange={(value) => {
+                  const next = subjects.find((subject) => subject.id === value) || null;
+                  setSelectedSubject(next);
+                }}
+              >
+                <SelectTrigger className="h-11">
+                  <SelectValue placeholder="Select subject" />
+                </SelectTrigger>
+                <SelectContent>
+                  {subjects.map((subject) => (
+                    <SelectItem key={subject.id} value={subject.id}>
+                      {subject.name} {subject.code ? `(${subject.code})` : ''}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {subjects.length === 0 && (
+                <p className="text-xs text-gray-500">No subjects available for this teacher.</p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="name" className="text-sm font-medium text-gray-700">
+                Assessment Name <span className="text-red-500">*</span>
+              </Label>
+              <Input
+                id="name"
+                name="name"
+                value={formData.name}
+                onChange={handleInputChange}
+                placeholder="e.g., Network Security Quiz - Chapter 5"
+                className="h-11"
+                required
+              />
+            </div>
           </div>
           
           <div className="space-y-2">

@@ -117,7 +117,7 @@ const GradingDashboard: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-50 p-6">
+      <div className="h-full bg-gray-50 p-6 overflow-y-auto">
         <div className="max-w-7xl mx-auto space-y-4">
           <div className="bg-white rounded-lg shadow p-4">
             <div className="flex items-center gap-4 mb-3">
@@ -155,7 +155,7 @@ const GradingDashboard: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
+    <div className="h-full bg-gray-50 p-6 overflow-y-auto">
       <div className="max-w-7xl mx-auto space-y-4">
         {/* Header */}
         <div className="bg-white rounded-lg shadow p-4">

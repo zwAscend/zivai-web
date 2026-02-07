@@ -146,7 +146,8 @@ const TeacherStudentsPage: React.FC = () => {
   }, [plans]);
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+    <div className="h-full overflow-y-auto">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
       <div className="lg:col-span-3 col-span-12 bg-gray-50 rounded-lg shadow p-4">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-bold">Students</h2>
@@ -309,6 +310,7 @@ const TeacherStudentsPage: React.FC = () => {
         ) : (
           <div className="bg-gray-50 rounded-lg shadow p-4 text-sm text-gray-500">Select a student to view details.</div>
         )}
+      </div>
       </div>
     </div>
   );

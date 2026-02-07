@@ -147,6 +147,7 @@ const AssessmentsDashboardPage: React.FC = () => {
         setMetricsByAssessment(nextMetrics);
 
         if (selectedStatus === 'marked') {
+          list = list.filter((item) => nextMetrics[item.id]?.attempted > 0);
           results = results.filter((item) => nextMetrics[item.assessment.id]?.attempted > 0);
         }
 
@@ -200,13 +201,15 @@ const AssessmentsDashboardPage: React.FC = () => {
   }, [studentQuery, matchingStudents]);
 
   return (
-    <div className="flex h-screen bg-slate-50 text-slate-900">
+    <div className="flex h-full bg-slate-50 text-slate-900 overflow-hidden">
       <Sidebar
         mode="assessments"
         onCreateAssessment={() => navigate('/assessments/create')}
         onMarkAssessment={() => navigate('/assessments/mark')}
         onViewAssessments={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
         onAssessmentAnalysis={() => navigate('/assessments/analysis')}
+        onStudentAnalysis={() => navigate('/assessments/student-analysis')}
+        activeAction="view-assessments"
         recentUploads={[]}
       />
       <main className="flex-1 p-8 overflow-y-auto">

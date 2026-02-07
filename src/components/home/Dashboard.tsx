@@ -542,7 +542,8 @@ const Dashboard: React.FC = () => {
   const hasActivePlan = currentStudent?.hasActivePlan ?? false;
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-[72vh] p-0 relative">
+    <div className="h-full overflow-y-auto">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 h-[72vh] p-0 relative">
       {/* MAIN LEFT */}
       <div className="flex flex-col h-full">
         {/* Calendar */}
@@ -795,6 +796,7 @@ const Dashboard: React.FC = () => {
         subjects={subjects}
         selectedDate={selectedDate}
       />
+      </div>
     </div>
   );
 };

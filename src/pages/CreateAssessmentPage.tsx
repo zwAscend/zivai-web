@@ -241,17 +241,19 @@ const CreateAssessmentPage: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen bg-slate-50 text-slate-900">
+    <div className="flex h-full bg-slate-50 text-slate-900 overflow-hidden">
       <Sidebar
         mode="assessments"
         onCreateAssessment={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
         onMarkAssessment={() => navigate('/assessments/mark')}
         onViewAssessments={() => navigate('/assessments')}
         onAssessmentAnalysis={() => navigate('/assessments/analysis')}
+        onStudentAnalysis={() => navigate('/assessments/student-analysis')}
+        activeAction="create-assessment"
         recentUploads={[]}
       />
-      <main className="flex-1 p-8 overflow-y-auto">
-        <div className="max-w-5xl">
+      <main className="flex-1 p-8 overflow-hidden">
+        <div className="max-w-5xl h-full flex flex-col">
           <div className="flex items-center justify-between mb-6">
             <div>
               <h1 className="text-2xl font-bold">Create Assessment</h1>
@@ -289,16 +291,17 @@ const CreateAssessmentPage: React.FC = () => {
             </p>
           </div>
 
-          {creationMode === 'ai' ? (
-            <AIAssessmentModal
-              inline
-              isOpen
-              onClose={() => navigate('/assessments')}
-              subjectId={subjectId}
-              onAssessmentCreated={() => {}}
-            />
-          ) : (
-            <div className="bg-white rounded-lg shadow p-6 space-y-6">
+          <div className="flex-1 min-h-0">
+            {creationMode === 'ai' ? (
+              <AIAssessmentModal
+                inline
+                isOpen
+                onClose={() => navigate('/assessments')}
+                subjectId={subjectId}
+                onAssessmentCreated={() => {}}
+              />
+            ) : (
+              <div className="bg-white rounded-lg shadow p-6 space-y-6">
               <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => setManualMode('upload')}
@@ -661,7 +664,8 @@ const CreateAssessmentPage: React.FC = () => {
                 </button>
               </div>
             </div>
-          )}
+            )}
+          </div>
         </div>
       </main>
     </div>

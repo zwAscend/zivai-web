@@ -20,6 +20,7 @@ import MarkAssessmentPage from './pages/MarkAssessmentPage';
 import CreateAssessmentPage from './pages/CreateAssessmentPage';
 import AssessmentAnalysisPage from './pages/AssessmentAnalysisPage';
 import AssessmentDetailPage from './pages/AssessmentDetailPage';
+import StudentAnalysisPage from './pages/StudentAnalysisPage';
 import AdminUsersPage from './components/admin/pages/AdminUsersPage';
 import AdminDashboardPage from './components/admin/pages/AdminDashboardPage';
 import AdminSubjectsPage from './components/admin/pages/AdminSubjectsPage';
@@ -118,6 +119,7 @@ function App() {
             <Route path="assessments/mark" element={<MarkAssessmentPage />} />
             <Route path="assessments/analysis" element={<AssessmentAnalysisPage />} />
             <Route path="assessments/view/:id" element={<AssessmentDetailPage />} />
+            <Route path="assessments/student-analysis" element={<StudentAnalysisPage />} />
             <Route path="performance" element={<PerformancePage />} />
             <Route path="development" element={<DevelopmentOverviewPage />} />
             <Route path="development/:studentId" element={<DevelopmentPage />} />

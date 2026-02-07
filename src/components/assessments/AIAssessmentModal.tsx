@@ -8,12 +8,12 @@ import {
   ChevronRight, 
   ChevronLeft, 
   X, 
-  BookOpen, 
   FileText, 
   Sparkles,
   CheckCircle,
-  AlertCircle,
-  Download
+  Download,
+  Maximize2,
+  Minimize2
 } from 'lucide-react';
 import axios from 'axios';
 import { toast } from 'sonner';
@@ -26,7 +26,7 @@ import { Subject } from '@/types';
 
 type QuestionType = 'multiple_choice' | 'true_false' | 'short_answer' | 'essay' | 'code';
 type Difficulty = 'easy' | 'medium' | 'hard';
-type Step = 'subject-selection' | 'details' | 'generate' | 'review';
+type Step = 'details' | 'generate' | 'review';
 
 interface AIAssessmentModalProps {
   isOpen: boolean;
@@ -49,7 +49,8 @@ export function AIAssessmentModal({
   const [isLoading, setIsLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [step, setStep] = useState<Step>('subject-selection');
+  const [step, setStep] = useState<Step>('details');
+  const [isExpanded, setIsExpanded] = useState(false);
   const [attributes, setAttributes] = useState<SubjectAttribute[]>([]);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
@@ -72,7 +73,6 @@ export function AIAssessmentModal({
 
   // Step configuration
   const steps = [
-    { key: 'subject-selection', title: 'Select Subject', description: 'Choose the subject for your assessment' },
     { key: 'details', title: 'Assessment Details', description: 'Configure your assessment parameters' },
     { key: 'generate', title: 'Generating Questions', description: 'AI is creating your questions' },
     { key: 'review', title: 'Review & Edit', description: 'Review and customize generated questions' }
@@ -115,12 +115,20 @@ export function AIAssessmentModal({
         }));
 
         setSubjects(subjectsWithIds);
-        
+
         if (assessmentToEdit) {
           const currentSubject = subjectsWithIds.find((c: any) => c.id === subjectId);
           if (currentSubject) {
             setSelectedSubject(currentSubject);
             setStep('details');
+          }
+          return;
+        }
+
+        if (subjectId) {
+          const currentSubject = subjectsWithIds.find((c: any) => c.id === subjectId);
+          if (currentSubject) {
+            setSelectedSubject(currentSubject);
           }
         }
       }
@@ -370,7 +378,7 @@ export function AIAssessmentModal({
     setUploadedFile(null);
     setResourceId(null);
     setSelectedSubject(null);
-    setStep('subject-selection');
+    setStep('details');
   };
 
   const handleNext = () => {
@@ -384,18 +392,13 @@ export function AIAssessmentModal({
   const handleBack = () => {
     if (step === 'review') {
       setStep('details');
-    } else if (step === 'details') {
-      setStep('subject-selection');
     }
   };
 
   const isStepValid = () => {
-    if (step === 'subject-selection') {
-      return selectedSubject !== null;
-    }
-    
     if (step === 'details') {
       return (
+        selectedSubject !== null &&
         formData.name.trim() !== '' &&
         formData.selectedAttributes.length > 0
       );
@@ -406,74 +409,9 @@ export function AIAssessmentModal({
 
   const renderStepContent = () => {
     switch (step) {
-      case 'subject-selection':
-        return (
-          <div className="space-y-6">
-            <div className="text-center">
-              <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <BookOpen className="w-8 h-8 text-blue-600" />
-              </div>
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">Select Subject</h3>
-              <p className="text-gray-600">Choose the subject you want to create an assessment for</p>
-            </div>
-            
-            {isLoading ? (
-              <div className="flex justify-center py-12">
-                <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
-              </div>
-            ) : (
-              <div className="grid gap-3 max-h-80 overflow-y-auto">
-                {subjects.map((subject) => (
-                  <button
-                    key={subject.id}
-                    onClick={() => {
-                      setSelectedSubject(subject);
-                      setStep('details');
-                    }}
-                    className={`p-4 border-2 rounded-xl text-left transition-all hover:shadow-md ${
-                      selectedSubject?.id === subject.id 
-                        ? 'border-blue-500 bg-blue-50 shadow-md' 
-                        : 'border-gray-200 hover:border-gray-300'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h4 className="font-semibold text-gray-900">{subject.code}</h4>
-                        <p className="text-sm text-gray-600 mt-1">{subject.name}</p>
-                      </div>
-                      <ChevronRight className="w-5 h-5 text-gray-400" />
-                    </div>
-                  </button>
-                ))}
-                
-                {subjects.length === 0 && (
-                  <div className="text-center py-8 text-gray-500">
-                    <AlertCircle className="w-12 h-12 text-gray-300 mx-auto mb-4" />
-                    <p>No subjects available</p>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        );
-        
       case 'details':
         return (
           <div className="space-y-6">
-            {selectedSubject && (
-              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-4 rounded-xl border border-blue-200">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
-                    <BookOpen className="w-5 h-5 text-white" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-blue-900">{selectedSubject.name}</h3>
-                    <p className="text-sm text-blue-700">{selectedSubject.code}</p>
-                  </div>
-                </div>
-              </div>
-            )}
-            
             <DetailsStep
               formData={formData}
               setFormData={setFormData}
@@ -481,6 +419,9 @@ export function AIAssessmentModal({
               uploadedFile={uploadedFile}
               setUploadedFile={setUploadedFile}
               isLoading={isLoading}
+              subjects={subjects}
+              selectedSubject={selectedSubject}
+              setSelectedSubject={setSelectedSubject}
             />
           </div>
         );
@@ -505,22 +446,40 @@ export function AIAssessmentModal({
 
   const TitleComponent = inline ? 'h2' : DialogTitle;
 
+  const shouldScrollContent = !inline || isExpanded;
+
   const content = (
-    <>
-      <div className="bg-white border-b border-gray-200 p-6">
+    <div className="flex flex-col h-full">
+      <div className="bg-white border-b border-gray-200 p-6 sticky top-0 z-10">
         <div className="flex items-center justify-between mb-4">
           <TitleComponent className="text-2xl font-bold text-gray-900">
             {assessmentToEdit ? 'Edit Assessment' : 'Create Assessment'}
           </TitleComponent>
-          {!inline && (
-            <button
-              onClick={onClose}
-              className="p-2 hover:bg-gray-100 rounded-full transition-colors"
-              disabled={isGenerating || isSubmitting}
-            >
-              <X className="w-5 h-5 text-gray-500" />
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {inline && (
+              <button
+                onClick={() => setIsExpanded((prev) => !prev)}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                disabled={isGenerating || isSubmitting}
+                aria-label={isExpanded ? 'Collapse' : 'Expand'}
+              >
+                {isExpanded ? (
+                  <Minimize2 className="w-5 h-5 text-gray-500" />
+                ) : (
+                  <Maximize2 className="w-5 h-5 text-gray-500" />
+                )}
+              </button>
+            )}
+            {!inline && (
+              <button
+                onClick={onClose}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                disabled={isGenerating || isSubmitting}
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            )}
+          </div>
         </div>
         
         <div className="space-y-3">
@@ -531,7 +490,7 @@ export function AIAssessmentModal({
             </span>
           </div>
           <p className="text-gray-600">{currentStepConfig.description}</p>
-          
+
           <div className="flex items-center gap-2">
             {steps.map((stepConfig, index) => (
               <React.Fragment key={stepConfig.key}>
@@ -564,7 +523,7 @@ export function AIAssessmentModal({
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6">
+      <div className={shouldScrollContent ? 'flex-1 overflow-y-auto p-6' : 'p-6'}>
         {renderStepContent()}
       </div>
 
@@ -572,7 +531,7 @@ export function AIAssessmentModal({
         <div className="bg-gray-50 border-t border-gray-200 p-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              {step !== 'subject-selection' && (
+              {step !== 'details' && (
                 <Button
                   variant="outline"
                   onClick={handleBack}
@@ -594,7 +553,7 @@ export function AIAssessmentModal({
               )}
               
               <Button
-                onClick={step === 'subject-selection' ? () => setStep('details') : handleNext}
+                onClick={handleNext}
                 disabled={!isStepValid() || isGenerating || isSubmitting}
                 className="flex items-center gap-2 min-w-[140px]"
               >
@@ -624,16 +583,26 @@ export function AIAssessmentModal({
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 
   if (inline) {
-    return <div className="bg-white rounded-lg shadow overflow-hidden">{content}</div>;
+    if (isExpanded) {
+      return (
+        <>
+          <div className="fixed inset-0 bg-black/30 z-40" />
+          <div className="fixed inset-4 z-50 bg-white rounded-lg shadow-2xl overflow-hidden max-w-3xl w-[90vw] mx-auto">
+            {content}
+          </div>
+        </>
+      );
+    }
+    return <div className="bg-white rounded-lg shadow">{content}</div>;
   }
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-5xl max-h-[95vh] p-0 overflow-hidden">
+      <DialogContent className="max-w-5xl max-h-[95vh] p-0 overflow-y-auto">
         {content}
       </DialogContent>
     </Dialog>

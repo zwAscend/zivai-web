@@ -39,7 +39,8 @@ const PerformancePage: React.FC = () => {
   }, [selectedSubject?.id, queryStudentId]);
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+    <div className="h-full overflow-y-auto">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
       <div className="lg:col-span-3 col-span-12 bg-gray-50 rounded-lg shadow p-4">
         <h2 className="text-sm font-bold mb-3">Students</h2>
         {loading ? (
@@ -78,6 +79,7 @@ const PerformancePage: React.FC = () => {
         ) : (
           <div className="text-sm text-gray-500">Select a student to view performance details.</div>
         )}
+      </div>
       </div>
     </div>
   );

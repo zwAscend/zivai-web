@@ -1,6 +1,6 @@
 // src/components/resources/Sidebar.tsx
 import React, { useState } from 'react';
-import { Menu, UploadCloud, FileText as CreateAssignmentIcon, CheckCircle, FileImage, FileVideo, FilePlus, Eye, BarChart3 } from 'lucide-react';
+import { Menu, UploadCloud, FileText as CreateAssignmentIcon, CheckCircle, FileImage, FileVideo, FilePlus, Eye, BarChart3, UserCheck, Sparkles, BookOpen } from 'lucide-react';
 import { clsx } from 'clsx';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -17,6 +17,12 @@ interface SidebarProps {
   onMarkAssessment?: () => void;
   onViewAssessments?: () => void;
   onAssessmentAnalysis?: () => void;
+  onStudentAnalysis?: () => void;
+  onGenerateNotes?: () => void;
+  onViewNotes?: () => void;
+  onLessonPlans?: () => void;
+  onDrafts?: () => void;
+  activeAction?: string;
   recentUploads: RecentUpload[];
 }
 
@@ -37,6 +43,12 @@ const Sidebar: React.FC<SidebarProps> = ({
   onMarkAssessment,
   onViewAssessments,
   onAssessmentAnalysis,
+  onStudentAnalysis,
+  onGenerateNotes,
+  onViewNotes,
+  onLessonPlans,
+  onDrafts,
+  activeAction,
   recentUploads
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -46,12 +58,15 @@ const Sidebar: React.FC<SidebarProps> = ({
         { id: 'view-assessments', label: 'View Assessment', icon: Eye, onClick: onViewAssessments },
         { id: 'create-assessment', label: 'Create Assessment', icon: CreateAssignmentIcon, onClick: onCreateAssessment },
         { id: 'mark-assessment', label: 'Mark Assessment', icon: CheckCircle, onClick: onMarkAssessment },
-        { id: 'analysis-assessment', label: 'Assessment Analysis', icon: BarChart3, onClick: onAssessmentAnalysis },
+        { id: 'analysis-assessment', label: 'Class Analysis', icon: BarChart3, onClick: onAssessmentAnalysis },
+        { id: 'analysis-student', label: 'Student Analysis', icon: UserCheck, onClick: onStudentAnalysis },
       ]
     : [
-        { id: 'upload', label: 'Upload Resource', icon: UploadCloud, onClick: onUploadClick },
-        { id: 'create-assessment', label: 'Create Assessment', icon: CreateAssignmentIcon, onClick: onCreateAssessment },
-        { id: 'mark-assessment', label: 'Mark Assessment', icon: CheckCircle, onClick: onMarkAssessment },
+        { id: 'generate-notes', label: 'Generate Notes', icon: Sparkles, onClick: onGenerateNotes },
+        { id: 'view-notes', label: 'View Notes', icon: Eye, onClick: onViewNotes },
+        { id: 'lesson-plans', label: 'Lesson Plans', icon: BookOpen, onClick: onLessonPlans },
+        { id: 'drafts', label: 'Resources Drafts', icon: CreateAssignmentIcon, onClick: onDrafts },
+        { id: 'upload', label: 'Upload Material', icon: UploadCloud, onClick: onUploadClick },
       ];
 
   return (
@@ -59,7 +74,7 @@ const Sidebar: React.FC<SidebarProps> = ({
         // ✨ UX Improvement: Sidebar is now animated and collapsible
         animate={{ width: isCollapsed ? '5rem' : '16rem' }}
         transition={{ duration: 0.3, ease: "easeInOut" }}
-        className="bg-white border-r border-slate-200 flex flex-col h-screen"
+        className="bg-white border-r border-slate-200 flex flex-col h-full"
     >
       <div className={clsx("p-4 border-b border-slate-200 flex items-center", isCollapsed ? "justify-center" : "justify-between")}>
         {!isCollapsed && <h2 className="text-lg font-bold text-slate-800">Actions</h2>}
@@ -76,7 +91,9 @@ const Sidebar: React.FC<SidebarProps> = ({
                 onClick={onClick}
                 className={clsx(
                   "w-full flex items-center gap-3 p-2.5 rounded-md text-sm font-medium transition-colors",
-                  "text-slate-700 hover:bg-slate-100 hover:text-slate-900",
+                  id === activeAction
+                    ? "bg-blue-50 text-blue-700 border border-blue-200"
+                    : "text-slate-700 hover:bg-slate-100 hover:text-slate-900",
                   isCollapsed && "justify-center"
                 )}
                 title={isCollapsed ? label : undefined}
