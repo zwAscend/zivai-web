@@ -102,10 +102,10 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
     try {
       const result = await markingService.markDocument(file);
       setResults(result);
-      toast.success('Assignment marked successfully');
+      toast.success('Assessment marked successfully');
     } catch (error) {
-      console.error('Error marking assignment:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Failed to mark assignment';
+      console.error('Error marking assessment:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to mark assessment';
       setError(errorMessage);
       toast.error(errorMessage);
     } finally {
@@ -147,10 +147,10 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
               </div>
               <div>
                 <DialogTitle className="text-2xl font-bold text-white">
-                  AI Assignment Marker
+                  AI Assessment Marker
                 </DialogTitle>
                 <p className="text-blue-100 mt-1">
-                  Upload an assignment to get instant AI-powered grading and feedback
+                  Upload an assessment to get instant AI-powered grading and feedback
                 </p>
               </div>
             </div>
@@ -172,7 +172,7 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
               <div className="space-y-4">
                 <div className="flex items-center gap-2">
                   <Upload className="w-5 h-5 text-gray-600" />
-                  <h3 className="text-lg font-semibold text-gray-900">Upload Assignment</h3>
+                  <h3 className="text-lg font-semibold text-gray-900">Upload Assessment</h3>
                 </div>
                 
                 <div 
@@ -230,7 +230,7 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
                       </div>
                       <div>
                         <p className="text-lg font-medium text-gray-900">
-                          {dragActive ? 'Drop your file here' : 'Upload assignment file'}
+                          {dragActive ? 'Drop your file here' : 'Upload assessment file'}
                         </p>
                         <p className="text-gray-500 mt-1">
                           Drag & drop or click to browse
@@ -266,7 +266,7 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
                   ) : (
                     <>
                       <Award className="w-4 h-4 mr-2" />
-                      Mark Assignment
+                      Mark Assessment
                     </>
                   )}
                 </Button>

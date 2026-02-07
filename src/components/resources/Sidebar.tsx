@@ -1,6 +1,6 @@
 // src/components/resources/Sidebar.tsx
 import React, { useState } from 'react';
-import { Menu, X, File as FileIcon, UploadCloud, FileText as CreateAssignmentIcon, CheckCircle, Target, FileImage, FileVideo, FilePlus } from 'lucide-react';
+import { Menu, UploadCloud, FileText as CreateAssignmentIcon, CheckCircle, FileImage, FileVideo, FilePlus, Eye, BarChart3 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -11,8 +11,12 @@ interface RecentUpload {
 }
 
 interface SidebarProps {
-  onUploadClick: () => void;
-  onCreateAssignment: () => void;
+  mode?: 'resources' | 'assessments';
+  onUploadClick?: () => void;
+  onCreateAssessment?: () => void;
+  onMarkAssessment?: () => void;
+  onViewAssessments?: () => void;
+  onAssessmentAnalysis?: () => void;
   recentUploads: RecentUpload[];
 }
 
@@ -26,15 +30,29 @@ const getFileIcon = (type: string, className = "h-5 w-5") => {
     }
 };
 
-const Sidebar: React.FC<SidebarProps> = ({ onUploadClick, onCreateAssignment, recentUploads }) => {
+const Sidebar: React.FC<SidebarProps> = ({
+  mode = 'resources',
+  onUploadClick,
+  onCreateAssessment,
+  onMarkAssessment,
+  onViewAssessments,
+  onAssessmentAnalysis,
+  recentUploads
+}) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
 
-  const actions = [
-    { id: 'upload', label: 'Upload Resource', icon: UploadCloud, onClick: onUploadClick },
-    { id: 'create-assignment', label: 'Create Assignment', icon: CreateAssignmentIcon, onClick: onCreateAssignment },
-    { id: 'mark-assignment', label: 'Mark Assignment', icon: CheckCircle, onClick: () => {} },
-    { id: 'dev-plan', label: 'Development Plans', icon: Target, onClick: () => {} }
-  ];
+  const actions = mode === 'assessments'
+    ? [
+        { id: 'view-assessments', label: 'View Assessment', icon: Eye, onClick: onViewAssessments },
+        { id: 'create-assessment', label: 'Create Assessment', icon: CreateAssignmentIcon, onClick: onCreateAssessment },
+        { id: 'mark-assessment', label: 'Mark Assessment', icon: CheckCircle, onClick: onMarkAssessment },
+        { id: 'analysis-assessment', label: 'Assessment Analysis', icon: BarChart3, onClick: onAssessmentAnalysis },
+      ]
+    : [
+        { id: 'upload', label: 'Upload Resource', icon: UploadCloud, onClick: onUploadClick },
+        { id: 'create-assessment', label: 'Create Assessment', icon: CreateAssignmentIcon, onClick: onCreateAssessment },
+        { id: 'mark-assessment', label: 'Mark Assessment', icon: CheckCircle, onClick: onMarkAssessment },
+      ];
 
   return (
     <motion.aside
@@ -76,6 +94,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onUploadClick, onCreateAssignment, re
           ))}
         </ul>
 
+        {mode === 'resources' && (
         <div className="mt-6">
           <h3 className={clsx(
               "text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2",
@@ -99,6 +118,7 @@ const Sidebar: React.FC<SidebarProps> = ({ onUploadClick, onCreateAssignment, re
               )}
           </div>
         </div>
+        )}
       </nav>
     </motion.aside>
   );

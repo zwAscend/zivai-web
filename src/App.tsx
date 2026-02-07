@@ -15,6 +15,11 @@ import DevelopmentPage from './pages/DevelopmentPage';
 import DevelopmentOverviewPage from './pages/DevelopmentOverviewPage';
 import PerformancePage from './pages/PerformancePage';
 import TeacherStudentsPage from './pages/TeacherStudentsPage';
+import AssessmentsDashboardPage from './pages/AssessmentsDashboardPage';
+import MarkAssessmentPage from './pages/MarkAssessmentPage';
+import CreateAssessmentPage from './pages/CreateAssessmentPage';
+import AssessmentAnalysisPage from './pages/AssessmentAnalysisPage';
+import AssessmentDetailPage from './pages/AssessmentDetailPage';
 import AdminUsersPage from './components/admin/pages/AdminUsersPage';
 import AdminDashboardPage from './components/admin/pages/AdminDashboardPage';
 import AdminSubjectsPage from './components/admin/pages/AdminSubjectsPage';
@@ -108,7 +113,11 @@ function App() {
             <Route path="calendar" element={<CalendarView />} />
             <Route path="classroom" element={<ClassroomView />} />
             <Route path="students" element={<TeacherStudentsPage />} />
-            <Route path="assessments" element={<ResourcesDashboard />} />
+            <Route path="assessments" element={<AssessmentsDashboardPage />} />
+            <Route path="assessments/create" element={<CreateAssessmentPage />} />
+            <Route path="assessments/mark" element={<MarkAssessmentPage />} />
+            <Route path="assessments/analysis" element={<AssessmentAnalysisPage />} />
+            <Route path="assessments/view/:id" element={<AssessmentDetailPage />} />
             <Route path="performance" element={<PerformancePage />} />
             <Route path="development" element={<DevelopmentOverviewPage />} />
             <Route path="development/:studentId" element={<DevelopmentPage />} />

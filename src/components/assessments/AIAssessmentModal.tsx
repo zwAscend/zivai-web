@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
+import { Dialog, DialogContent, DialogTitle } from '../ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
@@ -31,9 +31,10 @@ type Step = 'subject-selection' | 'details' | 'generate' | 'review';
 interface AIAssessmentModalProps {
   isOpen: boolean;
   onClose: () => void;
-  subjectId: string;
+  subjectId?: string;
   onAssessmentCreated: (assessment: Assessment) => void;
   assessmentToEdit?: Assessment | null;
+  inline?: boolean;
 }
 
 export function AIAssessmentModal({ 
@@ -41,7 +42,8 @@ export function AIAssessmentModal({
   onClose, 
   subjectId, 
   onAssessmentCreated,
-  assessmentToEdit 
+  assessmentToEdit,
+  inline = false
 }: AIAssessmentModalProps) {
   // State management
   const [isLoading, setIsLoading] = useState(false);
@@ -78,16 +80,18 @@ export function AIAssessmentModal({
 
   const currentStepIndex = steps.findIndex(s => s.key === step);
   const currentStepConfig = steps[currentStepIndex];
+  const isVisible = inline || isOpen;
+  const activeSubjectId = selectedSubject?.id || subjectId;
 
   // Initialize data on modal open
   useEffect(() => {
-    if (isOpen) {
+    if (isVisible) {
       fetchSubjects();
       if (assessmentToEdit) {
         initializeEditMode();
       }
     }
-  }, [isOpen, assessmentToEdit]);
+  }, [isVisible, assessmentToEdit]);
 
   const fetchSubjects = async () => {
     try {
@@ -174,12 +178,17 @@ export function AIAssessmentModal({
       }
     };
 
-    if (isOpen && selectedSubject) {
+    if (isVisible && selectedSubject) {
       fetchAttributes();
     }
-  }, [isOpen, selectedSubject]);
+  }, [isVisible, selectedSubject]);
 
   const generateQuestions = async () => {
+    if (!activeSubjectId) {
+      toast.error('Please select a subject');
+      return;
+    }
+
     if (formData.selectedAttributes.length === 0) {
       toast.error('Please select at least one subject attribute');
       return;
@@ -199,7 +208,7 @@ export function AIAssessmentModal({
       );
 
       const generatedQuestions = await aiService.generateQuestions({
-        subjectId,
+        subjectId: activeSubjectId,
         attributes: selectedAttributeObjects.map(attr => ({
           id: attr.id,
           name: attr.name,
@@ -226,10 +235,14 @@ export function AIAssessmentModal({
 
   const uploadDocument = async (): Promise<string | null> => {
     if (!uploadedFile) return null;
+    if (!activeSubjectId) {
+      toast.error('Please select a subject');
+      return null;
+    }
     
     try {
       setIsLoading(true);
-      const response = await aiService.uploadDocument(uploadedFile, subjectId);
+      const response = await aiService.uploadDocument(uploadedFile, activeSubjectId);
       setResourceId(response.id);
       toast.success('Document uploaded successfully');
       return response.id;
@@ -258,7 +271,7 @@ export function AIAssessmentModal({
       
       const regeneratedQuestions = await aiService.regenerateQuestions({
         prompt: {
-          subjectId,
+          subjectId: activeSubjectId || '',
           attributes: attributeIds,
           documentId: resourceId || undefined,
           questionCount: formData.questionCount,
@@ -490,15 +503,16 @@ export function AIAssessmentModal({
     }
   };
 
-  return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-5xl max-h-[95vh] p-0 overflow-hidden">
-        {/* Header with Progress */}
-        <div className="bg-white border-b border-gray-200 p-6">
-          <div className="flex items-center justify-between mb-4">
-            <DialogTitle className="text-2xl font-bold text-gray-900">
-              {assessmentToEdit ? 'Edit Assessment' : 'Create AI Assessment'}
-            </DialogTitle>
+  const TitleComponent = inline ? 'h2' : DialogTitle;
+
+  const content = (
+    <>
+      <div className="bg-white border-b border-gray-200 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <TitleComponent className="text-2xl font-bold text-gray-900">
+            {assessmentToEdit ? 'Edit Assessment' : 'Create Assessment'}
+          </TitleComponent>
+          {!inline && (
             <button
               onClick={onClose}
               className="p-2 hover:bg-gray-100 rounded-full transition-colors"
@@ -506,112 +520,121 @@ export function AIAssessmentModal({
             >
               <X className="w-5 h-5 text-gray-500" />
             </button>
+          )}
+        </div>
+        
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-gray-800">{currentStepConfig.title}</h3>
+            <span className="text-sm text-gray-500">
+              Step {currentStepIndex + 1} of {steps.length}
+            </span>
           </div>
+          <p className="text-gray-600">{currentStepConfig.description}</p>
           
-          {/* Step Progress */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-gray-800">{currentStepConfig.title}</h3>
-              <span className="text-sm text-gray-500">
-                Step {currentStepIndex + 1} of {steps.length}
-              </span>
-            </div>
-            <p className="text-gray-600">{currentStepConfig.description}</p>
-            
-            <div className="flex items-center gap-2">
-              {steps.map((stepConfig, index) => (
-                <React.Fragment key={stepConfig.key}>
-                  <div className={`flex items-center gap-2 ${
-                    index <= currentStepIndex ? 'text-blue-600' : 'text-gray-400'
+          <div className="flex items-center gap-2">
+            {steps.map((stepConfig, index) => (
+              <React.Fragment key={stepConfig.key}>
+                <div className={`flex items-center gap-2 ${
+                  index <= currentStepIndex ? 'text-blue-600' : 'text-gray-400'
+                }`}>
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+                    index < currentStepIndex 
+                      ? 'bg-blue-600 text-white' 
+                      : index === currentStepIndex 
+                        ? 'bg-blue-100 text-blue-600 border-2 border-blue-600' 
+                        : 'bg-gray-100 text-gray-400'
                   }`}>
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                      index < currentStepIndex 
-                        ? 'bg-blue-600 text-white' 
-                        : index === currentStepIndex 
-                          ? 'bg-blue-100 text-blue-600 border-2 border-blue-600' 
-                          : 'bg-gray-100 text-gray-400'
-                    }`}>
-                      {index < currentStepIndex ? (
-                        <CheckCircle className="w-4 h-4" />
-                      ) : (
-                        index + 1
-                      )}
-                    </div>
-                    <span className="text-sm font-medium hidden sm:block">{stepConfig.title}</span>
+                    {index < currentStepIndex ? (
+                      <CheckCircle className="w-4 h-4" />
+                    ) : (
+                      index + 1
+                    )}
                   </div>
-                  {index < steps.length - 1 && (
-                    <div className={`flex-1 h-0.5 ${
-                      index < currentStepIndex ? 'bg-blue-600' : 'bg-gray-200'
-                    }`} />
-                  )}
-                </React.Fragment>
-              ))}
-            </div>
+                  <span className="text-sm font-medium hidden sm:block">{stepConfig.title}</span>
+                </div>
+                {index < steps.length - 1 && (
+                  <div className={`flex-1 h-0.5 ${
+                    index < currentStepIndex ? 'bg-blue-600' : 'bg-gray-200'
+                  }`} />
+                )}
+              </React.Fragment>
+            ))}
           </div>
         </div>
+      </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6">
-          {renderStepContent()}
-        </div>
+      <div className="flex-1 overflow-y-auto p-6">
+        {renderStepContent()}
+      </div>
 
-        {/* Footer */}
-        {step !== 'generate' && (
-          <div className="bg-gray-50 border-t border-gray-200 p-6">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                {step !== 'subject-selection' && (
-                  <Button
-                    variant="outline"
-                    onClick={handleBack}
-                    disabled={isGenerating || isSubmitting}
-                    className="flex items-center gap-2"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                    Back
-                  </Button>
-                )}
-              </div>
-              
-              <div className="flex items-center gap-3">
-                {step === 'review' && questions.length > 0 && (
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
-                    <CheckCircle className="w-4 h-4 text-green-500" />
-                    <span>{questions.length} questions ready</span>
-                  </div>
-                )}
-                
+      {step !== 'generate' && (
+        <div className="bg-gray-50 border-t border-gray-200 p-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              {step !== 'subject-selection' && (
                 <Button
-                  onClick={step === 'subject-selection' ? () => setStep('details') : handleNext}
-                  disabled={!isStepValid() || isGenerating || isSubmitting}
-                  className="flex items-center gap-2 min-w-[140px]"
+                  variant="outline"
+                  onClick={handleBack}
+                  disabled={isGenerating || isSubmitting}
+                  className="flex items-center gap-2"
                 >
-                  {isSubmitting ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      Creating...
-                    </>
-                  ) : step === 'review' ? (
-                    <>
-                      <Download className="w-4 h-4" />
-                      Generate PDF
-                    </>
-                  ) : step === 'details' ? (
-                    <>
-                      <Sparkles className="w-4 h-4" />
-                      Generate Questions
-                    </>
-                  ) : (
-                    <>
-                      Continue
-                      <ChevronRight className="w-4 h-4" />
-                    </>
-                  )}
+                  <ChevronLeft className="w-4 h-4" />
+                  Back
                 </Button>
-              </div>
+              )}
+            </div>
+            
+            <div className="flex items-center gap-3">
+              {step === 'review' && questions.length > 0 && (
+                <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <CheckCircle className="w-4 h-4 text-green-500" />
+                  <span>{questions.length} questions ready</span>
+                </div>
+              )}
+              
+              <Button
+                onClick={step === 'subject-selection' ? () => setStep('details') : handleNext}
+                disabled={!isStepValid() || isGenerating || isSubmitting}
+                className="flex items-center gap-2 min-w-[140px]"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Creating...
+                  </>
+                ) : step === 'review' ? (
+                  <>
+                    <Download className="w-4 h-4" />
+                    Generate PDF
+                  </>
+                ) : step === 'details' ? (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    Generate Questions
+                  </>
+                ) : (
+                  <>
+                    Continue
+                    <ChevronRight className="w-4 h-4" />
+                  </>
+                )}
+              </Button>
             </div>
           </div>
-        )}
+        </div>
+      )}
+    </>
+  );
+
+  if (inline) {
+    return <div className="bg-white rounded-lg shadow overflow-hidden">{content}</div>;
+  }
+
+  return (
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-5xl max-h-[95vh] p-0 overflow-hidden">
+        {content}
       </DialogContent>
     </Dialog>
   );
