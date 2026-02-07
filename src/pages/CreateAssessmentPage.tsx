@@ -252,8 +252,8 @@ const CreateAssessmentPage: React.FC = () => {
         activeAction="create-assessment"
         recentUploads={[]}
       />
-      <main className="flex-1 p-8 overflow-y-auto">
-        <div className="max-w-5xl">
+      <main className="flex-1 p-8 overflow-hidden">
+        <div className="max-w-5xl h-full flex flex-col">
           <div className="flex items-center justify-between mb-6">
             <div>
               <h1 className="text-2xl font-bold">Create Assessment</h1>
@@ -291,16 +291,17 @@ const CreateAssessmentPage: React.FC = () => {
             </p>
           </div>
 
-          {creationMode === 'ai' ? (
-            <AIAssessmentModal
-              inline
-              isOpen
-              onClose={() => navigate('/assessments')}
-              subjectId={subjectId}
-              onAssessmentCreated={() => {}}
-            />
-          ) : (
-            <div className="bg-white rounded-lg shadow p-6 space-y-6">
+          <div className="flex-1 min-h-0">
+            {creationMode === 'ai' ? (
+              <AIAssessmentModal
+                inline
+                isOpen
+                onClose={() => navigate('/assessments')}
+                subjectId={subjectId}
+                onAssessmentCreated={() => {}}
+              />
+            ) : (
+              <div className="bg-white rounded-lg shadow p-6 space-y-6">
               <div className="flex flex-wrap gap-2">
                 <button
                   onClick={() => setManualMode('upload')}
@@ -663,7 +664,8 @@ const CreateAssessmentPage: React.FC = () => {
                 </button>
               </div>
             </div>
-          )}
+            )}
+          </div>
         </div>
       </main>
     </div>

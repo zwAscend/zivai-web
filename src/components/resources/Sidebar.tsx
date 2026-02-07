@@ -1,6 +1,6 @@
 // src/components/resources/Sidebar.tsx
 import React, { useState } from 'react';
-import { Menu, UploadCloud, FileText as CreateAssignmentIcon, CheckCircle, FileImage, FileVideo, FilePlus, Eye, BarChart3, UserCheck } from 'lucide-react';
+import { Menu, UploadCloud, FileText as CreateAssignmentIcon, CheckCircle, FileImage, FileVideo, FilePlus, Eye, BarChart3, UserCheck, Sparkles, BookOpen } from 'lucide-react';
 import { clsx } from 'clsx';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -18,6 +18,10 @@ interface SidebarProps {
   onViewAssessments?: () => void;
   onAssessmentAnalysis?: () => void;
   onStudentAnalysis?: () => void;
+  onGenerateNotes?: () => void;
+  onViewNotes?: () => void;
+  onLessonPlans?: () => void;
+  onDrafts?: () => void;
   activeAction?: string;
   recentUploads: RecentUpload[];
 }
@@ -40,6 +44,10 @@ const Sidebar: React.FC<SidebarProps> = ({
   onViewAssessments,
   onAssessmentAnalysis,
   onStudentAnalysis,
+  onGenerateNotes,
+  onViewNotes,
+  onLessonPlans,
+  onDrafts,
   activeAction,
   recentUploads
 }) => {
@@ -54,9 +62,11 @@ const Sidebar: React.FC<SidebarProps> = ({
         { id: 'analysis-student', label: 'Student Analysis', icon: UserCheck, onClick: onStudentAnalysis },
       ]
     : [
-        { id: 'upload', label: 'Upload Resource', icon: UploadCloud, onClick: onUploadClick },
-        { id: 'create-assessment', label: 'Create Assessment', icon: CreateAssignmentIcon, onClick: onCreateAssessment },
-        { id: 'mark-assessment', label: 'Mark Assessment', icon: CheckCircle, onClick: onMarkAssessment },
+        { id: 'generate-notes', label: 'Generate Notes', icon: Sparkles, onClick: onGenerateNotes },
+        { id: 'view-notes', label: 'View Notes', icon: Eye, onClick: onViewNotes },
+        { id: 'lesson-plans', label: 'Lesson Plans', icon: BookOpen, onClick: onLessonPlans },
+        { id: 'drafts', label: 'Resources Drafts', icon: CreateAssignmentIcon, onClick: onDrafts },
+        { id: 'upload', label: 'Upload Material', icon: UploadCloud, onClick: onUploadClick },
       ];
 
   return (
