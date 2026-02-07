@@ -8,7 +8,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Sidebar from './Sidebar';
 import UploadModal from './UploadModal';
 import ResourcesView from './ResourcesView';
-import { AIAssessmentModal } from '../assessments/AIAssessmentModal';
 
 // --- Type Definitions ---
 export interface Subject {
@@ -53,8 +52,6 @@ const ResourcesDashboard: React.FC = () => {
     // Modals State
     const [showUploadModal, setShowUploadModal] = useState(false);
     const [selectedSubjectForUpload, setSelectedSubjectForUpload] = useState<Subject | null>(null);
-    const [isAssessmentModalOpen, setIsAssessmentModalOpen] = useState(false);
-    const [selectedSubjectIdForAssessment, setSelectedSubjectIdForAssessment] = useState<string | null>(null);
 
     const fetchDashboardData = useCallback(async () => {
         setLoading(true);
@@ -131,9 +128,13 @@ const ResourcesDashboard: React.FC = () => {
         fetchDashboardData();
     };
     
-    const handleCreateAssignment = (subjectId: string) => {
-        setSelectedSubjectIdForAssessment(subjectId);
-        setIsAssessmentModalOpen(true);
+    const handleCreateAssessment = (subjectId?: string) => {
+        const targetSubject = subjectId || subjects[0]?.id;
+        if (targetSubject) {
+            navigate(`/assessments/create?subjectId=${targetSubject}`);
+        } else {
+            navigate('/assessments/create');
+        }
     };
 
     const filteredSubjects = subjects.filter(subject =>
@@ -193,7 +194,13 @@ const ResourcesDashboard: React.FC = () => {
 
     return (
         <div className="flex h-screen bg-slate-50 text-slate-900">
-            <Sidebar onUploadClick={() => handleUploadClick()} onCreateAssignment={() => handleCreateAssignment(subjects[0]?.id)} recentUploads={recentUploads} />
+            <Sidebar
+                mode="resources"
+                onUploadClick={() => handleUploadClick()}
+                onCreateAssessment={() => handleCreateAssessment(subjects[0]?.id)}
+                onMarkAssessment={() => navigate('/assessments/mark')}
+                recentUploads={recentUploads}
+            />
             <main className="flex-1 p-8 overflow-y-auto">
                 <header className="flex justify-between items-center mb-8">
                     <div className="flex items-center space-x-4">
@@ -266,7 +273,6 @@ const ResourcesDashboard: React.FC = () => {
             </main>
             
             <UploadModal isOpen={showUploadModal} onClose={() => setShowUploadModal(false)} onUploadSuccess={handleFileUploadSuccess} selectedSubject={selectedSubjectForUpload} subjects={subjects} onSubjectSelect={setSelectedSubjectForUpload} />
-            {selectedSubjectIdForAssessment && <AIAssessmentModal isOpen={isAssessmentModalOpen} onClose={() => setIsAssessmentModalOpen(false)} subjectId={selectedSubjectIdForAssessment} onAssessmentCreated={() => {}} />}
         </div>
     );
 };

@@ -167,9 +167,9 @@ const GradingDashboard: React.FC = () => {
             >
               <ArrowLeft className="h-5 w-5" />
             </button>
-            <h2 className="text-xl font-semibold text-gray-800">Grading Dashboard</h2>
+            <h2 className="text-xl font-semibold text-gray-800">Reports & Analytics</h2>
           </div>
-          <p className="text-sm text-gray-600 ml-14">Review automatically graded assignments and manage submissions</p>
+          <p className="text-sm text-gray-600 ml-14">Review assessment performance, grading status, and analytics</p>
         </div>
 
         {/* Stats Cards */}
