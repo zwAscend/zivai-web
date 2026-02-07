@@ -218,10 +218,17 @@ const SubmissionReviewModal: React.FC<SubmissionReviewModalProps> = ({
         </DialogHeader>
 
         {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-emerald-500 mx-auto mb-4"></div>
-              <p className="text-gray-600">Loading submission details...</p>
+          <div className="p-6 space-y-4">
+            <div className="h-6 w-48 bg-slate-200 rounded animate-pulse" />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="h-32 bg-slate-200 rounded-xl animate-pulse" />
+              <div className="h-32 bg-slate-200 rounded-xl animate-pulse" />
+            </div>
+            <div className="h-10 bg-slate-200 rounded animate-pulse" />
+            <div className="space-y-3">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div key={index} className="h-20 bg-slate-200 rounded animate-pulse" />
+              ))}
             </div>
           </div>
         ) : submission ? (
