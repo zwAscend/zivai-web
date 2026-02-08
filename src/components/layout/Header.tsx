@@ -132,7 +132,7 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, portalType = '
         { name: 'Classroom', path: '/classroom', key: 'classroom', icon: 'grid' },
         { name: 'Students', path: '/students', key: 'students', icon: 'students' },
         { name: 'Resources', path: '/resources', key: 'resources', icon: 'resources' },
-        { name: 'Assessments', path: '/assessments', key: 'assessments', icon: 'assessment' },
+        { name: 'Assessments', path: '/assessments/create', key: 'assessments', icon: 'assessment' },
         { name: 'Development', path: '/development', key: 'development', icon: 'development' },
         { name: 'Performance', path: '/performance', key: 'performance', icon: 'performance' },
         { name: 'Report', path: '/grading', key: 'grading', icon: 'grading' },

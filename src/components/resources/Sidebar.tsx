@@ -22,6 +22,7 @@ interface SidebarProps {
   onViewNotes?: () => void;
   onLessonPlans?: () => void;
   onDrafts?: () => void;
+  onMaterial?: () => void;
   activeAction?: string;
   recentUploads: RecentUpload[];
 }
@@ -48,6 +49,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   onViewNotes,
   onLessonPlans,
   onDrafts,
+  onMaterial,
   activeAction,
   recentUploads
 }) => {
@@ -55,18 +57,18 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const actions = mode === 'assessments'
     ? [
+        { id: 'create-assessment', label: 'Generate Assessment', icon: CreateAssignmentIcon, onClick: onCreateAssessment },
         { id: 'view-assessments', label: 'View Assessment', icon: Eye, onClick: onViewAssessments },
-        { id: 'create-assessment', label: 'Create Assessment', icon: CreateAssignmentIcon, onClick: onCreateAssessment },
         { id: 'mark-assessment', label: 'Mark Assessment', icon: CheckCircle, onClick: onMarkAssessment },
         { id: 'analysis-assessment', label: 'Class Analysis', icon: BarChart3, onClick: onAssessmentAnalysis },
         { id: 'analysis-student', label: 'Student Analysis', icon: UserCheck, onClick: onStudentAnalysis },
       ]
     : [
-        { id: 'generate-notes', label: 'Generate Notes', icon: Sparkles, onClick: onGenerateNotes },
-        { id: 'view-notes', label: 'View Notes', icon: Eye, onClick: onViewNotes },
+        { id: 'generate-notes', label: 'Generate Content', icon: Sparkles, onClick: onGenerateNotes },
+        { id: 'view-notes', label: 'View Content', icon: Eye, onClick: onViewNotes },
         { id: 'lesson-plans', label: 'Lesson Plans', icon: BookOpen, onClick: onLessonPlans },
-        { id: 'drafts', label: 'Resources Drafts', icon: CreateAssignmentIcon, onClick: onDrafts },
-        { id: 'upload', label: 'Upload Material', icon: UploadCloud, onClick: onUploadClick },
+        { id: 'drafts', label: 'Content Drafts', icon: CreateAssignmentIcon, onClick: onDrafts },
+        { id: 'material', label: 'Material', icon: UploadCloud, onClick: onMaterial },
       ];
 
   return (

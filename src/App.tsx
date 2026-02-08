@@ -114,7 +114,8 @@ function App() {
             <Route path="calendar" element={<CalendarView />} />
             <Route path="classroom" element={<ClassroomView />} />
             <Route path="students" element={<TeacherStudentsPage />} />
-            <Route path="assessments" element={<AssessmentsDashboardPage />} />
+            <Route path="assessments" element={<Navigate to="/assessments/create" replace />} />
+            <Route path="assessments/view" element={<AssessmentsDashboardPage />} />
             <Route path="assessments/create" element={<CreateAssessmentPage />} />
             <Route path="assessments/mark" element={<MarkAssessmentPage />} />
             <Route path="assessments/analysis" element={<AssessmentAnalysisPage />} />

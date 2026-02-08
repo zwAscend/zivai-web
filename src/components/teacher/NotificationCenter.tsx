@@ -36,9 +36,15 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ isOpen, onClose
     try {
       setLoading(true);
       const response = await notificationService.getNotifications(1, 50);
-      setNotifications(response.notifications);
+      const list = Array.isArray(response?.notifications)
+        ? response.notifications
+        : Array.isArray(response)
+          ? response
+          : [];
+      setNotifications(list);
     } catch (error) {
       console.error('Error fetching notifications:', error);
+      setNotifications([]);
     } finally {
       setLoading(false);
     }

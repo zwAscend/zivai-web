@@ -126,7 +126,7 @@ const MarkAssessmentPage: React.FC = () => {
     <div className="flex h-full bg-slate-50 text-slate-900 overflow-hidden">
       <Sidebar
         mode="assessments"
-        onViewAssessments={() => navigate('/assessments')}
+        onViewAssessments={() => navigate('/assessments/view')}
         onCreateAssessment={() => navigate('/assessments/create')}
         onMarkAssessment={() => navigate('/assessments/mark')}
         onAssessmentAnalysis={() => navigate('/assessments/analysis')}
