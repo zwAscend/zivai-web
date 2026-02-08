@@ -32,7 +32,7 @@ const AssessmentDetailPage: React.FC = () => {
     <div className="flex h-full bg-slate-50 text-slate-900 overflow-hidden">
       <Sidebar
         mode="assessments"
-        onViewAssessments={() => navigate('/assessments')}
+        onViewAssessments={() => navigate('/assessments/view')}
         onCreateAssessment={() => navigate('/assessments/create')}
         onMarkAssessment={() => navigate('/assessments/mark')}
         onAssessmentAnalysis={() => navigate(`/assessments/analysis${id ? `?assessmentId=${id}` : ''}`)}
@@ -48,7 +48,7 @@ const AssessmentDetailPage: React.FC = () => {
               <p className="text-sm text-gray-500">Review assessment structure and metadata.</p>
             </div>
             <button
-              onClick={() => navigate('/assessments')}
+              onClick={() => navigate('/assessments/view')}
               className="text-sm text-blue-600 hover:text-blue-700"
             >
               Back to Assessments

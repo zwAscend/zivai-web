@@ -3,8 +3,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { clsx } from 'clsx';
-import { ArrowLeft, Folder, Search as SearchIcon, FileText, FileImage, FileVideo, FilePlus, BarChart, Star, MoreVertical, Settings, UploadCloud, Eye, Link as LinkIcon, Sparkles, BookOpen, CalendarDays, Send } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { ArrowLeft, Folder, Search as SearchIcon, BarChart, Star, UploadCloud, Link as LinkIcon, Sparkles, BookOpen, CalendarDays, Send, Maximize2, Minimize2 } from 'lucide-react';
 import { toast } from 'sonner';
 import Sidebar from './Sidebar';
 import UploadModal from './UploadModal';
@@ -27,9 +26,6 @@ export interface RecentUpload {
     subject: { id: string; name: string; code?: string; };
     uploadedBy: { id: string; firstName: string; lastName: string; };
 }
-export interface QuickAccessItem {
-    id: string; name: string; class: string; classId: string;
-}
 export interface Analytics {
     totalResources: number;
     averageDownloads: number;
@@ -45,13 +41,14 @@ const ResourcesDashboard: React.FC = () => {
     const [subjects, setSubjects] = useState<Subject[]>([]);
     const [recentUploads, setRecentUploads] = useState<RecentUpload[]>([]);
     const [selectedClass, setSelectedClass] = useState<Subject | null>(null);
-    const [searchQuery, setSearchQuery] = useState('');
     const [loading, setLoading] = useState(true);
     const [analytics, setAnalytics] = useState<Analytics>({ totalResources: 0, averageDownloads: 0, mostPopularResource: 'N/A', topClassEngagement: 'N/A' });
-    const [quickAccess, setQuickAccess] = useState<QuickAccessItem[]>([]);
-    const [activeAction, setActiveAction] = useState<'view-notes' | 'generate-notes' | 'lesson-plans' | 'drafts'>('view-notes');
+    const [activeAction, setActiveAction] = useState<'view-notes' | 'generate-notes' | 'lesson-plans' | 'drafts' | 'material'>('generate-notes');
     const [noteMode, setNoteMode] = useState<'ai' | 'manual'>('ai');
     const [noteStep, setNoteStep] = useState<'details' | 'generate' | 'review'>('details');
+    const [isContentExpanded, setIsContentExpanded] = useState(false);
+    const [contentType, setContentType] = useState('Notes');
+    const [contentFiles, setContentFiles] = useState<File[]>([]);
     const [noteForm, setNoteForm] = useState({
         subjectId: '',
         grade: 'Form 1',
@@ -62,14 +59,20 @@ const ResourcesDashboard: React.FC = () => {
         scheduledFor: ''
     });
     const [draftNotes, setDraftNotes] = useState<typeof noteForm[]>([]);
+    const [contentSearch, setContentSearch] = useState('');
+    const [contentSubjectFilter, setContentSubjectFilter] = useState('all');
+    const [materialSearch, setMaterialSearch] = useState('');
+    const [materialSubjectFilter, setMaterialSubjectFilter] = useState('all');
+    const [materialTypeFilter, setMaterialTypeFilter] = useState('all');
 
     // Modals State
     const [showUploadModal, setShowUploadModal] = useState(false);
     const [selectedSubjectForUpload, setSelectedSubjectForUpload] = useState<Subject | null>(null);
 
+    const API_URL = 'http://localhost:5000';
+
     const fetchDashboardData = useCallback(async () => {
         setLoading(true);
-        const API_URL = 'http://localhost:5000';
         const token = localStorage.getItem('token');
         if (!token) { setLoading(false); return; }
         try {
@@ -110,29 +113,10 @@ const ResourcesDashboard: React.FC = () => {
             mostPopularResource: 'N/A',
             topClassEngagement: topClass?.name || 'N/A',
         });
-        const sortedSubjects = [...subjects].sort((a, b) => {
-            if (a.lastUpdated && b.lastUpdated) {
-                return new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime();
-            }
-            return b.resourceCount - a.resourceCount;
-        });
-        setQuickAccess(sortedSubjects.slice(0, 3).map(subject => ({
-            id: subject.id,
-            name: `Resources for ${subject.name}`,
-            class: subject.name,
-            classId: subject.id,
-        })));
+        // Quick access removed; analytics only for now.
     }, [subjects]);
 
     // --- Event Handlers ---
-    const handleClassNavigation = (classId: string) => {
-        const subjectToNavigate = subjects.find(c => c.id === classId);
-        if (subjectToNavigate) {
-            setSelectedClass(subjectToNavigate);
-            setActiveAction('view-notes');
-        }
-    };
-    
     const handleUploadClick = (subject?: Subject) => {
         setSelectedSubjectForUpload(subject || null);
         setShowUploadModal(true);
@@ -158,10 +142,27 @@ const ResourcesDashboard: React.FC = () => {
         setActiveAction('drafts');
     };
 
-    const filteredSubjects = subjects.filter(subject =>
-        subject.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (subject.code && subject.code.toLowerCase().includes(searchQuery.toLowerCase()))
-    );
+    const handleMaterialTab = () => {
+        setSelectedClass(null);
+        setActiveAction('material');
+    };
+
+    const filteredContent = recentUploads.filter((item) => {
+        const matchesSubject = contentSubjectFilter === 'all' || item.subject?.id === contentSubjectFilter;
+        const query = contentSearch.toLowerCase().trim();
+        if (!query) return matchesSubject;
+        const matchesQuery = item.name?.toLowerCase().includes(query) || item.subject?.name?.toLowerCase().includes(query);
+        return matchesSubject && matchesQuery;
+    });
+
+    const filteredMaterials = recentUploads.filter((item) => {
+        const matchesSubject = materialSubjectFilter === 'all' || item.subject?.id === materialSubjectFilter;
+        const matchesType = materialTypeFilter === 'all' || item.type === materialTypeFilter;
+        const query = materialSearch.toLowerCase().trim();
+        if (!query) return matchesSubject && matchesType;
+        const matchesQuery = item.name?.toLowerCase().includes(query) || item.subject?.name?.toLowerCase().includes(query);
+        return matchesSubject && matchesType && matchesQuery;
+    });
 
     const handleGenerateNotes = () => {
         setSelectedClass(null);
@@ -172,7 +173,7 @@ const ResourcesDashboard: React.FC = () => {
     const handleNotesNext = () => {
         if (noteStep === 'details') {
             if (!noteForm.title.trim()) {
-                toast.error('Please add a title for the notes.');
+                toast.error('Please add a title for the content.');
                 return;
             }
             if (noteMode === 'ai') {
@@ -180,7 +181,7 @@ const ResourcesDashboard: React.FC = () => {
                 setTimeout(() => {
                     setNoteForm((prev) => ({
                         ...prev,
-                        content: prev.content || `Draft notes for ${prev.title}. Update this content before publishing.`
+                        content: prev.content || `Draft content for ${prev.title}. Update this content before publishing.`
                     }));
                     setNoteStep('review');
                 }, 700);
@@ -201,7 +202,7 @@ const ResourcesDashboard: React.FC = () => {
     };
 
     const handlePublish = () => {
-        toast.success('Notes published to students.');
+        toast.success('Content published to students.');
         setNoteStep('details');
         setNoteForm((prev) => ({ ...prev, content: '', instructions: '', title: '' }));
     };
@@ -211,8 +212,12 @@ const ResourcesDashboard: React.FC = () => {
             toast.error('Select a date/time to schedule.');
             return;
         }
-        toast.success('Notes scheduled.');
+        toast.success('Content scheduled.');
     };
+
+    const contentSteps = noteMode === 'ai' ? ['details', 'generate', 'review'] : ['details', 'review'];
+    const activeContentStepIndex = Math.max(contentSteps.indexOf(noteStep), 0);
+    const contentStepIndex = activeContentStepIndex + 1;
 
     const handleEditDraft = (draftIndex: number) => {
         const draft = draftNotes[draftIndex];
@@ -294,6 +299,7 @@ const ResourcesDashboard: React.FC = () => {
                 onViewNotes={handleViewNotes}
                 onLessonPlans={handleLessonPlans}
                 onDrafts={handleDrafts}
+                onMaterial={handleMaterialTab}
                 activeAction={activeAction}
                 recentUploads={recentUploads}
             />
@@ -309,7 +315,7 @@ const ResourcesDashboard: React.FC = () => {
                                 >
                                     <ArrowLeft className="h-5 w-5" />
                                 </button>
-                                <h1 className="text-2xl font-bold">Resources</h1>
+                                <h1 className="text-2xl font-bold">View Content</h1>
                             </div>
                             <div className="flex items-center gap-4">
                                 <button onClick={() => handleUploadClick()} className="bg-blue-600 text-white font-semibold px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2">
@@ -320,23 +326,54 @@ const ResourcesDashboard: React.FC = () => {
 
                         <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
                             {/* --- Left Column (Main Content) --- */}
-                            <div className="xl:col-span-2 space-y-8">
-                                <div className="relative">
-                                    <SearchIcon className="absolute left-4 top-1/2 transform -translate-y-1/2 text-slate-400" size={20} />
-                                    <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search your classes by name or code..." className="w-full pl-12 pr-4 py-3 border bg-white border-slate-200 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 outline-none" />
-                                </div>
-                                <section>
-                                    <h2 className="text-xl font-bold text-slate-700 mb-4">Your Classes</h2>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        {filteredSubjects.map((subject) => (
-                                            <SubjectCard 
-                                                key={subject.id} 
-                                                subject={subject} 
-                                                onNavigate={(subject) => handleClassNavigation(subject.id)} 
-                                                onUpload={handleUploadClick} 
-                                            />
-                                        ))}
+                            <div className="xl:col-span-2 space-y-6">
+                                <div className="bg-white border border-slate-200 rounded-lg p-4 flex flex-col lg:flex-row lg:items-center gap-4">
+                                    <div className="relative flex-1">
+                                        <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
+                                        <input
+                                            type="text"
+                                            value={contentSearch}
+                                            onChange={(e) => setContentSearch(e.target.value)}
+                                            placeholder="Search content by title or subject..."
+                                            className="w-full pl-10 pr-4 py-2 border bg-white border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                                        />
                                     </div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs text-slate-500">Subject</span>
+                                        <select
+                                            className="border border-slate-200 rounded-md px-3 py-2 text-sm"
+                                            value={contentSubjectFilter}
+                                            onChange={(e) => setContentSubjectFilter(e.target.value)}
+                                        >
+                                            <option value="all">All subjects</option>
+                                            {subjects.map((subject) => (
+                                                <option key={subject.id} value={subject.id}>{subject.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+                                <section className="space-y-4">
+                                    <h2 className="text-xl font-bold text-slate-700">Content Library</h2>
+                                    {filteredContent.length === 0 ? (
+                                        <div className="bg-white border border-dashed border-slate-200 rounded-lg p-8 text-center text-slate-500">
+                                            No content found. Generate content or upload material to get started.
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-3">
+                                            {filteredContent.map((item) => (
+                                                <div key={item.id} className="bg-white border border-slate-200 rounded-lg p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                                                    <div>
+                                                        <p className="font-semibold text-slate-800">{item.name}</p>
+                                                        <p className="text-xs text-slate-500">{item.subject?.name} • Uploaded by {item.uploadedBy?.firstName} {item.uploadedBy?.lastName}</p>
+                                                    </div>
+                                                    <div className="flex items-center gap-3">
+                                                        <button className="text-sm text-blue-600 hover:text-blue-700">View</button>
+                                                        <button className="text-sm text-slate-600 hover:text-slate-700">Download</button>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
                                 </section>
                             </div>
 
@@ -351,21 +388,6 @@ const ResourcesDashboard: React.FC = () => {
                                        <StatCard icon={Star} value={analytics.topClassEngagement} label="Top Class" color="amber" isText />
                                     </div>
                                 </section>
-
-                                <section>
-                                    <h2 className="text-xl font-bold text-slate-700 mb-4">Quick Access</h2>
-                                    <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 space-y-1">
-                                        {quickAccess.length > 0 ? quickAccess.map(item => (
-                                            <button key={item.id} onClick={() => handleClassNavigation(item.classId)} className="w-full text-left flex items-center gap-3 p-3 hover:bg-slate-50 rounded-md transition-colors">
-                                                <Folder className="flex-shrink-0 text-amber-500" size={20} />
-                                                <div>
-                                                    <p className="font-semibold text-sm text-slate-800">{item.class}</p>
-                                                    <p className="text-xs text-slate-500">View resources</p>
-                                                </div>
-                                            </button>
-                                        )) : <p className="text-sm text-slate-500 text-center p-4">No quick access items.</p>}
-                                    </div>
-                                </section>
                             </div>
                         </div>
                     </>
@@ -375,64 +397,108 @@ const ResourcesDashboard: React.FC = () => {
                     <div className="space-y-6">
                         <header className="flex items-center justify-between">
                             <div>
-                                <h1 className="text-2xl font-bold">Generate Notes</h1>
-                                <p className="text-sm text-slate-500">Create learning notes with AI assistance or upload your own material.</p>
+                                <h1 className="text-2xl font-bold">Generate Content</h1>
+                                <p className="text-sm text-slate-500">Create learning content with AI assistance or upload your own material.</p>
                             </div>
-                            <button onClick={() => handleUploadClick()} className="bg-blue-600 text-white font-semibold px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2">
-                                <UploadCloud size={18} /> Upload Material
-                            </button>
+                            <div className="flex items-center gap-2">
+                            </div>
                         </header>
 
-                        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 space-y-6">
-                            <div className="flex flex-wrap gap-2">
+                        {isContentExpanded && <div className="fixed inset-0 bg-black/30 z-40" />}
+                        <div className={`${isContentExpanded ? 'fixed inset-4 z-50' : ''}`}>
+                        <div className={`${isContentExpanded ? 'bg-white rounded-lg shadow-2xl border border-slate-200 max-w-5xl mx-auto relative h-full flex flex-col' : 'bg-white rounded-lg shadow-sm border border-slate-200 p-6 space-y-6'}`}>
+                            {isContentExpanded && (
                                 <button
-                                    onClick={() => { setNoteMode('ai'); setNoteStep('details'); }}
-                                    className={`px-4 py-2 rounded-md text-sm font-medium transition ${
-                                        noteMode === 'ai' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                    }`}
+                                    onClick={() => setIsContentExpanded(false)}
+                                    className="absolute top-4 right-4 p-2 rounded-md border border-slate-200 hover:bg-slate-50"
+                                    aria-label="Collapse"
                                 >
-                                    AI-Assisted
+                                    <Minimize2 size={18} />
                                 </button>
-                                <button
-                                    onClick={() => { setNoteMode('manual'); setNoteStep('details'); }}
-                                    className={`px-4 py-2 rounded-md text-sm font-medium transition ${
-                                        noteMode === 'manual' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                    }`}
-                                >
-                                    Manual
-                                </button>
-                            </div>
+                            )}
+                            {isContentExpanded ? (
+                                <div className="p-6 pb-0">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <button
+                                            onClick={() => { setNoteMode('ai'); setNoteStep('details'); }}
+                                            className={`px-4 py-2 rounded-md text-sm font-medium transition ${
+                                                noteMode === 'ai' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                            }`}
+                                        >
+                                            AI-Assisted
+                                        </button>
+                                        <button
+                                            onClick={() => { setNoteMode('manual'); setNoteStep('details'); }}
+                                            className={`px-4 py-2 rounded-md text-sm font-medium transition ${
+                                                noteMode === 'manual' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                            }`}
+                                        >
+                                            Manual
+                                        </button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <button
+                                        onClick={() => { setNoteMode('ai'); setNoteStep('details'); }}
+                                        className={`px-4 py-2 rounded-md text-sm font-medium transition ${
+                                            noteMode === 'ai' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                        }`}
+                                    >
+                                        AI-Assisted
+                                    </button>
+                                    <button
+                                        onClick={() => { setNoteMode('manual'); setNoteStep('details'); }}
+                                        className={`px-4 py-2 rounded-md text-sm font-medium transition ${
+                                            noteMode === 'manual' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                        }`}
+                                    >
+                                        Manual
+                                    </button>
+                                    <button
+                                        onClick={() => setIsContentExpanded(true)}
+                                        className="ml-auto p-2 rounded-md border border-slate-200 hover:bg-slate-50"
+                                        aria-label="Expand"
+                                    >
+                                        <Maximize2 size={18} />
+                                    </button>
+                                </div>
+                            )}
 
-                            <div className="border border-slate-200 rounded-lg overflow-hidden">
+                            <div className="border border-slate-200 rounded-lg overflow-hidden mt-6 flex-1 flex flex-col min-h-0">
                                 <div className="bg-slate-50 border-b border-slate-200 p-4">
                                     <div className="flex items-center justify-between">
-                                        <h2 className="text-lg font-semibold text-slate-800">Create Notes</h2>
-                                        <span className="text-sm text-slate-500">Step {noteStep === 'details' ? 1 : noteStep === 'generate' ? 2 : 3} of 3</span>
+                                        <h2 className="text-lg font-semibold text-slate-800">Create Content</h2>
+                                        <span className="text-sm text-slate-500">
+                                            Step {contentStepIndex} of {contentSteps.length}
+                                        </span>
                                     </div>
                                     <div className="flex items-center gap-2 mt-3">
-                                        {['details', 'generate', 'review'].map((step, index) => (
+                                        {contentSteps.map((step, index) => (
                                             <React.Fragment key={step}>
                                                 <div className={`flex items-center gap-2 ${
-                                                    (noteStep === step || ['generate', 'review'].includes(noteStep) && index <= (noteStep === 'generate' ? 1 : 2)) ? 'text-blue-600' : 'text-gray-400'
+                                                    index <= activeContentStepIndex ? 'text-blue-600' : 'text-gray-400'
                                                 }`}>
                                                     <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium ${
-                                                        noteStep === step || index < (noteStep === 'review' ? 2 : noteStep === 'generate' ? 1 : 0)
+                                                        index <= activeContentStepIndex
                                                             ? 'bg-blue-600 text-white'
                                                             : 'bg-gray-100 text-gray-400'
                                                     }`}>
                                                         {index + 1}
                                                     </div>
                                                     <span className="text-sm font-medium hidden sm:block">
-                                                        {index === 0 ? 'Details' : index === 1 ? 'Generate' : 'Review'}
+                                                        {noteMode === 'ai'
+                                                            ? (index === 0 ? 'Details' : index === 1 ? 'Generate' : 'Review')
+                                                            : (index === 0 ? 'Details' : 'Review')}
                                                     </span>
                                                 </div>
-                                                {index < 2 && <div className="flex-1 h-0.5 bg-gray-200" />}
+                                                {index < contentSteps.length - 1 && <div className="flex-1 h-0.5 bg-gray-200" />}
                                             </React.Fragment>
                                         ))}
                                     </div>
                                 </div>
 
-                                <div className="p-6 space-y-6">
+                                <div className="p-6 space-y-6 overflow-y-auto flex-1">
                                     {noteStep === 'details' && (
                                         <>
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -465,35 +531,119 @@ const ResourcesDashboard: React.FC = () => {
                                                     </select>
                                                 </div>
                                             </div>
-                                            <div>
-                                                <label className="text-xs text-slate-500">Notes Title</label>
-                                                <input
-                                                    className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm"
-                                                    placeholder="e.g., Algebraic Expressions Overview"
-                                                    value={noteForm.title}
-                                                    onChange={(e) => setNoteForm((prev) => ({ ...prev, title: e.target.value }))}
-                                                />
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                <div>
+                                                    <label className="text-xs text-slate-500">Content Title</label>
+                                                    <input
+                                                        className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm"
+                                                        placeholder="e.g., Algebraic Expressions Overview"
+                                                        value={noteForm.title}
+                                                        onChange={(e) => setNoteForm((prev) => ({ ...prev, title: e.target.value }))}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="text-xs text-slate-500">Content Type</label>
+                                                    <select
+                                                        className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm"
+                                                        value={contentType}
+                                                        onChange={(e) => setContentType(e.target.value)}
+                                                    >
+                                                        <option>Notes</option>
+                                                        <option>Worksheet</option>
+                                                        <option>Slides</option>
+                                                        <option>Revision Pack</option>
+                                                        <option>Lesson Summary</option>
+                                                    </select>
+                                                </div>
                                             </div>
                                             {noteMode === 'ai' ? (
-                                                <div>
-                                                    <label className="text-xs text-slate-500">Instructions for AI</label>
-                                                    <textarea
-                                                        className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm min-h-[140px]"
-                                                        placeholder="Describe the notes you want, include depth, examples, and any constraints."
-                                                        value={noteForm.instructions}
-                                                        onChange={(e) => setNoteForm((prev) => ({ ...prev, instructions: e.target.value }))}
-                                                    />
-                                                </div>
+                                                <>
+                                                    <div>
+                                                        <label className="text-xs text-slate-500">Instructions for AI</label>
+                                                        <textarea
+                                                            className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm min-h-[140px]"
+                                                            placeholder="Describe the content you want, include depth, examples, and any constraints."
+                                                            value={noteForm.instructions}
+                                                            onChange={(e) => setNoteForm((prev) => ({ ...prev, instructions: e.target.value }))}
+                                                        />
+                                                    </div>
+                                                    <div className="border border-slate-200 rounded-lg p-4 space-y-3 bg-slate-50">
+                                                        <div>
+                                                            <label className="text-xs text-slate-600">Attach Context Material (Optional)</label>
+                                                            <p className="text-xs text-slate-500">Upload or reference existing material to guide the AI output (syllabus, lesson notes, worksheets, or examples).</p>
+                                                        </div>
+                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                            <div>
+                                                                <label className="text-xs text-slate-500">Upload new files</label>
+                                                                <input
+                                                                    type="file"
+                                                                    className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm bg-white"
+                                                                    onChange={(e) => setContentFiles(e.target.files ? Array.from(e.target.files) : [])}
+                                                                    multiple
+                                                                />
+                                                                {contentFiles.length > 0 && (
+                                                                    <p className="text-xs text-slate-500 mt-1">{contentFiles.length} file(s) selected.</p>
+                                                                )}
+                                                            </div>
+                                                            <div>
+                                                                <label className="text-xs text-slate-500">Reference existing material</label>
+                                                                <select
+                                                                    className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm bg-white"
+                                                                >
+                                                                    <option value="">Select from uploaded material</option>
+                                                                    {recentUploads.map((item) => (
+                                                                        <option key={item.id} value={item.id}>{item.name}</option>
+                                                                    ))}
+                                                                </select>
+                                                                <p className="text-xs text-slate-500 mt-1">Choose a previously uploaded file to provide context.</p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </>
                                             ) : (
-                                                <div>
-                                                    <label className="text-xs text-slate-500">Write Notes</label>
-                                                    <textarea
-                                                        className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm min-h-[180px]"
-                                                        placeholder="Start typing your notes..."
-                                                        value={noteForm.content}
-                                                        onChange={(e) => setNoteForm((prev) => ({ ...prev, content: e.target.value }))}
-                                                    />
-                                                </div>
+                                                <>
+                                                    <div>
+                                                        <label className="text-xs text-slate-500">Write Content</label>
+                                                        <textarea
+                                                            className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm min-h-[180px]"
+                                                            placeholder="Start typing your content..."
+                                                            value={noteForm.content}
+                                                            onChange={(e) => setNoteForm((prev) => ({ ...prev, content: e.target.value }))}
+                                                        />
+                                                    </div>
+                                                    <div className="border border-slate-200 rounded-lg p-4 space-y-3 bg-slate-50">
+                                                        <div>
+                                                            <label className="text-xs text-slate-600">Attach Material (Optional)</label>
+                                                            <p className="text-xs text-slate-500">Attach supporting files like worksheets, slides, or documents for students.</p>
+                                                        </div>
+                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                            <div>
+                                                                <label className="text-xs text-slate-500">Upload new files</label>
+                                                                <input
+                                                                    type="file"
+                                                                    className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm bg-white"
+                                                                    onChange={(e) => setContentFiles(e.target.files ? Array.from(e.target.files) : [])}
+                                                                    multiple
+                                                                />
+                                                                {contentFiles.length > 0 && (
+                                                                    <p className="text-xs text-slate-500 mt-1">{contentFiles.length} file(s) selected.</p>
+                                                                )}
+                                                            </div>
+                                                            <div>
+                                                                <label className="text-xs text-slate-500">Reference existing material</label>
+                                                                <select
+                                                                    className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm bg-white"
+                                                                >
+                                                                    <option value="">Select from uploaded material</option>
+                                                                    {recentUploads.map((item) => (
+                                                                        <option key={item.id} value={item.id}>{item.name}</option>
+                                                                    ))}
+                                                                </select>
+                                                                <p className="text-xs text-slate-500 mt-1">Use an existing upload instead of adding a new file.</p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </>
                                             )}
                                         </>
                                     )}
@@ -501,14 +651,14 @@ const ResourcesDashboard: React.FC = () => {
                                     {noteStep === 'generate' && (
                                         <div className="flex flex-col items-center justify-center py-12 text-slate-600">
                                             <Sparkles size={32} className="text-blue-500 mb-4" />
-                                            <p className="text-sm">Generating notes. Please wait...</p>
+                                            <p className="text-sm">Generating content. Please wait...</p>
                                         </div>
                                     )}
 
                                     {noteStep === 'review' && (
                                         <>
                                             <div>
-                                                <label className="text-xs text-slate-500">Review & Edit Notes</label>
+                                                <label className="text-xs text-slate-500">Review & Edit Content</label>
                                                 <textarea
                                                     className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm min-h-[240px]"
                                                     value={noteForm.content}
@@ -542,6 +692,8 @@ const ResourcesDashboard: React.FC = () => {
                                         </>
                                     )}
 
+                                </div>
+                                <div className="bg-slate-50 border-t border-slate-200 p-4">
                                     <div className="flex flex-wrap justify-between gap-3">
                                         <button
                                             onClick={() => setNoteStep('details')}
@@ -561,7 +713,7 @@ const ResourcesDashboard: React.FC = () => {
                                                     onClick={handleNotesNext}
                                                     className="bg-blue-600 text-white font-semibold px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
                                                 >
-                                                    {noteMode === 'ai' ? 'Generate Notes' : 'Continue'}
+                                                    {noteMode === 'ai' ? 'Generate Content' : 'Continue'}
                                                 </button>
                                             ) : (
                                                 <>
@@ -583,6 +735,7 @@ const ResourcesDashboard: React.FC = () => {
                                     </div>
                                 </div>
                             </div>
+                        </div>
                         </div>
                     </div>
                 )}
@@ -643,14 +796,14 @@ const ResourcesDashboard: React.FC = () => {
                     <div className="space-y-6">
                         <header className="flex items-center justify-between">
                             <div>
-                                <h1 className="text-2xl font-bold">Resource Drafts</h1>
+                                <h1 className="text-2xl font-bold">Content Drafts</h1>
                                 <p className="text-sm text-slate-500">Manage saved drafts before publishing.</p>
                             </div>
                         </header>
 
                         <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 space-y-4">
                             {draftNotes.length === 0 ? (
-                                <p className="text-sm text-slate-500">No drafts yet. Create notes and save them as drafts.</p>
+                                <p className="text-sm text-slate-500">No drafts yet. Create content and save it as drafts.</p>
                             ) : (
                                 draftNotes.map((draft, index) => (
                                     <div key={`${draft.title}-${index}`} className="border border-slate-200 rounded-lg p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -662,6 +815,84 @@ const ResourcesDashboard: React.FC = () => {
                                             <button onClick={() => handleEditDraft(index)} className="text-sm text-blue-600 hover:text-blue-700">Edit</button>
                                             <button onClick={() => handleDeleteDraft(index)} className="text-sm text-slate-600 hover:text-slate-700">Delete</button>
                                             <button onClick={() => handlePublishDraft(index)} className="text-sm text-blue-600 hover:text-blue-700">Publish</button>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {activeAction === 'material' && (
+                    <div className="space-y-6">
+                        <header className="flex items-center justify-between">
+                            <div>
+                                <h1 className="text-2xl font-bold">Material</h1>
+                                <p className="text-sm text-slate-500">Manage uploaded teaching material.</p>
+                            </div>
+                            <button
+                                onClick={() => setShowUploadModal(true)}
+                                className="bg-blue-600 text-white font-semibold px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                            >
+                                Upload Material
+                            </button>
+                        </header>
+
+                        <div className="bg-white border border-slate-200 rounded-lg p-4 flex flex-col lg:flex-row lg:items-center gap-4">
+                            <div className="relative flex-1">
+                                <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
+                                <input
+                                    type="text"
+                                    value={materialSearch}
+                                    onChange={(e) => setMaterialSearch(e.target.value)}
+                                    placeholder="Search material..."
+                                    className="w-full pl-10 pr-4 py-2 border bg-white border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none text-sm"
+                                />
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs text-slate-500">Subject</span>
+                                <select
+                                    className="border border-slate-200 rounded-md px-3 py-2 text-sm"
+                                    value={materialSubjectFilter}
+                                    onChange={(e) => setMaterialSubjectFilter(e.target.value)}
+                                >
+                                    <option value="all">All subjects</option>
+                                    {subjects.map((subject) => (
+                                        <option key={subject.id} value={subject.id}>{subject.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <span className="text-xs text-slate-500">Type</span>
+                                <select
+                                    className="border border-slate-200 rounded-md px-3 py-2 text-sm"
+                                    value={materialTypeFilter}
+                                    onChange={(e) => setMaterialTypeFilter(e.target.value)}
+                                >
+                                    <option value="all">All types</option>
+                                    <option value="document">Document</option>
+                                    <option value="image">Image</option>
+                                    <option value="video">Video</option>
+                                    <option value="other">Other</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div className="space-y-3">
+                            {filteredMaterials.length === 0 ? (
+                                <div className="bg-white border border-dashed border-slate-200 rounded-lg p-8 text-center text-slate-500">
+                                    No material uploaded yet.
+                                </div>
+                            ) : (
+                                filteredMaterials.map((item) => (
+                                    <div key={item.id} className="bg-white border border-slate-200 rounded-lg p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                                        <div>
+                                            <p className="font-semibold text-slate-800">{item.name}</p>
+                                            <p className="text-xs text-slate-500">{item.subject?.name} • Uploaded by {item.uploadedBy?.firstName} {item.uploadedBy?.lastName}</p>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            <button className="text-sm text-blue-600 hover:text-blue-700">View</button>
+                                            <button className="text-sm text-slate-600 hover:text-slate-700">Download</button>
                                         </div>
                                     </div>
                                 ))
@@ -689,50 +920,5 @@ const StatCard = ({ icon: Icon, value, label, color, isText = false }) => (
         </div>
     </div>
 );
-
-interface SubjectCardProps {
-    subject: Subject;
-    onNavigate: (subject: Subject) => void;
-    onUpload: (subject: Subject) => void;
-}
-
-const SubjectCard: React.FC<SubjectCardProps> = ({ subject, onNavigate, onUpload }) => {
-    const [menuOpen, setMenuOpen] = useState(false);
-    return(
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="bg-white rounded-lg shadow-sm border border-slate-200 flex flex-col justify-between overflow-hidden">
-            <div className="p-5">
-                <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-lg font-bold text-slate-800 pr-4">{subject.name}</h3>
-                    <div className="relative">
-                         <button onClick={() => setMenuOpen(!menuOpen)} onBlur={() => setTimeout(() => setMenuOpen(false), 100)} className="p-1 rounded-full hover:bg-slate-100">
-                             <MoreVertical size={20} className="text-slate-500" />
-                         </button>
-                         <AnimatePresence>
-                         {menuOpen && (
-                             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}
-                                 className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg border border-slate-200 z-10">
-                                 <button onClick={() => { onNavigate(subject); }} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"><Eye size={14}/> View Resources</button>
-                                 <button onClick={() => { onUpload(subject); }} className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"><UploadCloud size={14}/> Upload File</button>
-                                 <button className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"><Settings size={14}/> Subject Settings</button>
-                             </motion.div>
-                         )}
-                         </AnimatePresence>
-                    </div>
-                </div>
-                <p className="text-sm text-slate-500 mb-4">{subject.code || 'No code'}</p>
-                <div className="flex items-center text-sm font-medium text-slate-600 gap-1">
-                    <Folder size={16} className="text-blue-500" />
-                    <span>{subject.resourceCount} total resources</span>
-                </div>
-            </div>
-            <div className="bg-slate-50 border-t border-slate-200 px-5 py-3 grid grid-cols-2 gap-x-4 gap-y-2">
-                <div className="flex items-center gap-2 text-xs text-slate-600"><FileText size={14} className="text-blue-500"/> Docs: <strong>{subject.documents}</strong></div>
-                <div className="flex items-center gap-2 text-xs text-slate-600"><FileImage size={14} className="text-green-500"/> Images: <strong>{subject.images}</strong></div>
-                <div className="flex items-center gap-2 text-xs text-slate-600"><FileVideo size={14} className="text-purple-500"/> Videos: <strong>{subject.videos}</strong></div>
-                <div className="flex items-center gap-2 text-xs text-slate-600"><FilePlus size={14} className="text-slate-500"/> Others: <strong>{subject.others}</strong></div>
-            </div>
-        </motion.div>
-    )
-};
 
 export default ResourcesDashboard;

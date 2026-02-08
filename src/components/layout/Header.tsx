@@ -132,8 +132,8 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, portalType = '
         { name: 'Classroom', path: '/classroom', key: 'classroom', icon: 'grid' },
         { name: 'Students', path: '/students', key: 'students', icon: 'students' },
         { name: 'Resources', path: '/resources', key: 'resources', icon: 'resources' },
-        { name: 'Assessments', path: '/assessments', key: 'assessments', icon: 'assessment' },
-        { name: 'Development', path: '/development', key: 'development', icon: 'development' },
+        { name: 'Assessments', path: '/assessments/create', key: 'assessments', icon: 'assessment' },
+        { name: 'Development', path: '/development/profile', key: 'development', icon: 'development' },
         { name: 'Performance', path: '/performance', key: 'performance', icon: 'performance' },
         { name: 'Report', path: '/grading', key: 'grading', icon: 'grading' },
         { name: 'Chat', path: '/staffroom', key: 'staffroom', icon: 'mail' },
@@ -149,7 +149,11 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, portalType = '
 
   const isLinkActive = (path: string) => {
     if (path === '/dashboard') return location.pathname === '/dashboard' || location.pathname === '/';
-    return location.pathname === path || location.pathname.startsWith(`${path}/`);
+    if (path.startsWith('/admin')) {
+      return location.pathname === path || location.pathname.startsWith(`${path}/`);
+    }
+    const base = `/${path.split('/')[1]}`;
+    return location.pathname === base || location.pathname.startsWith(`${base}/`);
   };
 
   const getIcon = (iconName: NavLink['icon']) => {
@@ -194,7 +198,7 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, portalType = '
       <div className="flex justify-between items-start w-full">
         <div>
           {isTeacherPortal ? (
-            activeTab === 'classroom' ? (
+            location.pathname.startsWith('/classroom') ? (
               <div className="bg-[#ececed] p-2 shadow-md mb-2 h-[70px] w-[280px] flex items-center justify-between rounded-md">
                 <div className="relative w-[90px] h-[70px] flex items-center justify-center">
                   <PieChart width={60} height={60}>

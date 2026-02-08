@@ -6,14 +6,20 @@ import Inbox from './components/staffroom/Inbox';
 import CalendarView from './components/calendar/CalendarView';
 import ClassroomView from './components/classroom/ClassroomView';
 import ResourcesDashboard from './components/resources/ResourcesDashboard';
-import GradingDashboard from './components/teacher/GradingDashboard';
+import ReportOverviewPage from './pages/ReportOverviewPage';
+import ReportSubmissionsPage from './pages/ReportSubmissionsPage';
 import Login from './components/pages/Login';
 import MainLayout from './components/layout/MainLayout';
 import StudentDashboard from './components/student/StudentDashboard';
 import NotFound from './components/pages/NotFound';
 import DevelopmentPage from './pages/DevelopmentPage';
 import DevelopmentOverviewPage from './pages/DevelopmentOverviewPage';
+import DevelopmentPlansPage from './pages/DevelopmentPlansPage';
+import DevelopmentReteachPage from './pages/DevelopmentReteachPage';
+import DevelopmentPracticePage from './pages/DevelopmentPracticePage';
+import DevelopmentReteachDetailPage from './pages/DevelopmentReteachDetailPage';
 import PerformancePage from './pages/PerformancePage';
+import PerformanceOverviewPage from './pages/PerformanceOverviewPage';
 import TeacherStudentsPage from './pages/TeacherStudentsPage';
 import AssessmentsDashboardPage from './pages/AssessmentsDashboardPage';
 import MarkAssessmentPage from './pages/MarkAssessmentPage';
@@ -114,17 +120,28 @@ function App() {
             <Route path="calendar" element={<CalendarView />} />
             <Route path="classroom" element={<ClassroomView />} />
             <Route path="students" element={<TeacherStudentsPage />} />
-            <Route path="assessments" element={<AssessmentsDashboardPage />} />
+            <Route path="students/profile" element={<TeacherStudentsPage />} />
+            <Route path="assessments" element={<Navigate to="/assessments/create" replace />} />
+            <Route path="assessments/view" element={<AssessmentsDashboardPage />} />
             <Route path="assessments/create" element={<CreateAssessmentPage />} />
             <Route path="assessments/mark" element={<MarkAssessmentPage />} />
             <Route path="assessments/analysis" element={<AssessmentAnalysisPage />} />
             <Route path="assessments/view/:id" element={<AssessmentDetailPage />} />
             <Route path="assessments/student-analysis" element={<StudentAnalysisPage />} />
-            <Route path="performance" element={<PerformancePage />} />
-            <Route path="development" element={<DevelopmentOverviewPage />} />
+            <Route path="performance" element={<Navigate to="/performance/overview" replace />} />
+            <Route path="performance/overview" element={<PerformanceOverviewPage />} />
+            <Route path="performance/student" element={<PerformancePage />} />
+            <Route path="development" element={<Navigate to="/development/profile" replace />} />
+            <Route path="development/profile" element={<DevelopmentOverviewPage />} />
+            <Route path="development/plans" element={<DevelopmentPlansPage />} />
+            <Route path="development/reteach" element={<DevelopmentReteachPage />} />
+            <Route path="development/reteach/:id" element={<DevelopmentReteachDetailPage />} />
+            <Route path="development/practice" element={<DevelopmentPracticePage />} />
             <Route path="development/:studentId" element={<DevelopmentPage />} />
             <Route path="resources" element={<ResourcesDashboard />} />
-            <Route path="grading" element={<GradingDashboard />} />
+            <Route path="grading" element={<Navigate to="/grading/class" replace />} />
+            <Route path="grading/class" element={<ReportOverviewPage />} />
+            <Route path="grading/student" element={<ReportSubmissionsPage />} />
           </Route>
         )}
 

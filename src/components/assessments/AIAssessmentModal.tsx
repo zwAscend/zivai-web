@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Dialog, DialogContent, DialogTitle } from '../ui/dialog';
+import { Dialog, DialogContent } from '../ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
@@ -35,6 +35,10 @@ interface AIAssessmentModalProps {
   onAssessmentCreated: (assessment: Assessment) => void;
   assessmentToEdit?: Assessment | null;
   inline?: boolean;
+  forceExpanded?: boolean;
+  onExpandedChange?: (expanded: boolean) => void;
+  onSwitchToManual?: () => void;
+  showModeSwitch?: boolean;
 }
 
 export function AIAssessmentModal({ 
@@ -43,7 +47,11 @@ export function AIAssessmentModal({
   subjectId, 
   onAssessmentCreated,
   assessmentToEdit,
-  inline = false
+  inline = false,
+  forceExpanded,
+  onExpandedChange,
+  onSwitchToManual,
+  showModeSwitch
 }: AIAssessmentModalProps) {
   // State management
   const [isLoading, setIsLoading] = useState(false);
@@ -92,6 +100,12 @@ export function AIAssessmentModal({
       }
     }
   }, [isVisible, assessmentToEdit]);
+
+  useEffect(() => {
+    if (typeof forceExpanded === 'boolean') {
+      setIsExpanded(forceExpanded);
+    }
+  }, [forceExpanded]);
 
   const fetchSubjects = async () => {
     try {
@@ -444,22 +458,34 @@ export function AIAssessmentModal({
     }
   };
 
-  const TitleComponent = inline ? 'h2' : DialogTitle;
-
-  const shouldScrollContent = !inline || isExpanded;
+  const shouldScrollContent = inline || isExpanded;
 
   const content = (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0 max-h-full">
       <div className="bg-white border-b border-gray-200 p-6 sticky top-0 z-10">
-        <div className="flex items-center justify-between mb-4">
-          <TitleComponent className="text-2xl font-bold text-gray-900">
-            {assessmentToEdit ? 'Edit Assessment' : 'Create Assessment'}
-          </TitleComponent>
+        <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-2">
+            {inline && showModeSwitch && onSwitchToManual && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-500">Mode</span>
+                <span className="text-xs font-medium text-gray-700">AI-Assisted</span>
+                <button
+                  className="px-2 py-1 rounded-md text-xs font-medium bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  type="button"
+                  onClick={onSwitchToManual}
+                >
+                  Switch to Manual
+                </button>
+              </div>
+            )}
             {inline && (
               <button
-                onClick={() => setIsExpanded((prev) => !prev)}
-                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                onClick={() => setIsExpanded((prev) => {
+                  const next = !prev;
+                  onExpandedChange?.(next);
+                  return next;
+                })}
+                className="p-2 rounded-full hover:bg-gray-100 transition-colors"
                 disabled={isGenerating || isSubmitting}
                 aria-label={isExpanded ? 'Collapse' : 'Expand'}
               >
@@ -489,8 +515,6 @@ export function AIAssessmentModal({
               Step {currentStepIndex + 1} of {steps.length}
             </span>
           </div>
-          <p className="text-gray-600">{currentStepConfig.description}</p>
-
           <div className="flex items-center gap-2">
             {steps.map((stepConfig, index) => (
               <React.Fragment key={stepConfig.key}>
@@ -523,7 +547,7 @@ export function AIAssessmentModal({
         </div>
       </div>
 
-      <div className={shouldScrollContent ? 'flex-1 overflow-y-auto p-6' : 'p-6'}>
+      <div className={shouldScrollContent ? 'flex-1 min-h-0 overflow-y-auto p-6' : 'p-6'}>
         {renderStepContent()}
       </div>
 
@@ -555,7 +579,7 @@ export function AIAssessmentModal({
               <Button
                 onClick={handleNext}
                 disabled={!isStepValid() || isGenerating || isSubmitting}
-                className="flex items-center gap-2 min-w-[140px]"
+                className="flex items-center gap-2 min-w-[140px] bg-blue-600 text-white hover:bg-blue-700"
               >
                 {isSubmitting ? (
                   <>
@@ -591,13 +615,13 @@ export function AIAssessmentModal({
       return (
         <>
           <div className="fixed inset-0 bg-black/30 z-40" />
-          <div className="fixed inset-4 z-50 bg-white rounded-lg shadow-2xl overflow-hidden max-w-3xl w-[90vw] mx-auto">
+          <div className="fixed top-4 left-4 right-4 bottom-6 z-50 bg-white rounded-lg shadow-2xl overflow-hidden max-w-3xl w-[90vw] mx-auto flex flex-col min-h-0">
             {content}
           </div>
         </>
       );
     }
-    return <div className="bg-white rounded-lg shadow">{content}</div>;
+    return <div className="bg-white rounded-lg shadow h-full max-h-full flex flex-col overflow-hidden min-h-0">{content}</div>;
   }
 
   return (

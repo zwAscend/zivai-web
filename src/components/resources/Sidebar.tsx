@@ -1,6 +1,6 @@
 // src/components/resources/Sidebar.tsx
 import React, { useState } from 'react';
-import { Menu, UploadCloud, FileText as CreateAssignmentIcon, CheckCircle, FileImage, FileVideo, FilePlus, Eye, BarChart3, UserCheck, Sparkles, BookOpen } from 'lucide-react';
+import { Menu, UploadCloud, FileText as CreateAssignmentIcon, CheckCircle, FileImage, FileVideo, FilePlus, Eye, BarChart3, UserCheck, Sparkles, BookOpen, Target, ListChecks, User, TrendingUp, LayoutGrid, Users } from 'lucide-react';
 import { clsx } from 'clsx';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -11,17 +11,32 @@ interface RecentUpload {
 }
 
 interface SidebarProps {
-  mode?: 'resources' | 'assessments';
+  mode?: 'resources' | 'assessments' | 'development' | 'performance' | 'classroom' | 'students' | 'report';
   onUploadClick?: () => void;
   onCreateAssessment?: () => void;
   onMarkAssessment?: () => void;
   onViewAssessments?: () => void;
   onAssessmentAnalysis?: () => void;
   onStudentAnalysis?: () => void;
+  onReportClass?: () => void;
+  onReportStudent?: () => void;
   onGenerateNotes?: () => void;
   onViewNotes?: () => void;
   onLessonPlans?: () => void;
   onDrafts?: () => void;
+  onMaterial?: () => void;
+  onDevelopmentProfile?: () => void;
+  onDevelopmentStudents?: () => void;
+  onDevelopmentReteach?: () => void;
+  onDevelopmentPractice?: () => void;
+  onDevelopmentStudent?: () => void;
+  onPerformanceOverview?: () => void;
+  onPerformanceStudent?: () => void;
+  onClassroomStatus?: () => void;
+  onClassroomResults?: () => void;
+  onClassroomDevelopment?: () => void;
+  onStudentsDirectory?: () => void;
+  onStudentsProfile?: () => void;
   activeAction?: string;
   recentUploads: RecentUpload[];
 }
@@ -44,10 +59,25 @@ const Sidebar: React.FC<SidebarProps> = ({
   onViewAssessments,
   onAssessmentAnalysis,
   onStudentAnalysis,
+  onReportClass,
+  onReportStudent,
   onGenerateNotes,
   onViewNotes,
   onLessonPlans,
   onDrafts,
+  onMaterial,
+  onDevelopmentProfile,
+  onDevelopmentStudents,
+  onDevelopmentReteach,
+  onDevelopmentPractice,
+  onDevelopmentStudent,
+  onPerformanceOverview,
+  onPerformanceStudent,
+  onClassroomStatus,
+  onClassroomResults,
+  onClassroomDevelopment,
+  onStudentsDirectory,
+  onStudentsProfile,
   activeAction,
   recentUploads
 }) => {
@@ -55,19 +85,48 @@ const Sidebar: React.FC<SidebarProps> = ({
 
   const actions = mode === 'assessments'
     ? [
+        { id: 'create-assessment', label: 'Generate Assessment', icon: CreateAssignmentIcon, onClick: onCreateAssessment },
         { id: 'view-assessments', label: 'View Assessment', icon: Eye, onClick: onViewAssessments },
-        { id: 'create-assessment', label: 'Create Assessment', icon: CreateAssignmentIcon, onClick: onCreateAssessment },
         { id: 'mark-assessment', label: 'Mark Assessment', icon: CheckCircle, onClick: onMarkAssessment },
         { id: 'analysis-assessment', label: 'Class Analysis', icon: BarChart3, onClick: onAssessmentAnalysis },
         { id: 'analysis-student', label: 'Student Analysis', icon: UserCheck, onClick: onStudentAnalysis },
       ]
-    : [
-        { id: 'generate-notes', label: 'Generate Notes', icon: Sparkles, onClick: onGenerateNotes },
-        { id: 'view-notes', label: 'View Notes', icon: Eye, onClick: onViewNotes },
-        { id: 'lesson-plans', label: 'Lesson Plans', icon: BookOpen, onClick: onLessonPlans },
-        { id: 'drafts', label: 'Resources Drafts', icon: CreateAssignmentIcon, onClick: onDrafts },
-        { id: 'upload', label: 'Upload Material', icon: UploadCloud, onClick: onUploadClick },
-      ];
+    : mode === 'development'
+      ? [
+          { id: 'development-profile', label: 'Development Profile', icon: Target, onClick: onDevelopmentProfile },
+          { id: 'development-students', label: 'Student Plans', icon: ListChecks, onClick: onDevelopmentStudents },
+          { id: 'development-reteach', label: 'Re-teach Cards', icon: BookOpen, onClick: onDevelopmentReteach },
+          { id: 'development-practice', label: 'Next Best Practice', icon: Sparkles, onClick: onDevelopmentPractice },
+          { id: 'development-student', label: 'Student Profile', icon: User, onClick: onDevelopmentStudent },
+        ]
+    : mode === 'report'
+      ? [
+          { id: 'report-class', label: 'Class Report', icon: BarChart3, onClick: onReportClass },
+          { id: 'report-student', label: 'Student Report', icon: Users, onClick: onReportStudent },
+        ]
+    : mode === 'performance'
+        ? [
+            { id: 'performance-overview', label: 'Class Overview', icon: TrendingUp, onClick: onPerformanceOverview },
+            { id: 'performance-student', label: 'Student Performance', icon: User, onClick: onPerformanceStudent },
+          ]
+        : mode === 'classroom'
+          ? [
+              { id: 'classroom-status', label: 'Class Status', icon: LayoutGrid, onClick: onClassroomStatus },
+              { id: 'classroom-results', label: 'Results View', icon: BarChart3, onClick: onClassroomResults },
+              { id: 'classroom-development', label: 'Development View', icon: Target, onClick: onClassroomDevelopment },
+            ]
+          : mode === 'students'
+            ? [
+                { id: 'students-directory', label: 'Student Directory', icon: Users, onClick: onStudentsDirectory },
+                { id: 'students-profile', label: 'Student Profile', icon: User, onClick: onStudentsProfile },
+              ]
+            : [
+                { id: 'generate-notes', label: 'Generate Content', icon: Sparkles, onClick: onGenerateNotes },
+                { id: 'view-notes', label: 'View Content', icon: Eye, onClick: onViewNotes },
+                { id: 'lesson-plans', label: 'Lesson Plans', icon: BookOpen, onClick: onLessonPlans },
+                { id: 'drafts', label: 'Content Drafts', icon: CreateAssignmentIcon, onClick: onDrafts },
+                { id: 'material', label: 'Material', icon: UploadCloud, onClick: onMaterial },
+              ];
 
   return (
     <motion.aside
@@ -85,15 +144,19 @@ const Sidebar: React.FC<SidebarProps> = ({
       
       <nav className="flex-1 overflow-y-auto p-2">
         <ul className="space-y-1">
-          {actions.map(({ id, label, icon: Icon, onClick }) => (
+          {actions.map(({ id, label, icon: Icon, onClick }) => {
+            const isDisabled = !onClick;
+            return (
             <li key={id}>
               <button
                 onClick={onClick}
+                disabled={isDisabled}
                 className={clsx(
                   "w-full flex items-center gap-3 p-2.5 rounded-md text-sm font-medium transition-colors",
                   id === activeAction
                     ? "bg-blue-50 text-blue-700 border border-blue-200"
                     : "text-slate-700 hover:bg-slate-100 hover:text-slate-900",
+                  isDisabled && "opacity-50 cursor-not-allowed hover:bg-transparent hover:text-slate-700",
                   isCollapsed && "justify-center"
                 )}
                 title={isCollapsed ? label : undefined}
@@ -108,7 +171,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 </AnimatePresence>
               </button>
             </li>
-          ))}
+          )})}
         </ul>
 
         {mode === 'resources' && (

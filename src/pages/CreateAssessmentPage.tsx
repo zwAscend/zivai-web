@@ -8,6 +8,7 @@ import { authService } from '../services/authService';
 import { subjectService } from '../services/subjectService';
 import { schoolService, SchoolItem } from '../services/schoolService';
 import { Subject } from '../types';
+import { Maximize2, Minimize2 } from 'lucide-react';
 
 type ManualMode = 'upload' | 'build';
 type ManualQuestionType = 'mcq' | 'true_false' | 'short_answer' | 'essay';
@@ -33,6 +34,8 @@ const CreateAssessmentPage: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [assessmentFile, setAssessmentFile] = useState<File | null>(null);
   const [manualQuestions, setManualQuestions] = useState<ManualQuestion[]>([]);
+  const [isManualExpanded, setIsManualExpanded] = useState(false);
+  const [isAiExpanded, setIsAiExpanded] = useState(false);
   const [manualForm, setManualForm] = useState({
     schoolId: '',
     subjectId: '',
@@ -190,7 +193,7 @@ const CreateAssessmentPage: React.FC = () => {
       });
 
       toast.success('Assessment created successfully');
-      navigate('/assessments');
+      navigate('/assessments/view');
     } catch (error: any) {
       console.error('Failed to create assessment:', error);
       toast.error(error?.message || 'Failed to create assessment');
@@ -246,135 +249,150 @@ const CreateAssessmentPage: React.FC = () => {
         mode="assessments"
         onCreateAssessment={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
         onMarkAssessment={() => navigate('/assessments/mark')}
-        onViewAssessments={() => navigate('/assessments')}
+        onViewAssessments={() => navigate('/assessments/view')}
         onAssessmentAnalysis={() => navigate('/assessments/analysis')}
         onStudentAnalysis={() => navigate('/assessments/student-analysis')}
         activeAction="create-assessment"
         recentUploads={[]}
       />
       <main className="flex-1 p-8 overflow-hidden">
-        <div className="max-w-5xl h-full flex flex-col">
+        <div className="max-w-5xl h-full flex flex-col min-h-0">
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h1 className="text-2xl font-bold">Create Assessment</h1>
+              <h1 className="text-2xl font-bold">Generate Assessment</h1>
               <p className="text-sm text-gray-500">Choose how you want to build the assessment.</p>
             </div>
             <button
-              onClick={() => navigate('/assessments')}
+              onClick={() => navigate('/assessments/view')}
               className="text-sm text-blue-600 hover:text-blue-700"
             >
               Back to Assessments
             </button>
           </div>
 
-          <div className="bg-white rounded-lg shadow p-4 mb-6">
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => setCreationMode('ai')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition ${
-                  creationMode === 'ai' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                AI-Assisted
-              </button>
-              <button
-                onClick={() => setCreationMode('manual')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition ${
-                  creationMode === 'manual' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                }`}
-              >
-                Manual
-              </button>
-            </div>
-            <p className="text-xs text-gray-500 mt-3">
-              Select AI-assisted to generate questions automatically, or manual to craft the assessment yourself.
-            </p>
-          </div>
-
-          <div className="flex-1 min-h-0">
+          <div className="flex-1 min-h-0 overflow-hidden">
             {creationMode === 'ai' ? (
-              <AIAssessmentModal
-                inline
-                isOpen
-                onClose={() => navigate('/assessments')}
-                subjectId={subjectId}
-                onAssessmentCreated={() => {}}
-              />
+              <div className="h-full min-h-0 max-h-full">
+                <AIAssessmentModal
+                  inline
+                  isOpen
+                  onClose={() => navigate('/assessments/view')}
+                  subjectId={subjectId}
+                  onAssessmentCreated={() => {}}
+                  forceExpanded={isAiExpanded}
+                  onExpandedChange={setIsAiExpanded}
+                  showModeSwitch
+                  onSwitchToManual={() => {
+                    const shouldExpand = isAiExpanded;
+                    setCreationMode('manual');
+                    setIsManualExpanded(shouldExpand);
+                    setIsAiExpanded(false);
+                  }}
+                />
+              </div>
             ) : (
-              <div className="bg-white rounded-lg shadow p-6 space-y-6">
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={() => setManualMode('upload')}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition ${
-                    manualMode === 'upload' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  Upload Document
-                </button>
-                <button
-                  onClick={() => setManualMode('build')}
-                  className={`px-4 py-2 rounded-md text-sm font-medium transition ${
-                    manualMode === 'build' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  Build Questions
-                </button>
-              </div>
+              <>
+                {isManualExpanded && <div className="fixed inset-0 bg-black/30 z-40" />}
+                <div className={isManualExpanded ? 'fixed top-4 left-4 right-4 bottom-6 z-50' : 'h-full'}>
+                  <div className={`${isManualExpanded ? 'bg-white rounded-lg shadow-2xl border border-gray-200 max-w-3xl w-[90vw] mx-auto h-full max-h-[calc(100vh-2rem)]' : 'bg-white rounded-lg shadow h-full'} flex flex-col overflow-hidden relative`}>
+                    <div className="flex flex-wrap items-center gap-2 p-6 pb-0">
+                      <div className="flex items-center gap-1">
+                        <span className="text-xs text-gray-500 mr-1">Mode</span>
+                        <span className="text-xs font-medium text-gray-700">Manual</span>
+                        <button
+                          onClick={() => {
+                            if (creationMode !== 'ai') {
+                              const shouldExpand = isManualExpanded;
+                              setCreationMode('ai');
+                              setIsAiExpanded(shouldExpand);
+                              setIsManualExpanded(false);
+                            }
+                          }}
+                          className="px-2 py-1 rounded-md text-xs font-medium bg-gray-100 text-gray-700 hover:bg-gray-200"
+                        >
+                          Switch to AI-Assisted
+                        </button>
+                      </div>
+                      <button
+                        onClick={() => setManualMode('upload')}
+                        className={`px-4 py-2 rounded-md text-sm font-medium transition ${
+                          manualMode === 'upload' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
+                      >
+                        Upload Document
+                      </button>
+                      <button
+                        onClick={() => setManualMode('build')}
+                        className={`px-4 py-2 rounded-md text-sm font-medium transition ${
+                          manualMode === 'build' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
+                      >
+                        Build Questions
+                      </button>
+                      <div className="ml-auto flex items-center gap-2">
+                        {isManualExpanded ? (
+                          <button
+                            onClick={() => setIsManualExpanded(false)}
+                            className="p-2 rounded-full hover:bg-gray-100"
+                            aria-label="Collapse"
+                          >
+                            <Minimize2 className="w-4 h-4" />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => setIsManualExpanded(true)}
+                            className="p-2 rounded-full hover:bg-gray-100"
+                            aria-label="Expand"
+                          >
+                            <Maximize2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs text-gray-500">School</label>
-                  <select
-                    value={manualForm.schoolId}
-                    onChange={(e) => setManualForm((prev) => ({ ...prev, schoolId: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
-                  >
-                    {schools.map((school) => (
-                      <option key={school.id} value={school.id}>
-                        {school.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500">Subject</label>
-                  <select
-                    value={manualForm.subjectId}
-                    onChange={(e) => setManualForm((prev) => ({ ...prev, subjectId: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
-                  >
-                    {subjects.map((subject) => (
-                      <option key={subject.id} value={subject.id}>
-                        {subject.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500">Assessment Name</label>
-                  <input
-                    value={manualForm.name}
-                    onChange={(e) => setManualForm((prev) => ({ ...prev, name: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
-                    placeholder="Enter assessment name"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500">Assessment Type</label>
-                  <select
-                    value={manualForm.assessmentType}
-                    onChange={(e) => setManualForm((prev) => ({ ...prev, assessmentType: e.target.value }))}
-                    className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
-                  >
-                    <option value="quiz">Quiz</option>
-                    <option value="assignment">Assignment</option>
-                    <option value="assignment">Homework (Assignment)</option>
-                    <option value="test">Test</option>
-                    <option value="project">Project</option>
-                    <option value="exam">Exam</option>
-                  </select>
-                </div>
-              </div>
+                    <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                      <div className="space-y-4">
+                        <div>
+                          <label className="text-xs text-gray-500">Assessment Name</label>
+                          <input
+                            value={manualForm.name}
+                            onChange={(e) => setManualForm((prev) => ({ ...prev, name: e.target.value }))}
+                            className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
+                            placeholder="Enter assessment name"
+                          />
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="text-xs text-gray-500">Subject</label>
+                            <select
+                              value={manualForm.subjectId}
+                              onChange={(e) => setManualForm((prev) => ({ ...prev, subjectId: e.target.value }))}
+                              className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
+                            >
+                              {subjects.map((subject) => (
+                                <option key={subject.id} value={subject.id}>
+                                  {subject.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-500">Assessment Type</label>
+                            <select
+                              value={manualForm.assessmentType}
+                              onChange={(e) => setManualForm((prev) => ({ ...prev, assessmentType: e.target.value }))}
+                              className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
+                            >
+                              <option value="quiz">Quiz</option>
+                              <option value="assignment">Assignment</option>
+                              <option value="assignment">Homework (Assignment)</option>
+                              <option value="test">Test</option>
+                              <option value="project">Project</option>
+                              <option value="exam">Exam</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
 
               <div>
                 <label className="text-xs text-gray-500">Description</label>
@@ -646,24 +664,29 @@ const CreateAssessmentPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => navigate('/assessments')}
-                  className="px-4 py-2 text-sm rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleManualSubmit}
-                  disabled={isSubmitting}
-                  className="px-4 py-2 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
-                >
-                  {isSubmitting ? 'Creating...' : 'Create Assessment'}
-                </button>
-              </div>
-            </div>
+                    </div>
+                    <div className="bg-gray-50 border-t border-gray-200 p-4">
+                      <div className="flex justify-end gap-3">
+                        <button
+                          type="button"
+                          onClick={() => navigate('/assessments/view')}
+                          className="px-4 py-2 text-sm rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleManualSubmit}
+                          disabled={isSubmitting}
+                          className="px-4 py-2 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
+                        >
+                          {isSubmitting ? 'Generating...' : 'Generate Assessment'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </>
             )}
           </div>
         </div>
