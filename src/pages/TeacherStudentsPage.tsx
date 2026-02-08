@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { assessmentService, developmentService, studentService, subjectService } from '../services/api';
 import { DevelopmentPlan, Student, Subject } from '../types';
+import StudentsLayout from '../components/students/StudentsLayout';
 
 interface SubjectMap {
   [id: string]: Subject;
@@ -146,7 +147,7 @@ const TeacherStudentsPage: React.FC = () => {
   }, [plans]);
 
   return (
-    <div className="h-full overflow-y-auto">
+    <StudentsLayout>
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
       <div className="lg:col-span-3 col-span-12 bg-gray-50 rounded-lg shadow p-4">
         <div className="flex items-center justify-between mb-3">
@@ -312,7 +313,7 @@ const TeacherStudentsPage: React.FC = () => {
         )}
       </div>
       </div>
-    </div>
+    </StudentsLayout>
   );
 };
 

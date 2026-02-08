@@ -50,7 +50,11 @@ interface PendingSubmission {
   };
 }
 
-const GradingDashboard: React.FC = () => {
+interface GradingDashboardProps {
+  embedded?: boolean;
+}
+
+const GradingDashboard: React.FC<GradingDashboardProps> = ({ embedded = false }) => {
   const navigate = useNavigate();
   const [stats, setStats] = useState<GradingStats | null>(null);
   const [pendingSubmissions, setPendingSubmissions] = useState<PendingSubmission[]>([]);
@@ -117,8 +121,8 @@ const GradingDashboard: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="h-full bg-gray-50 p-6 overflow-y-auto">
-        <div className="max-w-7xl mx-auto space-y-4">
+      <div className={embedded ? "space-y-4" : "h-full bg-gray-50 p-6 overflow-y-auto"}>
+        <div className={embedded ? "max-w-7xl mx-auto space-y-4" : "max-w-7xl mx-auto space-y-4"}>
           <div className="bg-white rounded-lg shadow p-4">
             <div className="flex items-center gap-4 mb-3">
               <div className="h-9 w-9 rounded-full bg-slate-200 animate-pulse" />
@@ -155,7 +159,7 @@ const GradingDashboard: React.FC = () => {
   }
 
   return (
-    <div className="h-full bg-gray-50 p-6 overflow-y-auto">
+    <div className={embedded ? "space-y-4" : "h-full bg-gray-50 p-6 overflow-y-auto"}>
       <div className="max-w-7xl mx-auto space-y-4">
         {/* Header */}
         <div className="bg-white rounded-lg shadow p-4">

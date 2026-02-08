@@ -1,6 +1,7 @@
 import React from 'react';
 import { useParams } from 'react-router-dom';
 import DevelopmentView from '@/components/classroom/DevelopmentView';
+import DevelopmentLayout from '@/components/development/DevelopmentLayout';
 
 const DevelopmentPage: React.FC = () => {
   const { studentId } = useParams<{ studentId: string }>();
@@ -10,9 +11,9 @@ const DevelopmentPage: React.FC = () => {
   }
 
   return (
-    <div className="h-full overflow-y-auto">
+    <DevelopmentLayout studentId={studentId}>
       <DevelopmentView studentId={studentId} />
-    </div>
+    </DevelopmentLayout>
   );
 };
 

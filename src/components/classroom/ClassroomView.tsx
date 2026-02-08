@@ -1,10 +1,11 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { studentService, developmentService } from '../../services/api';
 import { Student } from '../../types';
 import StudentChat from './StudentChat';
 import DevelopmentAttributesView from './DevelopmentAttributesView';
 import ResultsView from './ResultsView';
+import ClassroomLayout from './ClassroomLayout';
 
 type StudentWithPlan = Student & { planName?: string };
 
@@ -23,7 +24,13 @@ const ClassroomStudentsSkeleton: React.FC<{ columns: number }> = ({ columns }) =
 );
 
 const ClassroomView: React.FC = () => {
-  const [activeTab, setActiveTab] = useState('status');
+  const location = useLocation();
+  const queryTab = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    const tab = params.get('tab');
+    return tab === 'results' || tab === 'development' ? tab : 'status';
+  }, [location.search]);
+  const [activeTab, setActiveTab] = useState(queryTab);
   const [students, setStudents] = useState<StudentWithPlan[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<StudentWithPlan | null>(null);
   const [showChat, setShowChat] = useState(false);
@@ -75,6 +82,15 @@ const ClassroomView: React.FC = () => {
     fetchStudents();
   }, [fetchStudents, activeTab]);
 
+  useEffect(() => {
+    if (queryTab !== activeTab) {
+      setActiveTab(queryTab);
+      setSelectedForResults(false);
+      setSelectedForDevelopment(false);
+      setShowChat(false);
+    }
+  }, [queryTab]);
+
   const handleStudentClick = (student: StudentWithPlan) => {
     setSelectedStudent(student);
     setShowChat(true);
@@ -92,6 +108,7 @@ const ClassroomView: React.FC = () => {
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
+    navigate(`/classroom?tab=${tab}`);
     setSelectedForResults(false);
     setSelectedForDevelopment(false);
     setShowChat(false);
@@ -115,37 +132,23 @@ const ClassroomView: React.FC = () => {
   // DevelopmentView is now opened via route /development/:studentId
 
   return (
-    <div className="h-full overflow-y-auto space-y-2 relative transition-all duration-500 ease-in-out">
-      {showChat && selectedStudent ? (
-        <div className="relative bg-white rounded-lg shadow p-4">
-          <button
-            onClick={() => setShowChat(false)}
-            className="absolute top-2 left-2 text-sm text-gray-500 hover:text-blue-500"
-          >
-            ← Back
-          </button>
-          <StudentChat
-            studentId={selectedStudent.id}
-            studentName={`${selectedStudent.firstName} ${selectedStudent.lastName}`}
-          />
-        </div>
-      ) : (
-        <>
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-            <div className="flex">
-              {['status', 'results', 'development'].map((tab) => (
-                <button
-                  key={tab}
-                  className={`flex-1 py-1 font-medium text-center transition-colors duration-300 ${
-                    activeTab === tab ? 'bg-blue-500 text-white' : 'hover:bg-gray-100'
-                  }`}
-                  onClick={() => handleTabChange(tab)}
-                >
-                  {tab.toUpperCase()}
-                </button>
-              ))}
-            </div>
+    <ClassroomLayout>
+      <div className="h-full space-y-2 relative transition-all duration-500 ease-in-out">
+        {showChat && selectedStudent ? (
+          <div className="relative bg-white rounded-lg shadow p-4">
+            <button
+              onClick={() => setShowChat(false)}
+              className="absolute top-2 left-2 text-sm text-gray-500 hover:text-blue-500"
+            >
+              ← Back
+            </button>
+            <StudentChat
+              studentId={selectedStudent.id}
+              studentName={`${selectedStudent.firstName} ${selectedStudent.lastName}`}
+            />
           </div>
+        ) : (
+          <>
 
           {(activeTab === 'results' || activeTab === 'development') ? (
             <div className="flex gap-6 transition-all duration-500 ease-in-out">
@@ -295,9 +298,10 @@ const ClassroomView: React.FC = () => {
               </div>
             </div>
           )}
-        </>
-      )}
-    </div>
+          </>
+        )}
+      </div>
+    </ClassroomLayout>
   );
 };
 
