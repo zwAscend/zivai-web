@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { studentService, subjectService } from '../services/api';
+import { reteachCardService, studentService, subjectService } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { Student, Subject } from '../types';
 import DevelopmentLayout from '../components/development/DevelopmentLayout';
+import type { ReteachCardSummary } from '../services/reteachCardService';
 
 interface ReteachCard {
   id: string;
@@ -13,12 +14,14 @@ interface ReteachCard {
   students: Student[];
   planName: string;
   notes: string;
+  affectedCount: number;
 }
 
 const DevelopmentReteachPage: React.FC = () => {
   const { selectedSubject } = useAuth();
   const [students, setStudents] = useState<Student[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [cards, setCards] = useState<ReteachCardSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [subjectFilter, setSubjectFilter] = useState('');
@@ -41,52 +44,58 @@ const DevelopmentReteachPage: React.FC = () => {
   }, [selectedSubject?.id]);
 
   useEffect(() => {
-    const loadStudents = async () => {
+    const loadData = async () => {
       setLoading(true);
       try {
-        const data = await studentService.getStudents(subjectFilter || undefined);
-        setStudents(Array.isArray(data) ? data : []);
+        const [cardsData, studentsData] = await Promise.all([
+          reteachCardService.list({
+            subjectId: subjectFilter || undefined,
+            priority: priorityFilter !== 'all' ? priorityFilter : undefined,
+          }),
+          studentService.getStudents(subjectFilter || undefined),
+        ]);
+        setCards(Array.isArray(cardsData) ? cardsData : []);
+        setStudents(Array.isArray(studentsData) ? studentsData : []);
       } catch (error) {
         console.error('Failed to load students for reteach cards:', error);
+        setCards([]);
         setStudents([]);
       } finally {
         setLoading(false);
       }
     };
 
-    loadStudents();
-  }, [subjectFilter]);
+    loadData();
+  }, [subjectFilter, priorityFilter]);
+
+  const studentsById = useMemo(() => {
+    const map = new Map<string, Student>();
+    students.forEach((student) => {
+      map.set(student.id, student);
+    });
+    return map;
+  }, [students]);
 
   const reteachCards = useMemo(() => {
-    const topicMap = new Map<string, Student[]>();
-    students.forEach((student) => {
-      const planName = student.activePlan?.plan?.name || 'Foundational Skills';
-      const key = planName;
-      const existing = topicMap.get(key) || [];
-      existing.push(student);
-      topicMap.set(key, existing);
-    });
-
-    const subjectLabel = subjectFilter
-      ? subjects.find((subject) => subject.id === subjectFilter)?.name || 'Selected Subject'
-      : 'Multi-subject';
-
-    return Array.from(topicMap.entries()).map(([topic, list], index) => {
-      const priority = list.some((student) => (student.overall || 0) < 50 || (student.performance || '').toLowerCase().includes('needs'))
-        ? 'High'
-        : 'Normal';
-      const planName = list.find((student) => student.activePlan?.plan?.name)?.activePlan?.plan?.name || 'Targeted Plan';
+    return cards.map((card) => {
+      const matchedStudents = (card.affectedStudentIds || [])
+        .map((id) => studentsById.get(id))
+        .filter(Boolean) as Student[];
+      const subjectLabel = card.subjectName || 'Selected Subject';
+      const topicLabel = card.topicName || card.title || 'Topic';
+      const priorityLabel = card.priority?.toLowerCase() === 'high' ? 'High' : 'Normal';
       return {
-        id: `${topic}-${index}`,
-        topic,
+        id: card.id,
+        topic: topicLabel,
         subject: subjectLabel,
-        priority,
-        students: list,
-        planName,
-        notes: 'Re-teach the core misconception, run a short check, then update mastery status.',
+        priority: priorityLabel,
+        students: matchedStudents,
+        planName: card.recommendedActions || 'Targeted Plan',
+        notes: card.issueSummary || 'Re-teach the core misconception, run a short check, then update mastery status.',
+        affectedCount: card.affectedStudents ?? matchedStudents.length,
       } as ReteachCard;
     });
-  }, [students, subjectFilter, subjects]);
+  }, [cards, studentsById]);
 
   const filteredCards = useMemo(() => {
     const search = query.trim().toLowerCase();
@@ -155,7 +164,7 @@ const DevelopmentReteachPage: React.FC = () => {
                     <div>
                       <p className="text-sm font-semibold text-slate-900">{card.topic}</p>
                       <p className="text-xs text-slate-500">Subject: {card.subject}</p>
-                      <p className="text-xs text-slate-500 mt-1">{card.students.length} students affected</p>
+                      <p className="text-xs text-slate-500 mt-1">{card.affectedCount} students affected</p>
                     </div>
                     <div className="flex items-center gap-2">
                       <span
