@@ -1,6 +1,6 @@
 // src/components/resources/Sidebar.tsx
 import React, { useState } from 'react';
-import { Menu, UploadCloud, FileText as CreateAssignmentIcon, CheckCircle, FileImage, FileVideo, FilePlus, Eye, BarChart3, UserCheck, Sparkles, BookOpen, Target, ListChecks, User, TrendingUp, LayoutGrid, Users } from 'lucide-react';
+import { Menu, UploadCloud, FileText as CreateAssignmentIcon, CheckCircle, FileImage, FileVideo, FilePlus, Eye, BarChart3, UserCheck, Sparkles, BookOpen, Target, ListChecks, User, TrendingUp, LayoutGrid, Users, CalendarRange } from 'lucide-react';
 import { clsx } from 'clsx';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -20,6 +20,8 @@ interface SidebarProps {
   onStudentAnalysis?: () => void;
   onReportClass?: () => void;
   onReportStudent?: () => void;
+  onReportCurriculum?: () => void;
+  onReportTerm?: () => void;
   onGenerateNotes?: () => void;
   onViewNotes?: () => void;
   onLessonPlans?: () => void;
@@ -61,6 +63,8 @@ const Sidebar: React.FC<SidebarProps> = ({
   onStudentAnalysis,
   onReportClass,
   onReportStudent,
+  onReportCurriculum,
+  onReportTerm,
   onGenerateNotes,
   onViewNotes,
   onLessonPlans,
@@ -103,6 +107,8 @@ const Sidebar: React.FC<SidebarProps> = ({
       ? [
           { id: 'report-class', label: 'Class Report', icon: BarChart3, onClick: onReportClass },
           { id: 'report-student', label: 'Student Report', icon: Users, onClick: onReportStudent },
+          { id: 'report-curriculum', label: 'Curriculum Forecast', icon: BookOpen, onClick: onReportCurriculum },
+          { id: 'report-term', label: 'Term Forecast', icon: CalendarRange, onClick: onReportTerm },
         ]
     : mode === 'performance'
         ? [

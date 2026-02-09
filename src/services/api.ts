@@ -12,4 +12,5 @@ export { assessmentService } from './assessmentService';
 export { submissionService } from './submissionService';
 export { notificationService } from './notificationService';
 export { chatService } from './chatService';
+export { termForecastService } from './termForecastService';
 export type { UnreadChatCount } from './chatService';
