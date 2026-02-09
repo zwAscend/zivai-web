@@ -7,6 +7,7 @@ export { subjectService } from './subjectService';
 export { classService } from './classService';
 export { schoolService } from './schoolService';
 export { adminService } from './adminService';
+export { curriculumService } from './curriculumService';
 export { developmentService } from './developmentService';
 export { assessmentService } from './assessmentService';
 export { submissionService } from './submissionService';

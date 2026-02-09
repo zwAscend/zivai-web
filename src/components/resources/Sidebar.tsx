@@ -22,6 +22,7 @@ interface SidebarProps {
   onReportStudent?: () => void;
   onReportCurriculum?: () => void;
   onReportTerm?: () => void;
+  onReportAnalytics?: () => void;
   onGenerateNotes?: () => void;
   onViewNotes?: () => void;
   onLessonPlans?: () => void;
@@ -65,6 +66,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   onReportStudent,
   onReportCurriculum,
   onReportTerm,
+  onReportAnalytics,
   onGenerateNotes,
   onViewNotes,
   onLessonPlans,
@@ -109,6 +111,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           { id: 'report-student', label: 'Student Report', icon: Users, onClick: onReportStudent },
           { id: 'report-curriculum', label: 'Curriculum Forecast', icon: BookOpen, onClick: onReportCurriculum },
           { id: 'report-term', label: 'Term Forecast', icon: CalendarRange, onClick: onReportTerm },
+          { id: 'report-analytics', label: 'Forecast Analytics', icon: TrendingUp, onClick: onReportAnalytics },
         ]
     : mode === 'performance'
         ? [

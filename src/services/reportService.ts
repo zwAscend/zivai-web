@@ -21,6 +21,7 @@ export interface TermForecastResponse {
   subjectName: string;
   term: string;
   expectedCoveragePercent: number;
+  expectedTopicIds?: string[];
   topics: CurriculumTopicForecast[];
 }
 
@@ -32,10 +33,17 @@ export const reportService = {
     const endpoint = query ? `/reports/curriculum?${query}` : '/reports/curriculum';
     return fetchData(endpoint);
   },
-  getTermForecast: async (subjectId?: string, term?: string): Promise<TermForecastResponse | null> => {
+  getTermForecast: async (
+    subjectId?: string,
+    term?: string,
+    academicYear?: string,
+    forecastId?: string
+  ): Promise<TermForecastResponse | null> => {
     const params = new URLSearchParams();
     if (subjectId) params.append('subjectId', subjectId);
     if (term) params.append('term', term);
+    if (academicYear) params.append('academicYear', academicYear);
+    if (forecastId) params.append('forecastId', forecastId);
     const query = params.toString();
     const endpoint = query ? `/reports/term-forecast?${query}` : '/reports/term-forecast';
     return fetchData(endpoint);
