@@ -8,6 +8,8 @@ import ClassroomView from './components/classroom/ClassroomView';
 import ResourcesDashboard from './components/resources/ResourcesDashboard';
 import ReportOverviewPage from './pages/ReportOverviewPage';
 import ReportSubmissionsPage from './pages/ReportSubmissionsPage';
+import ReportCurriculumPage from './pages/ReportCurriculumPage';
+import ReportTermForecastPage from './pages/ReportTermForecastPage';
 import Login from './components/pages/Login';
 import MainLayout from './components/layout/MainLayout';
 import StudentDashboard from './components/student/StudentDashboard';
@@ -142,6 +144,8 @@ function App() {
             <Route path="grading" element={<Navigate to="/grading/class" replace />} />
             <Route path="grading/class" element={<ReportOverviewPage />} />
             <Route path="grading/student" element={<ReportSubmissionsPage />} />
+            <Route path="grading/curriculum" element={<ReportCurriculumPage />} />
+            <Route path="grading/term" element={<ReportTermForecastPage />} />
           </Route>
         )}
 
