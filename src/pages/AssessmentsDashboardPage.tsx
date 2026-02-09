@@ -219,7 +219,7 @@ const AssessmentsDashboardPage: React.FC = () => {
             <p className="text-sm text-gray-500">Create, view, and track assessments by subject or student.</p>
           </div>
           <button
-            onClick={() => navigate('/grading')}
+            onClick={() => navigate('/reports')}
             className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
           >
             <FileText className="h-4 w-4" />

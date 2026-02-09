@@ -39,6 +39,25 @@ const ClassroomView: React.FC = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [performanceFilter, setPerformanceFilter] = useState('all');
+  const [engagementFilter, setEngagementFilter] = useState('all');
+
+  const filteredStudents = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return students.filter((student) => {
+      const fullName = `${student.firstName} ${student.lastName}`.toLowerCase();
+      const email = (student.email || '').toLowerCase();
+      const matchesQuery = !query || fullName.includes(query) || email.includes(query);
+      const performance = (student.performance || '').toLowerCase();
+      const engagement = (student.engagement || '').toLowerCase();
+      const matchesPerformance =
+        performanceFilter === 'all' || performance.includes(performanceFilter);
+      const matchesEngagement =
+        engagementFilter === 'all' || engagement.includes(engagementFilter);
+      return matchesQuery && matchesPerformance && matchesEngagement;
+    });
+  }, [students, searchQuery, performanceFilter, engagementFilter]);
 
   const fetchStudents = useCallback(async () => {
     try {
@@ -90,6 +109,16 @@ const ClassroomView: React.FC = () => {
       setShowChat(false);
     }
   }, [queryTab]);
+
+  useEffect(() => {
+    if (filteredStudents.length === 0) {
+      setSelectedStudent(null);
+      return;
+    }
+    if (!selectedStudent || !filteredStudents.some((student) => student.id === selectedStudent.id)) {
+      setSelectedStudent(filteredStudents[0]);
+    }
+  }, [filteredStudents, selectedStudent]);
 
   const handleStudentClick = (student: StudentWithPlan) => {
     setSelectedStudent(student);
@@ -159,11 +188,46 @@ const ClassroomView: React.FC = () => {
                     : 'w-full'
                 } bg-white rounded-lg shadow p-2`}
               >
+                <div className="bg-white rounded-lg shadow p-4 mb-3">
+                  <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center gap-2 text-sm text-slate-600">Filters</div>
+                      <input
+                        value={searchQuery}
+                        onChange={(event) => setSearchQuery(event.target.value)}
+                        placeholder="Search by name or email"
+                        className="px-3 py-2 text-sm border border-slate-200 rounded-md"
+                      />
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <select
+                        value={performanceFilter}
+                        onChange={(event) => setPerformanceFilter(event.target.value)}
+                        className="px-3 py-2 text-sm border border-slate-200 rounded-md"
+                      >
+                        <option value="all">All performance</option>
+                        <option value="excellent">Excellent</option>
+                        <option value="good">Good</option>
+                        <option value="average">Average</option>
+                        <option value="needs">Needs improvement</option>
+                      </select>
+                      <select
+                        value={engagementFilter}
+                        onChange={(event) => setEngagementFilter(event.target.value)}
+                        className="px-3 py-2 text-sm border border-slate-200 rounded-md"
+                      >
+                        <option value="all">All engagement</option>
+                        <option value="high">High</option>
+                        <option value="medium">Medium</option>
+                        <option value="low">Low</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
                 <div className="overflow-y-auto max-h-[400px]">
                   <table className="w-full">
                     <thead className="sticky top-0 bg-gray-50 z-10">
                       <tr>
-                        <th className="px-4 py-1.5 border-b text-left">Reg Number</th>
                         <th className="px-4 py-1.5 border-b text-left">Full Name</th>
                         {activeTab === 'results' ? (
                           <>
@@ -180,10 +244,10 @@ const ClassroomView: React.FC = () => {
                       </tr>
                     </thead>
                     {loading ? (
-                      <ClassroomStudentsSkeleton columns={5} />
+                      <ClassroomStudentsSkeleton columns={4} />
                     ) : (
                       <tbody>
-                        {students.map((student, index) => (
+                        {filteredStudents.map((student, index) => (
                           <tr
                             key={student.id}
                             className={`transition-colors duration-300 ${
@@ -195,7 +259,6 @@ const ClassroomView: React.FC = () => {
                             } hover:bg-blue-200 cursor-pointer`}
                             onClick={() => handleViewStudent(student)}
                           >
-                            <td className="px-4 py-1.5 border-b text-sm">{student.id}</td>
                             <td className="px-4 py-1.5 border-b text-sm">
                               {student.firstName} {student.lastName}
                             </td>
@@ -252,11 +315,46 @@ const ClassroomView: React.FC = () => {
             </div>
           ) : (
             <div className="bg-white rounded-lg shadow p-2">
+              <div className="bg-white rounded-lg shadow p-4 mb-3">
+                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2 text-sm text-slate-600">Filters</div>
+                    <input
+                      value={searchQuery}
+                      onChange={(event) => setSearchQuery(event.target.value)}
+                      placeholder="Search by name or email"
+                      className="px-3 py-2 text-sm border border-slate-200 rounded-md"
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <select
+                      value={performanceFilter}
+                      onChange={(event) => setPerformanceFilter(event.target.value)}
+                      className="px-3 py-2 text-sm border border-slate-200 rounded-md"
+                    >
+                      <option value="all">All performance</option>
+                      <option value="excellent">Excellent</option>
+                      <option value="good">Good</option>
+                      <option value="average">Average</option>
+                      <option value="needs">Needs improvement</option>
+                    </select>
+                    <select
+                      value={engagementFilter}
+                      onChange={(event) => setEngagementFilter(event.target.value)}
+                      className="px-3 py-2 text-sm border border-slate-200 rounded-md"
+                    >
+                      <option value="all">All engagement</option>
+                      <option value="high">High</option>
+                      <option value="medium">Medium</option>
+                      <option value="low">Low</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
               <div className="overflow-y-auto max-h-[400px]">
                 <table className="w-full">
                 <thead>
                   <tr className="bg-gray-50">
-                    <th className="px-4 py-1.5 border-b text-left">Reg Number</th>
                     <th className="px-4 py-1.5 border-b text-left">Full Name</th>
                     <th className="px-4 py-1.5 border-b text-left">Overall</th>
                     <th className="px-4 py-1.5 border-b text-left">Strength</th>
@@ -265,17 +363,16 @@ const ClassroomView: React.FC = () => {
                   </tr>
                 </thead>
                 {loading ? (
-                  <ClassroomStudentsSkeleton columns={6} />
+                  <ClassroomStudentsSkeleton columns={5} />
                 ) : (
                   <tbody>
-                    {students.map((student, index) => (
+                    {filteredStudents.map((student, index) => (
                       <tr
                         key={student.id}
                         className={`${
                           index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
                         } hover:bg-blue-50 transition-colors duration-300`}
                       >
-                        <td className="px-4 py-1.5 border-b text-sm">{student.id}</td>
                         <td className="px-4 py-1.5 border-b text-sm">
                           {student.firstName} {student.lastName}
                         </td>

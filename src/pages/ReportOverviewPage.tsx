@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import ReportLayout from '../components/report/ReportLayout';
-import { submissionService } from '../services/api';
+import { submissionService, subjectService } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { Subject } from '../types';
 import { BarChart3, TrendingUp, Users, AlertTriangle } from 'lucide-react';
 
 const ReportOverviewPage: React.FC = () => {
-  const { selectedSubject } = useAuth();
+  const { selectedSubject, setSelectedSubject } = useAuth();
+  const [subjects, setSubjects] = useState<Subject[]>([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<{
     totalSubmissions: number;
@@ -34,6 +36,19 @@ const ReportOverviewPage: React.FC = () => {
     };
     fetchData();
   }, [selectedSubject]);
+
+  useEffect(() => {
+    const loadSubjects = async () => {
+      try {
+        const data = await subjectService.getTeachingSubjects();
+        setSubjects(data || []);
+      } catch (error) {
+        console.error('Error loading subjects:', error);
+        setSubjects([]);
+      }
+    };
+    loadSubjects();
+  }, []);
 
   const gradeFromPercent = (percent: number) => {
     if (percent >= 80) return 'A';
@@ -128,12 +143,29 @@ const ReportOverviewPage: React.FC = () => {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <span className="text-xs font-semibold px-3 py-1 rounded-full bg-blue-50 text-blue-700">
-                Exam Board: ZIMSEC
-              </span>
-              <span className="text-xs font-semibold px-3 py-1 rounded-full bg-slate-100 text-slate-700">
-                Subject: {selectedSubject?.name || 'All subjects'}
-              </span>
+              <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
+                Subject
+                <select
+                  value={selectedSubject?.id || 'all'}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    if (value === 'all') {
+                      setSelectedSubject(null);
+                      return;
+                    }
+                    const nextSubject = subjects.find((subject) => subject.id === value) || null;
+                    setSelectedSubject(nextSubject);
+                  }}
+                  className="text-xs font-semibold px-3 py-1 rounded-full bg-slate-100 text-slate-700 border border-slate-200"
+                >
+                  <option value="all">All subjects</option>
+                  {subjects.map((subject) => (
+                    <option key={subject.id} value={subject.id}>
+                      {subject.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
           </div>
         </div>

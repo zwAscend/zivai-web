@@ -142,7 +142,7 @@ const MarkAssessmentPage: React.FC = () => {
               <p className="text-sm text-gray-500">Upload an assessment for AI marking or review manually.</p>
             </div>
             <button
-              onClick={() => navigate('/grading')}
+              onClick={() => navigate('/reports')}
               className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
             >
               Open Reports
@@ -175,7 +175,7 @@ const MarkAssessmentPage: React.FC = () => {
                 Review submissions manually and adjust scores as needed.
               </p>
               <button
-                onClick={() => navigate('/grading')}
+                onClick={() => navigate('/reports')}
                 className="mt-2 border border-emerald-500 text-emerald-700 px-4 py-2 rounded-lg hover:bg-emerald-50 transition"
               >
                 Go to Manual Review

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { studentService, subjectService } from '../services/api';
+import { developmentService, studentService, subjectService } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { Student, Subject } from '../types';
 import DevelopmentLayout from '../components/development/DevelopmentLayout';
@@ -16,6 +16,16 @@ const DevelopmentOverviewPage: React.FC = () => {
   const [subjectFilter, setSubjectFilter] = useState('');
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
+
+  const normalizePlanStatus = (status?: string) => {
+    if (!status) return status;
+    const cleaned = status.replace(/_/g, ' ').toLowerCase();
+    if (cleaned === 'active') return 'Active';
+    if (cleaned === 'completed') return 'Completed';
+    if (cleaned === 'on hold') return 'On Hold';
+    if (cleaned === 'cancelled') return 'Cancelled';
+    return status;
+  };
 
   useEffect(() => {
     const loadSubjects = async () => {
@@ -36,8 +46,52 @@ const DevelopmentOverviewPage: React.FC = () => {
     const loadStudents = async () => {
       setLoading(true);
       try {
-        const data = await studentService.getStudents(subjectFilter || undefined);
-        setStudents(Array.isArray(data) ? data : []);
+        const [studentData, planPage] = await Promise.all([
+          studentService.getStudents(subjectFilter || undefined),
+          developmentService.listStudentPlans({
+            subjectId: subjectFilter || undefined,
+            size: 200,
+          }),
+        ]);
+
+        const planItems = Array.isArray(planPage?.items) ? planPage.items : [];
+        const planByStudent = new Map<string, typeof planItems[number]>();
+
+        planItems.forEach((plan) => {
+          const studentId = plan.student;
+          if (!studentId) return;
+          const normalizedStatus = normalizePlanStatus(plan.status as string);
+          const normalizedPlan = normalizedStatus ? { ...plan, status: normalizedStatus } : plan;
+          const existing = planByStudent.get(studentId);
+          if (!existing) {
+            planByStudent.set(studentId, normalizedPlan);
+            return;
+          }
+          const existingStatus = (existing.status || '').toString().toLowerCase();
+          const newStatus = (normalizedPlan.status || '').toString().toLowerCase();
+          const existingIsActive = existingStatus === 'active';
+          const newIsActive = newStatus === 'active';
+          if (!existingIsActive && newIsActive) {
+            planByStudent.set(studentId, normalizedPlan);
+            return;
+          }
+          if (existingIsActive && !newIsActive) {
+            return;
+          }
+          const existingTime = Date.parse((existing.updatedAt as string) || (existing.createdAt as string) || '') || 0;
+          const newTime = Date.parse((normalizedPlan.updatedAt as string) || (normalizedPlan.createdAt as string) || '') || 0;
+          if (newTime > existingTime) {
+            planByStudent.set(studentId, normalizedPlan);
+          }
+        });
+
+        const studentsList = Array.isArray(studentData) ? studentData : [];
+        const mergedStudents = studentsList.map((student) => ({
+          ...student,
+          activePlan: planByStudent.get(student.id) ?? student.activePlan,
+        }));
+
+        setStudents(mergedStudents);
       } catch (error) {
         console.error('Failed to load students for development overview:', error);
         setStudents([]);

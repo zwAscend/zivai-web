@@ -1,5 +1,5 @@
 import { fetchData } from './http';
-import { DevelopmentPlan, StudentAttributes, SubjectAttribute, Plan, PlanStatus } from '../types';
+import { DevelopmentPlan, StudentAttributes, SubjectAttribute, Plan, PlanStatus, PageResponse } from '../types';
 
 export const developmentService = {
   getSubjectAttributes: async (subjectId: string): Promise<SubjectAttribute[]> => {
@@ -76,5 +76,25 @@ export const developmentService = {
       method: 'PUT',
       body: JSON.stringify(progressData),
     });
+  },
+
+  listStudentPlans: async (params?: {
+    subjectId?: string;
+    classId?: string;
+    classSubjectId?: string;
+    status?: string;
+    page?: number;
+    size?: number;
+  }): Promise<PageResponse<DevelopmentPlan>> => {
+    const searchParams = new URLSearchParams();
+    if (params?.subjectId) searchParams.set('subjectId', params.subjectId);
+    if (params?.classId) searchParams.set('classId', params.classId);
+    if (params?.classSubjectId) searchParams.set('classSubjectId', params.classSubjectId);
+    if (params?.status) searchParams.set('status', params.status);
+    if (params?.page !== undefined) searchParams.set('page', String(params.page));
+    if (params?.size !== undefined) searchParams.set('size', String(params.size));
+
+    const query = searchParams.toString();
+    return fetchData<PageResponse<DevelopmentPlan>>(`/development/plans${query ? `?${query}` : ''}`);
   },
 };
