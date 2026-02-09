@@ -10,6 +10,7 @@ import ReportOverviewPage from './pages/ReportOverviewPage';
 import ReportSubmissionsPage from './pages/ReportSubmissionsPage';
 import ReportCurriculumPage from './pages/ReportCurriculumPage';
 import ReportTermForecastPage from './pages/ReportTermForecastPage';
+import ReportForecastAnalyticsPage from './pages/ReportForecastAnalyticsPage';
 import Login from './components/pages/Login';
 import MainLayout from './components/layout/MainLayout';
 import StudentDashboard from './components/student/StudentDashboard';
@@ -34,6 +35,8 @@ import AdminDashboardPage from './components/admin/pages/AdminDashboardPage';
 import AdminSubjectsPage from './components/admin/pages/AdminSubjectsPage';
 import AdminClassesPage from './components/admin/pages/AdminClassesPage';
 import AdminEdgeNodesPage from './components/admin/pages/AdminEdgeNodesPage';
+import AdminCurriculumPage from './components/admin/pages/AdminCurriculumPage';
+import AdminTermForecastsPage from './components/admin/pages/AdminTermForecastsPage';
 
 function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -146,6 +149,7 @@ function App() {
             <Route path="grading/student" element={<ReportSubmissionsPage />} />
             <Route path="grading/curriculum" element={<ReportCurriculumPage />} />
             <Route path="grading/term" element={<ReportTermForecastPage />} />
+            <Route path="grading/analytics" element={<ReportForecastAnalyticsPage />} />
           </Route>
         )}
 
@@ -158,6 +162,8 @@ function App() {
               <Route path="dashboard" element={<AdminDashboardPage />} />
               <Route path="users" element={<AdminUsersPage />} />
               <Route path="subjects" element={<AdminSubjectsPage />} />
+              <Route path="curriculum" element={<AdminCurriculumPage />} />
+              <Route path="term-forecasts" element={<AdminTermForecastsPage />} />
               <Route path="classes" element={<AdminClassesPage />} />
               <Route path="edge-nodes" element={<AdminEdgeNodesPage />} />
             </Route>

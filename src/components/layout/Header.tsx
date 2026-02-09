@@ -23,7 +23,24 @@ interface NavLink {
   name: string;
   path: string;
   key: string;
-  icon: 'home' | 'grid' | 'mail' | 'calendar' | 'shield' | 'users' | 'subject' | 'class' | 'edge' | 'performance' | 'resources' | 'grading' | 'development' | 'students' | 'assessment';
+  icon:
+    | 'home'
+    | 'grid'
+    | 'mail'
+    | 'calendar'
+    | 'shield'
+    | 'users'
+    | 'subject'
+    | 'class'
+    | 'edge'
+    | 'performance'
+    | 'resources'
+    | 'grading'
+    | 'development'
+    | 'students'
+    | 'assessment'
+    | 'curriculum'
+    | 'forecast';
 }
 
 interface GradeCategory {
@@ -143,6 +160,8 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, portalType = '
         { name: 'Admin Home', path: '/admin/dashboard', key: 'admin/dashboard', icon: 'shield' },
         { name: 'Users', path: '/admin/users', key: 'admin/users', icon: 'users' },
         { name: 'Subjects', path: '/admin/subjects', key: 'admin/subjects', icon: 'subject' },
+        { name: 'Curriculum', path: '/admin/curriculum', key: 'admin/curriculum', icon: 'curriculum' },
+        { name: 'Term Forecasts', path: '/admin/term-forecasts', key: 'admin/term-forecasts', icon: 'forecast' },
         { name: 'Classes', path: '/admin/classes', key: 'admin/classes', icon: 'class' },
         { name: 'Edge Nodes', path: '/admin/edge-nodes', key: 'admin/edge-nodes', icon: 'edge' },
       ];
@@ -172,10 +191,14 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, portalType = '
         return <Users size={16} />;
       case 'subject':
         return <BookOpen size={16} />;
+      case 'curriculum':
+        return <BookOpen size={16} />;
       case 'class':
         return <GraduationCap size={16} />;
       case 'edge':
         return <Cpu size={16} />;
+      case 'forecast':
+        return <Calendar size={16} />;
       case 'performance':
         return <TrendingUp size={16} />;
       case 'resources':

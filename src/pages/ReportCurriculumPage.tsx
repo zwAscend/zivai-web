@@ -3,9 +3,12 @@ import { AlertTriangle, BookOpen, Filter, Search } from 'lucide-react';
 import ReportLayout from '../components/report/ReportLayout';
 import { reportService, CurriculumTopicForecast } from '../services/reportService';
 import { useAuth } from '../context/AuthContext';
+import { subjectService } from '../services/subjectService';
 
 const ReportCurriculumPage: React.FC = () => {
   const { selectedSubject } = useAuth();
+  const [subjects, setSubjects] = useState<{ id: string; name: string }[]>([]);
+  const [selectedSubjectId, setSelectedSubjectId] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [topics, setTopics] = useState<CurriculumTopicForecast[]>([]);
   const [priorityFilter, setPriorityFilter] = useState('all');
@@ -13,10 +16,32 @@ const ReportCurriculumPage: React.FC = () => {
   const [affectedFilter, setAffectedFilter] = useState('all');
 
   useEffect(() => {
+    const loadSubjects = async () => {
+      try {
+        const teaching = await subjectService.getTeachingSubjects();
+        const list = (teaching || []).map((subject) => ({
+          id: subject.id,
+          name: subject.name,
+        }));
+        setSubjects(list);
+        if (selectedSubject?.id) {
+          setSelectedSubjectId(selectedSubject.id);
+        } else if (list.length > 0) {
+          setSelectedSubjectId(list[0].id);
+        }
+      } catch (error) {
+        console.error('Failed to load subjects:', error);
+      }
+    };
+    loadSubjects();
+  }, [selectedSubject]);
+
+  useEffect(() => {
     const loadForecast = async () => {
       try {
         setLoading(true);
-        const response = await reportService.getCurriculumForecast(selectedSubject?.id);
+        const subjectId = selectedSubjectId || selectedSubject?.id;
+        const response = await reportService.getCurriculumForecast(subjectId || undefined);
         setTopics(response?.topics ?? []);
       } catch (error) {
         console.error('Curriculum forecast unavailable:', error);
@@ -26,7 +51,7 @@ const ReportCurriculumPage: React.FC = () => {
       }
     };
     loadForecast();
-  }, [selectedSubject]);
+  }, [selectedSubjectId, selectedSubject]);
 
   const filteredTopics = useMemo(() => {
     return topics.filter((topic) => {
@@ -66,7 +91,15 @@ const ReportCurriculumPage: React.FC = () => {
             </div>
             <div className="flex items-center gap-2 text-xs text-slate-500">
               <BookOpen className="h-4 w-4" />
-              <span>{selectedSubject?.name || 'All subjects'}</span>
+              <select
+                value={selectedSubjectId}
+                onChange={(event) => setSelectedSubjectId(event.target.value)}
+                className="px-3 py-1.5 text-xs border border-slate-200 rounded-md bg-white text-slate-700"
+              >
+                {subjects.map((subject) => (
+                  <option key={subject.id} value={subject.id}>{subject.name}</option>
+                ))}
+              </select>
             </div>
           </div>
         </div>
