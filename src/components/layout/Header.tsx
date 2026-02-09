@@ -35,7 +35,7 @@ interface NavLink {
     | 'edge'
     | 'performance'
     | 'resources'
-    | 'grading'
+    | 'report'
     | 'development'
     | 'students'
     | 'assessment'
@@ -68,6 +68,10 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, portalType = '
   const [classSummary, setClassSummary] = useState<ClassSummary>({ totalStudents: 0, categories: [] });
 
   const isTeacherPortal = portalType === 'teacher';
+  const pieData: GradeCategory[] =
+    classSummary.totalStudents > 0
+      ? classSummary.categories
+      : [{ name: 'No data', count: 1, minScore: 0, color: '#e2e8f0' }];
 
   useEffect(() => {
     const fetchUnreadCount = async () => {
@@ -152,7 +156,7 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, portalType = '
         { name: 'Assessments', path: '/assessments/create', key: 'assessments', icon: 'assessment' },
         { name: 'Development', path: '/development/profile', key: 'development', icon: 'development' },
         { name: 'Performance', path: '/performance', key: 'performance', icon: 'performance' },
-        { name: 'Report', path: '/grading', key: 'grading', icon: 'grading' },
+        { name: 'Report', path: '/reports', key: 'reports', icon: 'report' },
         { name: 'Chat', path: '/staffroom', key: 'staffroom', icon: 'mail' },
         { name: 'Calendar', path: '/calendar', key: 'calendar', icon: 'calendar' },
       ]
@@ -203,7 +207,7 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, portalType = '
         return <TrendingUp size={16} />;
       case 'resources':
         return <BookOpen size={16} />;
-      case 'grading':
+      case 'report':
         return <GraduationCap size={16} />;
       case 'development':
         return <Target size={16} />;
@@ -226,7 +230,7 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, portalType = '
                 <div className="relative w-[90px] h-[70px] flex items-center justify-center">
                   <PieChart width={60} height={60}>
                     <Pie
-                      data={classSummary.categories}
+                      data={pieData}
                       cx="50%"
                       cy="50%"
                       innerRadius={20}
@@ -235,7 +239,7 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, portalType = '
                       startAngle={90}
                       endAngle={-270}
                     >
-                      {classSummary.categories.map((entry, index) => (
+                      {pieData.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={entry.color} />
                       ))}
                     </Pie>

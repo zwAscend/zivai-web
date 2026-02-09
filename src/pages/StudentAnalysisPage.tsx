@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import Sidebar from '../components/resources/Sidebar';
 import { assessmentService, studentService, subjectService } from '../services/api';
 import { Assessment, Student, Subject } from '../types';
@@ -16,6 +16,7 @@ interface StudentAssessmentRow {
 
 const StudentAnalysisPage: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [assessments, setAssessments] = useState<Assessment[]>([]);
@@ -27,6 +28,16 @@ const StudentAnalysisPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<StudentAssessmentRow[]>([]);
   const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
+  const [presetSubjectId, setPresetSubjectId] = useState('');
+  const [presetStudentId, setPresetStudentId] = useState('');
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const subjectIdParam = params.get('subjectId') || '';
+    const studentIdParam = params.get('studentId') || '';
+    setPresetSubjectId(subjectIdParam);
+    setPresetStudentId(studentIdParam);
+  }, [location.search]);
 
   useEffect(() => {
     const loadSubjects = async () => {
@@ -34,7 +45,10 @@ const StudentAnalysisPage: React.FC = () => {
         const data = await subjectService.getTeachingSubjects();
         setSubjects(data || []);
         if (data && data.length > 0) {
-          setSelectedSubjectId(data[0].id);
+          const preferred = presetSubjectId && data.some((subject) => subject.id === presetSubjectId)
+            ? presetSubjectId
+            : data[0].id;
+          setSelectedSubjectId(preferred);
         }
       } catch (error) {
         console.error('Failed to load subjects:', error);
@@ -42,13 +56,17 @@ const StudentAnalysisPage: React.FC = () => {
     };
 
     loadSubjects();
-  }, []);
+  }, [presetSubjectId]);
 
   useEffect(() => {
     const loadStudents = async () => {
       try {
         const data = await studentService.getStudents(selectedSubjectId || undefined);
-        setStudents(data || []);
+        const list = data || [];
+        setStudents(list);
+        if (presetStudentId) {
+          setSelectedStudentId(presetStudentId);
+        }
       } catch (error) {
         console.error('Failed to load students:', error);
         setStudents([]);
@@ -56,7 +74,7 @@ const StudentAnalysisPage: React.FC = () => {
     };
 
     loadStudents();
-  }, [selectedSubjectId]);
+  }, [selectedSubjectId, presetStudentId]);
 
   useEffect(() => {
     const loadAssessments = async () => {
@@ -89,15 +107,19 @@ const StudentAnalysisPage: React.FC = () => {
   useEffect(() => {
     const query = studentQuery.trim();
     if (!query) {
-      setSelectedStudentId('');
+      if (!presetStudentId) {
+        setSelectedStudentId('');
+      }
       return;
     }
     if (matchingStudents.length === 1) {
       setSelectedStudentId(matchingStudents[0].id);
     } else if (matchingStudents.every((student) => student.id !== selectedStudentId)) {
-      setSelectedStudentId('');
+      if (!presetStudentId) {
+        setSelectedStudentId('');
+      }
     }
-  }, [studentQuery, matchingStudents, selectedStudentId]);
+  }, [studentQuery, matchingStudents, selectedStudentId, presetStudentId]);
 
   useEffect(() => {
     const loadResults = async () => {

@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Search } from 'lucide-react';
 import ReportLayout from '../components/report/ReportLayout';
 import { submissionService } from '../services/api';
+import { reportService, StudentReportResponse } from '../services/reportService';
+import { useAuth } from '../context/AuthContext';
 
 interface PendingSubmission {
   id: string;
@@ -29,10 +31,23 @@ interface PendingSubmission {
   };
 }
 
+interface AssessmentRow {
+  id: string;
+  name: string;
+  type: string;
+  score: number;
+  maxScore: number;
+  percent: number;
+  submittedAt?: string | null;
+}
+
 const ReportSubmissionsPage: React.FC = () => {
+  const { selectedSubject } = useAuth();
   const [pendingSubmissions, setPendingSubmissions] = useState<PendingSubmission[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingReport, setLoadingReport] = useState(false);
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
+  const [studentReport, setStudentReport] = useState<StudentReportResponse | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [assessmentQuery, setAssessmentQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
@@ -52,6 +67,7 @@ const ReportSubmissionsPage: React.FC = () => {
       setLoading(false);
     }
   };
+
 
   const gradeFromPercent = (percent: number) => {
     if (percent >= 80) return 'A';
@@ -99,16 +115,69 @@ const ReportSubmissionsPage: React.FC = () => {
       .sort((a, b) => b.average - a.average);
   }, [pendingSubmissions, searchQuery]);
 
+  useEffect(() => {
+    if (!selectedStudentId && studentSummaries.length) {
+      setSelectedStudentId(studentSummaries[0].id);
+    }
+  }, [selectedStudentId, studentSummaries]);
+
+  useEffect(() => {
+    const fetchStudentReport = async () => {
+      if (!selectedStudentId) {
+        setStudentReport(null);
+        return;
+      }
+      try {
+        setLoadingReport(true);
+        const report = await reportService.getStudentReport(selectedStudentId, selectedSubject?.id);
+        setStudentReport(report);
+      } catch (error) {
+        console.error('Error loading student report:', error);
+        setStudentReport(null);
+      } finally {
+        setLoadingReport(false);
+      }
+    };
+    fetchStudentReport();
+  }, [selectedStudentId, selectedSubject]);
+
   const selectedStudent = studentSummaries.find(student => student.id === selectedStudentId) || studentSummaries[0];
   const selectedSubmissions = selectedStudent?.submissions || [];
-  const filteredAttempts = selectedSubmissions.filter((submission) => {
-    const matchesAssessment = assessmentQuery === '' ||
-      submission.assessment.name.toLowerCase().includes(assessmentQuery.toLowerCase());
-    const matchesType = typeFilter === 'all' || submission.assessment.type === typeFilter;
-    return matchesAssessment && matchesType;
-  });
+  const selectedStudentName = studentReport?.studentName || selectedStudent?.name || 'Student';
 
-  const assessmentTypes = Array.from(new Set(pendingSubmissions.map(sub => sub.assessment.type).filter(Boolean)));
+  const baseAssessmentRows = useMemo<AssessmentRow[]>(() => {
+    if (studentReport?.assessments?.length) {
+      return studentReport.assessments.map((assessment, index) => ({
+        id: assessment.assessmentId || `assessment-${index}`,
+        name: assessment.assessmentName || 'Assessment',
+        type: assessment.assessmentType || 'Unknown',
+        score: assessment.score ?? 0,
+        maxScore: assessment.maxScore ?? 0,
+        percent: assessment.percent ?? 0,
+        submittedAt: assessment.submittedAt ?? null
+      }));
+    }
+    return selectedSubmissions.map((submission) => ({
+      id: submission.id,
+      name: submission.assessment.name,
+      type: submission.assessment.type || 'Unknown',
+      score: submission.autoGrading?.result?.totalScore ?? 0,
+      maxScore: submission.assessment.maxScore ?? 0,
+      percent: submission.autoGrading?.result?.percentage ?? 0,
+      submittedAt: submission.submittedAt
+    }));
+  }, [studentReport, selectedSubmissions]);
+
+  const filteredAssessmentRows = useMemo(() => {
+    return baseAssessmentRows.filter((assessment) => {
+      const matchesAssessment = assessmentQuery === '' ||
+        assessment.name.toLowerCase().includes(assessmentQuery.toLowerCase());
+      const matchesType = typeFilter === 'all' || assessment.type === typeFilter;
+      return matchesAssessment && matchesType;
+    });
+  }, [assessmentQuery, baseAssessmentRows, typeFilter]);
+
+  const assessmentTypes = Array.from(new Set(baseAssessmentRows.map((assessment) => assessment.type).filter(Boolean)));
 
   return (
     <ReportLayout>
@@ -166,7 +235,7 @@ const ReportSubmissionsPage: React.FC = () => {
               <div>
                 <h3 className="text-lg font-semibold text-slate-900">Assessment Attempts</h3>
                 <p className="text-xs text-slate-500">
-                  {selectedStudent ? `Showing attempts for ${selectedStudent.name}` : 'Select a student to view attempts.'}
+                  {selectedStudentId ? `Showing attempts for ${selectedStudentName}` : 'Select a student to view attempts.'}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -201,22 +270,29 @@ const ReportSubmissionsPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredAttempts.map((submission) => (
-                    <tr key={submission.id}>
-                      <td className="px-4 py-3 text-slate-900 font-medium">{submission.assessment.name}</td>
-                      <td className="px-4 py-3 text-slate-600">{submission.assessment.type}</td>
+                  {filteredAssessmentRows.map((assessment) => (
+                    <tr key={assessment.id}>
+                      <td className="px-4 py-3 text-slate-900 font-medium">{assessment.name}</td>
+                      <td className="px-4 py-3 text-slate-600">{assessment.type}</td>
                       <td className="px-4 py-3 text-slate-700">
-                        {submission.autoGrading.result.totalScore}/{submission.assessment.maxScore} • {submission.autoGrading.result.percentage}%
+                        {assessment.score}/{assessment.maxScore} • {Math.round(assessment.percent)}%
                       </td>
                       <td className="px-4 py-3 text-slate-500">
-                        {new Date(submission.submittedAt).toLocaleDateString()}
+                        {assessment.submittedAt ? new Date(assessment.submittedAt).toLocaleDateString() : '—'}
                       </td>
                     </tr>
                   ))}
-                  {!filteredAttempts.length && (
+                  {!filteredAssessmentRows.length && !loadingReport && (
                     <tr>
                       <td colSpan={4} className="px-4 py-6 text-center text-slate-500">
                         No attempts found for this student.
+                      </td>
+                    </tr>
+                  )}
+                  {loadingReport && !filteredAssessmentRows.length && (
+                    <tr>
+                      <td colSpan={4} className="px-4 py-6 text-center text-slate-500">
+                        Loading student report...
                       </td>
                     </tr>
                   )}

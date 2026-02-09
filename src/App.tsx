@@ -23,7 +23,8 @@ import DevelopmentPracticePage from './pages/DevelopmentPracticePage';
 import DevelopmentReteachDetailPage from './pages/DevelopmentReteachDetailPage';
 import PerformancePage from './pages/PerformancePage';
 import PerformanceOverviewPage from './pages/PerformanceOverviewPage';
-import TeacherStudentsPage from './pages/TeacherStudentsPage';
+import StudentDirectoryPage from './pages/StudentDirectoryPage';
+import StudentProfilePage from './pages/StudentProfilePage';
 import AssessmentsDashboardPage from './pages/AssessmentsDashboardPage';
 import MarkAssessmentPage from './pages/MarkAssessmentPage';
 import CreateAssessmentPage from './pages/CreateAssessmentPage';
@@ -124,8 +125,8 @@ function App() {
             <Route path="staffroom" element={<Inbox />} />
             <Route path="calendar" element={<CalendarView />} />
             <Route path="classroom" element={<ClassroomView />} />
-            <Route path="students" element={<TeacherStudentsPage />} />
-            <Route path="students/profile" element={<TeacherStudentsPage />} />
+            <Route path="students" element={<StudentDirectoryPage />} />
+            <Route path="students/profile" element={<StudentProfilePage />} />
             <Route path="assessments" element={<Navigate to="/assessments/create" replace />} />
             <Route path="assessments/view" element={<AssessmentsDashboardPage />} />
             <Route path="assessments/create" element={<CreateAssessmentPage />} />
@@ -144,12 +145,18 @@ function App() {
             <Route path="development/practice" element={<DevelopmentPracticePage />} />
             <Route path="development/:studentId" element={<DevelopmentPage />} />
             <Route path="resources" element={<ResourcesDashboard />} />
-            <Route path="grading" element={<Navigate to="/grading/class" replace />} />
-            <Route path="grading/class" element={<ReportOverviewPage />} />
-            <Route path="grading/student" element={<ReportSubmissionsPage />} />
-            <Route path="grading/curriculum" element={<ReportCurriculumPage />} />
-            <Route path="grading/term" element={<ReportTermForecastPage />} />
-            <Route path="grading/analytics" element={<ReportForecastAnalyticsPage />} />
+            <Route path="reports" element={<Navigate to="/reports/class" replace />} />
+            <Route path="reports/class" element={<ReportOverviewPage />} />
+            <Route path="reports/student" element={<ReportSubmissionsPage />} />
+            <Route path="reports/curriculum" element={<ReportCurriculumPage />} />
+            <Route path="reports/term" element={<ReportTermForecastPage />} />
+            <Route path="reports/analytics" element={<ReportForecastAnalyticsPage />} />
+            <Route path="grading" element={<Navigate to="/reports/class" replace />} />
+            <Route path="grading/class" element={<Navigate to="/reports/class" replace />} />
+            <Route path="grading/student" element={<Navigate to="/reports/student" replace />} />
+            <Route path="grading/curriculum" element={<Navigate to="/reports/curriculum" replace />} />
+            <Route path="grading/term" element={<Navigate to="/reports/term" replace />} />
+            <Route path="grading/analytics" element={<Navigate to="/reports/analytics" replace />} />
           </Route>
         )}
 

@@ -764,21 +764,21 @@ const Dashboard: React.FC = () => {
         <div className="flex-1 basis-1/2 flex gap-4 mt-4 overflow-auto">
           <div 
             className="w-1/2 cursor-pointer hover:bg-gray-100 transition-colors rounded-lg" 
-            onClick={() => navigate('/resources')}
+            onClick={() => navigate('/assessments/create')}
           >
             <div className="bg-gray-50 p-4 rounded-lg shadow h-full">
-              <h2 className="text-xl font-bold mb-6">CLASS RESOURCES</h2>
+              <h2 className="text-xl font-bold mb-6">ASSESSMENTS</h2>
               <div className="flex justify-center text-center text-gray-600">
-                <p>Create Assignments and<br />Upload Reading Material</p>
+                <p>Overview assessment<br />performance and progress</p>
               </div>
             </div>
           </div>
 
-          <div className="w-1/2 cursor-pointer hover:bg-gray-100 transition-colors rounded-lg" onClick={() => navigate('/grading')}>
+          <div className="w-1/2 cursor-pointer hover:bg-gray-100 transition-colors rounded-lg" onClick={() => navigate('/reports')}>
             <div className="bg-gray-50 p-4 rounded-lg shadow h-full">
-              <h2 className="text-xl font-bold mb-6">GRADING CENTER</h2>
+              <h2 className="text-xl font-bold mb-6">REPORTS</h2>
               <div className="flex justify-center text-center text-gray-600">
-                <p>Review Auto-Graded<br />Assignments</p>
+                <p>Curriculum progress<br />and term forecast insights</p>
               </div>
             </div>
           </div>

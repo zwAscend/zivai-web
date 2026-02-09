@@ -128,6 +128,14 @@ export interface StudentAttributes {
   //potentialGrowth?: number;
 }
 
+export interface PageResponse<T> {
+  items: T[];
+  page: number;
+  size: number;
+  totalItems: number;
+  totalPages: number;
+}
+
 // Question Option Interface - For multiple choice questions
 export interface QuestionOption {
   id: string;

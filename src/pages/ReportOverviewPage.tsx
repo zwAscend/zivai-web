@@ -1,11 +1,14 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import ReportLayout from '../components/report/ReportLayout';
-import { submissionService } from '../services/api';
+import { submissionService, subjectService } from '../services/api';
+import { ClassReportResponse, reportService } from '../services/reportService';
 import { useAuth } from '../context/AuthContext';
+import { Subject } from '../types';
 import { BarChart3, TrendingUp, Users, AlertTriangle } from 'lucide-react';
 
 const ReportOverviewPage: React.FC = () => {
-  const { selectedSubject } = useAuth();
+  const { selectedSubject, setSelectedSubject } = useAuth();
+  const [subjects, setSubjects] = useState<Subject[]>([]);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<{
     totalSubmissions: number;
@@ -15,25 +18,42 @@ const ReportOverviewPage: React.FC = () => {
     averageConfidence: number;
   } | null>(null);
   const [submissions, setSubmissions] = useState<PendingSubmission[]>([]);
+  const [classReport, setClassReport] = useState<ClassReportResponse | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
-        const [statsData, submissionsData] = await Promise.all([
+        const [statsData, submissionsData, classReportData] = await Promise.all([
           submissionService.getGradingStats(selectedSubject?.id),
-          submissionService.getPendingSubmissions()
+          submissionService.getPendingSubmissions(),
+          reportService.getClassReport(selectedSubject?.id)
         ]);
         setStats(statsData);
         setSubmissions(submissionsData);
+        setClassReport(classReportData);
       } catch (error) {
         console.error('Error loading report data:', error);
+        setClassReport(null);
       } finally {
         setLoading(false);
       }
     };
     fetchData();
   }, [selectedSubject]);
+
+  useEffect(() => {
+    const loadSubjects = async () => {
+      try {
+        const data = await subjectService.getTeachingSubjects();
+        setSubjects(data || []);
+      } catch (error) {
+        console.error('Error loading subjects:', error);
+        setSubjects([]);
+      }
+    };
+    loadSubjects();
+  }, []);
 
   const gradeFromPercent = (percent: number) => {
     if (percent >= 80) return 'A';
@@ -116,6 +136,21 @@ const ReportOverviewPage: React.FC = () => {
     };
   }, [submissions, stats]);
 
+  const classAverage = classReport?.classAveragePercent ?? report.classAverage;
+  const predictedGrade = classReport?.predictedGrade ?? gradeFromPercent(classAverage);
+  const classStudentCount = classReport?.studentCount ?? report.students.length;
+  const gradeDistribution = classReport?.gradeDistribution ?? report.gradeDistribution;
+  const masteryGapCards = classReport?.masteryGaps?.length
+    ? classReport.masteryGaps.map((gap) => ({
+        label: gap.topic || 'Topic',
+        value: gap.masteryPercent
+      }))
+    : report.masteryGaps.map((gap) => ({
+        label: gap.type,
+        value: gap.average
+      }));
+  const gradeTotal = classStudentCount || Object.values(gradeDistribution).reduce((sum, value) => sum + value, 0);
+
   return (
     <ReportLayout>
       <div className="max-w-7xl mx-auto space-y-6">
@@ -128,12 +163,29 @@ const ReportOverviewPage: React.FC = () => {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <span className="text-xs font-semibold px-3 py-1 rounded-full bg-blue-50 text-blue-700">
-                Exam Board: ZIMSEC
-              </span>
-              <span className="text-xs font-semibold px-3 py-1 rounded-full bg-slate-100 text-slate-700">
-                Subject: {selectedSubject?.name || 'All subjects'}
-              </span>
+              <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
+                Subject
+                <select
+                  value={selectedSubject?.id || 'all'}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    if (value === 'all') {
+                      setSelectedSubject(null);
+                      return;
+                    }
+                    const nextSubject = subjects.find((subject) => subject.id === value) || null;
+                    setSelectedSubject(nextSubject);
+                  }}
+                  className="text-xs font-semibold px-3 py-1 rounded-full bg-slate-100 text-slate-700 border border-slate-200"
+                >
+                  <option value="all">All subjects</option>
+                  {subjects.map((subject) => (
+                    <option key={subject.id} value={subject.id}>
+                      {subject.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
           </div>
         </div>
@@ -154,16 +206,16 @@ const ReportOverviewPage: React.FC = () => {
                 <BarChart3 className="h-4 w-4 text-blue-600" /> Class Average
               </div>
               <div className="text-2xl font-bold text-slate-900 mt-2">
-                {Math.round(report.classAverage)}%
+                {Math.round(classAverage)}%
               </div>
-              <p className="text-xs text-slate-500 mt-1">Predicted grade: {gradeFromPercent(report.classAverage)}</p>
+              <p className="text-xs text-slate-500 mt-1">Predicted grade: {predictedGrade}</p>
             </div>
             <div className="bg-white rounded-lg shadow p-4">
               <div className="flex items-center gap-2 text-xs text-slate-500">
                 <TrendingUp className="h-4 w-4 text-emerald-600" /> Predicted Outcome
               </div>
               <div className="text-2xl font-bold text-slate-900 mt-2">
-                {gradeFromPercent(report.classAverage)}
+                {predictedGrade}
               </div>
               <p className="text-xs text-slate-500 mt-1">Based on current assessments</p>
             </div>
@@ -172,7 +224,7 @@ const ReportOverviewPage: React.FC = () => {
                 <Users className="h-4 w-4 text-indigo-600" /> Learners Assessed
               </div>
               <div className="text-2xl font-bold text-slate-900 mt-2">
-                {report.students.length}
+                {classStudentCount}
               </div>
               <p className="text-xs text-slate-500 mt-1">Students with submissions</p>
             </div>
@@ -181,7 +233,7 @@ const ReportOverviewPage: React.FC = () => {
                 <AlertTriangle className="h-4 w-4 text-amber-600" /> Mastery Gaps
               </div>
               <div className="text-2xl font-bold text-slate-900 mt-2">
-                {report.masteryGaps.length}
+                {masteryGapCards.length}
               </div>
               <p className="text-xs text-slate-500 mt-1">Priority topics flagged</p>
             </div>
@@ -194,8 +246,8 @@ const ReportOverviewPage: React.FC = () => {
             <p className="text-xs text-slate-500">Projected final performance based on current evidence.</p>
             <div className="mt-4 space-y-3">
               {['A', 'B', 'C', 'D', 'E', 'U'].map((grade) => {
-                const count = report.gradeDistribution[grade] || 0;
-                const percent = report.students.length ? (count / report.students.length) * 100 : 0;
+                const count = gradeDistribution[grade] || 0;
+                const percent = gradeTotal ? (count / gradeTotal) * 100 : 0;
                 return (
                   <div key={grade} className="flex items-center gap-3">
                     <span className="w-6 text-xs font-semibold text-slate-500">{grade}</span>
@@ -206,7 +258,7 @@ const ReportOverviewPage: React.FC = () => {
                   </div>
                 );
               })}
-              {!report.students.length && (
+              {!gradeTotal && (
                 <p className="text-xs text-slate-500">No graded submissions yet.</p>
               )}
             </div>
@@ -216,11 +268,11 @@ const ReportOverviewPage: React.FC = () => {
             <h3 className="text-lg font-semibold text-slate-900">Mastery Gaps</h3>
             <p className="text-xs text-slate-500">Lowest-performing assessment categories.</p>
             <div className="mt-4 space-y-3">
-              {report.masteryGaps.length ? report.masteryGaps.map((gap) => (
-                <div key={gap.type} className="border border-slate-200 rounded-lg p-3">
+              {masteryGapCards.length ? masteryGapCards.map((gap) => (
+                <div key={gap.label} className="border border-slate-200 rounded-lg p-3">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-slate-900">{gap.type}</p>
-                    <span className="text-xs text-slate-500">{Math.round(gap.average)}%</span>
+                    <p className="text-sm font-semibold text-slate-900">{gap.label}</p>
+                    <span className="text-xs text-slate-500">{Math.round(gap.value)}%</span>
                   </div>
                   <p className="text-xs text-slate-500 mt-2">
                     Recommend targeted practice and re-teach sessions.
