@@ -15,4 +15,5 @@ export { notificationService } from './notificationService';
 export { chatService } from './chatService';
 export { termForecastService } from './termForecastService';
 export { reteachCardService } from './reteachCardService';
+export { aiTutorService } from './aiTutorService';
 export type { UnreadChatCount } from './chatService';
