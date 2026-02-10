@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard,
@@ -11,6 +11,8 @@ import {
   ChevronRight,
   BarChart2,
   FileText,
+  Sparkles,
+  Users,
 } from 'lucide-react';
 import { Student, DevelopmentPlan, Subject } from '../../types';
 import { studentService, developmentService, subjectService } from '../../services/api';
@@ -19,6 +21,9 @@ import StudentStats from './StudentStats';
 import StudentMessages from './StudentMessages';
 import StudentAssignments from './StudentAssignments';
 import StudentResults from './StudentResults';
+import StudentTutor from './StudentTutor';
+import StudentPeerStudy from './StudentPeerStudy';
+import StudentMasteryGaps from './StudentMasteryGaps';
 
 // ---------------------------------------------------------------- //
 // A new type and a mock service for Subject, as it's not in api.ts
@@ -34,7 +39,7 @@ import StudentResults from './StudentResults';
 // not just IDs, as per the typical structure of a populated Mongoose object from a REST API.
 // ---------------------------------------------------------------- //
 
-type NavItemKey = 'overview' | 'plan' | 'stats' | 'messages' | 'assignments' | 'results';
+type NavItemKey = 'overview' | 'plan' | 'stats' | 'messages' | 'assessments' | 'results' | 'tutor' | 'peer-study' | 'mastery-gaps';
 
 type StatCardProps = {
   icon: React.ComponentType<{ className?: string }>;
@@ -105,6 +110,30 @@ const StudentDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<NavItemKey>('overview');
+  const [tutorPrefill, setTutorPrefill] = useState<string>('');
+
+  const viewMeta = useMemo(() => {
+    switch (activeView) {
+      case 'plan':
+        return { title: 'My Development Plan', subtitle: 'Guided practice and reasoning checkpoints for each step.' };
+      case 'assessments':
+        return { title: 'Assessments', subtitle: 'Complete tasks independently and reflect on feedback.' };
+      case 'results':
+        return { title: 'Results & Feedback', subtitle: 'Understand your mastery gaps and next steps.' };
+      case 'stats':
+        return { title: 'Mastery & Growth', subtitle: 'Track strengths and focus areas over time.' };
+      case 'messages':
+        return { title: 'Messages', subtitle: 'Collaborate with teachers and classmates.' };
+      case 'tutor':
+        return { title: 'AI Tutor', subtitle: 'Ask for clarity, practice, and reasoning checks.' };
+      case 'peer-study':
+        return { title: 'Peer Study', subtitle: 'Collaborate with classmates on weak topics.' };
+      case 'mastery-gaps':
+        return { title: 'Mastery Gaps', subtitle: 'See what to fix next and practice retrieval.' };
+      default:
+        return { title: `Welcome back, ${student?.firstName || ''}!`, subtitle: "Here's your academic and development snapshot." };
+    }
+  }, [activeView, student?.firstName]);
 
   useEffect(() => {
     const fetchStudentData = async () => {
@@ -159,9 +188,12 @@ const StudentDashboard: React.FC = () => {
   const navItems: Array<{ key: NavItemKey; label: string; icon: React.ComponentType<{ className?: string }> }> = [
     { key: 'overview', label: 'Dashboard', icon: LayoutDashboard },
     { key: 'plan', label: 'My Plan', icon: BookOpen },
-    { key: 'assignments', label: 'Assignments', icon: FileText },
+    { key: 'assessments', label: 'Assessments', icon: FileText },
     { key: 'results', label: 'Results', icon: BarChart2 },
+    { key: 'mastery-gaps', label: 'Mastery Gaps', icon: Target },
+    { key: 'peer-study', label: 'Peer Study', icon: Users },
     { key: 'stats', label: 'Statistics', icon: BarChart2 },
+    { key: 'tutor', label: 'AI Tutor', icon: Sparkles },
     { key: 'messages', label: 'Messages', icon: MessageCircle },
   ];
 
@@ -178,10 +210,17 @@ const StudentDashboard: React.FC = () => {
   const renderContent = () => {
     if (!student) return null;
 
+    const handleOpenTutor = (prompt?: string) => {
+      if (prompt) {
+        setTutorPrefill(prompt);
+      }
+      setActiveView('tutor');
+    };
+
     switch (activeView) {
       case 'plan':
         return activePlan ? (
-          <StudentPlanView plan={activePlan} student={student} />
+          <StudentPlanView plan={activePlan} student={student} onOpenTutor={handleOpenTutor} />
         ) : (
           <div className="bg-white rounded-2xl shadow-sm p-8 text-center animate-fadeIn">
             <BookOpen className="w-16 h-16 text-slate-300 mx-auto mb-4" />
@@ -193,10 +232,44 @@ const StudentDashboard: React.FC = () => {
         return <StudentStats student={student} selectedSubjectId={selectedSubjectId} />;
       case 'messages':
         return <StudentMessages studentId={student.id} />;
-      case 'assignments':
-        return <StudentAssignments studentId={student.id} selectedSubjectId={selectedSubjectId} />;
+      case 'assessments':
+        return (
+          <StudentAssignments
+            studentId={student.id}
+            selectedSubjectId={selectedSubjectId}
+            onOpenTutor={handleOpenTutor}
+          />
+        );
       case 'results':
-        return <StudentResults studentId={student.id} selectedSubjectId={selectedSubjectId} />;
+        return (
+          <StudentResults
+            studentId={student.id}
+            selectedSubjectId={selectedSubjectId}
+            onOpenTutor={handleOpenTutor}
+          />
+        );
+      case 'tutor':
+        return (
+          <StudentTutor
+            studentId={student.id}
+            selectedSubjectId={selectedSubjectId}
+            subjects={subjects}
+            activePlan={activePlan}
+            prefillMessage={tutorPrefill}
+            onPrefillApplied={() => setTutorPrefill('')}
+          />
+        );
+      case 'peer-study':
+        return <StudentPeerStudy selectedSubjectId={selectedSubjectId} subjects={subjects} />;
+      case 'mastery-gaps':
+        return (
+          <StudentMasteryGaps
+            selectedSubjectId={selectedSubjectId}
+            subjects={subjects}
+            activePlan={activePlan}
+            onOpenTutor={handleOpenTutor}
+          />
+        );
       default:
         return (
           <motion.div
@@ -338,28 +411,43 @@ const StudentDashboard: React.FC = () => {
 
       {/* Main Content */}
       <main className="flex-1 p-8 overflow-y-auto">
-        <header className="mb-8 flex justify-between items-center">
-            <div>
-              <h1 className="text-4xl font-bold text-slate-800">
-                Welcome back, {student.firstName}!
-              </h1>
-              <p className="text-slate-500 mt-1">Here's your academic and development snapshot.</p>
+        <header className="mb-8 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div className="space-y-2">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center text-lg font-semibold">
+                {student.firstName?.charAt(0) || 'S'}
+              </div>
+              <div>
+                <h1 className={`${activeView === 'overview' ? 'text-4xl' : 'text-2xl'} font-bold text-slate-800`}>
+                  {viewMeta.title}
+                </h1>
+                <p className="text-slate-500 mt-1">{viewMeta.subtitle}</p>
+              </div>
             </div>
-            {/* Subject Selection Dropdown */}
-            {subjects.length > 0 && (
-              <select
-                value={selectedSubjectId}
-                onChange={(e) => setSelectedSubjectId(e.target.value)}
-                className="p-2 border border-slate-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
-              >
-                <option value="all">All Subjects</option>
-                {subjects.map(subject => (
-                  <option key={subject.id} value={subject.id}>
-                    {`${subject.code}: ${subject.name}`}
-                  </option>
-                ))}
-              </select>
+            {activeView === 'overview' && (
+              <div className="flex flex-wrap gap-2 text-xs text-slate-500">
+                <span className="px-2.5 py-1 rounded-full bg-slate-100">Think first</span>
+                <span className="px-2.5 py-1 rounded-full bg-slate-100">Attempt before hints</span>
+                <span className="px-2.5 py-1 rounded-full bg-slate-100">Explain your reasoning</span>
+                <span className="px-2.5 py-1 rounded-full bg-slate-100">Retrieval practice</span>
+              </div>
             )}
+          </div>
+          {/* Subject Selection Dropdown */}
+          {subjects.length > 0 && (
+            <select
+              value={selectedSubjectId}
+              onChange={(e) => setSelectedSubjectId(e.target.value)}
+              className="p-2 border border-slate-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+            >
+              <option value="all">All Subjects</option>
+              {subjects.map(subject => (
+                <option key={subject.id} value={subject.id}>
+                  {`${subject.code}: ${subject.name}`}
+                </option>
+              ))}
+            </select>
+          )}
         </header>
         <AnimatePresence mode="wait">
           <motion.div

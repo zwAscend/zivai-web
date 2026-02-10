@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
 import { TrendingUp, TrendingDown, Award, Target, Calendar, FileText } from 'lucide-react';
 import { Assessment, Result } from '../../types';
@@ -7,6 +7,7 @@ import { assessmentService } from '../../services/api';
 interface StudentResultsProps {
   studentId: string;
   selectedSubjectId?: string;
+  onOpenTutor?: (prompt?: string) => void;
 }
 
 interface AssessmentResult {
@@ -15,16 +16,17 @@ interface AssessmentResult {
   difference: number;
 }
 
-const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubjectId }) => {
+const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubjectId, onOpenTutor }) => {
   const [results, setResults] = useState<AssessmentResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedPeriod, setSelectedPeriod] = useState<'all' | 'semester' | 'month'>('all');
-  const [selectedType, setSelectedType] = useState<'all' | 'Assignment' | 'Test' | 'Project' | 'Exam'>('all');
+  const [selectedType, setSelectedType] = useState<'all' | 'Assignment' | 'Test' | 'Project' | 'Exam' | 'Quiz'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     const fetchResults = async () => {
       try {
-        const assessments = selectedSubjectId
+        const assessments = selectedSubjectId && selectedSubjectId !== 'all'
           ? await assessmentService.getAssessmentsBySubjectId(selectedSubjectId)
           : await assessmentService.getAssessments();
 
@@ -85,6 +87,8 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubj
 
   // Filter results based on selected period and type
   const filteredResults = results.filter(result => {
+    const query = searchQuery.trim().toLowerCase();
+    const queryMatch = !query || result.assessment.name.toLowerCase().includes(query);
     const typeMatch = selectedType === 'all' || result.assessment.type === selectedType;
     
     let periodMatch = true;
@@ -98,7 +102,7 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubj
       periodMatch = result.result.submittedDate >= oneMonthAgo;
     }
     
-    return typeMatch && periodMatch;
+    return typeMatch && periodMatch && queryMatch;
   });
 
   // Calculate statistics
@@ -111,7 +115,7 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubj
 
   // Prepare chart data
   const chartData = filteredResults.map((result, index) => ({
-    name: result.assessment.name.substring(0, 15) + '...',
+    name: result.assessment.name.substring(0, 15) + (result.assessment.name.length > 15 ? '...' : ''),
     expected: Math.round((result.result.expectedMark / result.assessment.maxScore) * 100),
     actual: Math.round((result.result.actualMark / result.assessment.maxScore) * 100),
     date: result.result.submittedDate.toLocaleDateString(),
@@ -122,6 +126,12 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubj
     score: Math.round((result.result.actualMark / result.assessment.maxScore) * 100),
     name: result.assessment.name.substring(0, 10) + '...',
   }));
+
+  const focusAreas = useMemo(() => {
+    return [...filteredResults]
+      .sort((a, b) => (a.result.actualMark / a.assessment.maxScore) - (b.result.actualMark / b.assessment.maxScore))
+      .slice(0, 3);
+  }, [filteredResults]);
 
   if (loading) {
     return (
@@ -153,11 +163,17 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubj
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div>
-            <h2 className="text-2xl font-semibold text-gray-800 mb-2">My Results</h2>
-            <p className="text-gray-600">Track your academic performance and progress</p>
+            <h2 className="text-2xl font-semibold text-gray-800 mb-2">Assessment Results & Feedback</h2>
+            <p className="text-gray-600">See where you slipped, why, and what to fix next.</p>
           </div>
           
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search assessments"
+              className="px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
             <select
               value={selectedPeriod}
               onChange={(e) => setSelectedPeriod(e.target.value as any)}
@@ -178,10 +194,45 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubj
               <option value="Test">Tests</option>
               <option value="Project">Projects</option>
               <option value="Exam">Exams</option>
+              <option value="Quiz">Quizzes</option>
             </select>
           </div>
         </div>
       </div>
+
+      {focusAreas.length > 0 && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <h3 className="text-lg font-semibold text-gray-800 mb-3">Focus Areas</h3>
+          <p className="text-sm text-gray-500 mb-4">
+            These assessments show the biggest mastery gaps. Review, explain your reasoning,
+            then ask the tutor for targeted practice.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {focusAreas.map((item) => (
+              <div key={item.result.id} className="border border-slate-200 rounded-lg p-4">
+                <p className="text-sm font-semibold text-slate-800">{item.assessment.name}</p>
+                <p className="text-xs text-slate-500 mt-1">
+                  Score: {Math.round((item.result.actualMark / item.assessment.maxScore) * 100)}%
+                </p>
+                <p className="text-xs text-slate-500 mt-2">
+                  Feedback: {item.result.feedback || 'No feedback provided.'}
+                </p>
+                {onOpenTutor && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenTutor(
+                      `I scored low on "${item.assessment.name}". Help me understand the mistakes and practice.`
+                    )}
+                    className="mt-3 text-xs text-blue-600 hover:text-blue-700"
+                  >
+                    Ask AI Tutor
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Statistics Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -286,7 +337,13 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubj
                   Performance
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Feedback
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Date
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  Support
                 </th>
               </tr>
             </thead>
@@ -344,8 +401,28 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubj
                       </span>
                     </div>
                   </td>
+                  <td className="px-6 py-4 text-sm text-gray-500 max-w-[220px]">
+                    {result.result.feedback ? (
+                      <span>{result.result.feedback}</span>
+                    ) : (
+                      <span className="text-gray-400">No feedback yet</span>
+                    )}
+                  </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                     {result.result.submittedDate.toLocaleDateString()}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {onOpenTutor && (
+                      <button
+                        type="button"
+                        onClick={() => onOpenTutor(
+                          `Review my result for "${result.assessment.name}". Feedback: ${result.result.feedback || 'No feedback provided.'}`
+                        )}
+                        className="text-blue-600 hover:text-blue-700 text-xs"
+                      >
+                        Ask Tutor
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

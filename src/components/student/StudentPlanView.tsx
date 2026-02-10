@@ -1,11 +1,12 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { DevelopmentPlan, Student, Skill, Step } from '../../types';
-import { Target, Clock, TrendingUp, CheckCircle, BookOpen, Video, FileText, Edit } from 'lucide-react';
+import { Target, Clock, TrendingUp, CheckCircle, BookOpen, Video, FileText, Edit, Sparkles, MessageCircle, Users } from 'lucide-react';
 
 interface StudentPlanViewProps {
   plan: DevelopmentPlan;
   student: Student;
+  onOpenTutor?: (prompt?: string) => void;
 }
 
 // Helper to get an icon for each step type
@@ -27,7 +28,7 @@ const getProgressColor = (progress: number) => {
     return 'bg-red-500';
 };
 
-const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan }) => {
+const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, onOpenTutor }) => {
 
   const sortedSteps = plan.plan.steps?.slice().sort((a, b) => (a.order || 0) - (b.order || 0)) || [];
   const totalSteps = sortedSteps.length;
@@ -53,8 +54,26 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan }) => {
     >
       {/* LEFT COLUMN (MAIN CONTENT) */}
       <div className="lg:col-span-2 bg-white rounded-xl shadow-sm p-6">
-        <h2 className="text-xl font-bold text-gray-800 mb-1">{plan.plan.name}</h2>
-        <p className="text-gray-500 mb-6 text-sm">{plan.plan.description}</p>
+        <div className="flex flex-col gap-2 mb-6">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-bold text-gray-800">{plan.plan.name}</h2>
+            <button
+              type="button"
+              onClick={() => onOpenTutor?.(`Help me plan my next step for ${plan.plan.name}.`)}
+              className="inline-flex items-center gap-2 text-xs font-semibold text-blue-600 hover:text-blue-700"
+            >
+              <Sparkles className="w-4 h-4" />
+              Ask AI Tutor
+            </button>
+          </div>
+          <p className="text-gray-500 text-sm">{plan.plan.description}</p>
+          <div className="flex flex-wrap gap-2 text-xs text-gray-500">
+            <span className="px-2.5 py-1 rounded-full bg-slate-100">Think first</span>
+            <span className="px-2.5 py-1 rounded-full bg-slate-100">Attempt on your own</span>
+            <span className="px-2.5 py-1 rounded-full bg-slate-100">Explain your reasoning</span>
+            <span className="px-2.5 py-1 rounded-full bg-slate-100">Reflect + retry</span>
+          </div>
+        </div>
         
         {/* Learning Path Timeline */}
         <div className="relative pl-6">
@@ -83,6 +102,32 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan }) => {
                                 }`}>
                                     {getStepIcon(step.type)}
                                     <span className="ml-1.5 capitalize">{step.type}</span>
+                                </div>
+                                <p className="mt-3 text-xs text-gray-500">
+                                  Write a quick explanation before checking solutions. The tutor can guide your reasoning.
+                                </p>
+                                <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                                  <button
+                                    type="button"
+                                    onClick={() => onOpenTutor?.(`Explain the concept behind "${step.title}".`)}
+                                    className="px-2.5 py-1 rounded-full bg-white border border-gray-200 text-gray-600 hover:border-blue-300 hover:text-blue-700"
+                                  >
+                                    Explain concept
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => onOpenTutor?.(`Give me a practice question for "${step.title}".`)}
+                                    className="px-2.5 py-1 rounded-full bg-white border border-gray-200 text-gray-600 hover:border-blue-300 hover:text-blue-700"
+                                  >
+                                    Practice question
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => onOpenTutor?.(`Check my reasoning for "${step.title}".`)}
+                                    className="px-2.5 py-1 rounded-full bg-white border border-gray-200 text-gray-600 hover:border-blue-300 hover:text-blue-700"
+                                  >
+                                    Check reasoning
+                                  </button>
                                 </div>
                             </div>
                         </div>
@@ -126,6 +171,36 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan }) => {
             </div>
         </div>
 
+        {/* AI Tutor Support */}
+        <div className="bg-white rounded-xl shadow-sm p-6">
+            <h3 className="text-lg font-bold text-gray-800 mb-3">AI Tutor Support</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              The tutor helps you think, not just answer. Use it to clarify, practice, and reflect.
+            </p>
+            <div className="space-y-2 text-xs text-gray-600">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-blue-600" />
+                Ask for hints and reasoning checks.
+              </div>
+              <div className="flex items-center gap-2">
+                <MessageCircle className="w-4 h-4 text-emerald-600" />
+                Request retrieval practice questions.
+              </div>
+              <div className="flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 text-amber-600" />
+                Reflect after each attempt.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => onOpenTutor?.('Help me with the next step in my development plan.')}
+              className="mt-4 w-full inline-flex items-center justify-center gap-2 rounded-lg border border-blue-600 text-blue-600 font-semibold py-2 text-sm hover:bg-blue-50"
+            >
+              <Sparkles className="w-4 h-4" />
+              Open AI Tutor
+            </button>
+        </div>
+
         {/* Skills Breakdown */}
         <div className="bg-white rounded-xl shadow-sm p-6">
             <h3 className="text-lg font-bold text-gray-800 mb-4">Focus Skills</h3>
@@ -147,6 +222,25 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan }) => {
                     </div>
                 ))}
             </div>
+        </div>
+
+        {/* Peer Collaboration */}
+        <div className="bg-white rounded-xl shadow-sm p-6">
+          <h3 className="text-lg font-bold text-gray-800 mb-3">Peer Collaboration</h3>
+          <p className="text-sm text-gray-500 mb-4">
+            Learn with classmates on shared weaknesses. Compare strategies and explain solutions.
+          </p>
+          <div className="flex items-center gap-2 text-xs text-gray-600">
+            <Users className="w-4 h-4 text-blue-600" />
+            Join a study circle for this subject.
+          </div>
+          <button
+            type="button"
+            className="mt-4 w-full inline-flex items-center justify-center gap-2 rounded-lg border border-gray-200 text-gray-600 font-semibold py-2 text-sm hover:border-blue-300 hover:text-blue-700"
+          >
+            <Users className="w-4 h-4" />
+            Find a Study Partner
+          </button>
         </div>
       </div>
     </motion.div>

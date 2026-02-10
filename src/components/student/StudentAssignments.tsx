@@ -8,6 +8,7 @@ import { externalAssessmentService } from '../../services/externalAssessmentServ
 interface StudentAssignmentsProps {
   studentId: string;
   selectedSubjectId?: string; // Add this prop to filter by subject
+  onOpenTutor?: (prompt?: string) => void;
 }
 
 interface SubmissionWithResult extends Submission {
@@ -23,7 +24,7 @@ interface AssignmentWithResult extends Assessment {
   isOverdue: boolean;
 }
 
-const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, selectedSubjectId }) => {
+const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, selectedSubjectId, onOpenTutor }) => {
   const [assignments, setAssignments] = useState<AssignmentWithResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState<string | null>(null);
@@ -33,6 +34,9 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
   const [textSubmission, setTextSubmission] = useState('');
   const [submissionType, setSubmissionType] = useState<'file' | 'text'>('file');
   const [activeAssignment, setActiveAssignment] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedStatus, setSelectedStatus] = useState<'all' | 'pending' | 'submitted' | 'graded' | 'overdue'>('all');
+  const [selectedType, setSelectedType] = useState<'all' | string>('all');
 
   useEffect(() => {
     console.log('--- Fetching Student Assignments ---');
@@ -333,6 +337,32 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
     return <Calendar className="w-4 h-4" />;
   };
 
+  const getAssessmentTypeLabel = (assignment: AssignmentWithResult) => {
+    const rawType = (assignment as any).assessmentType || (assignment as any).type || 'Assessment';
+    return String(rawType)
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (char) => char.toUpperCase());
+  };
+
+  const getStatusKey = (assignment: AssignmentWithResult) => {
+    if (assignment.isSubmitted && assignment.result) return 'graded';
+    if (assignment.isSubmitted) return 'submitted';
+    if (assignment.isOverdue) return 'overdue';
+    return 'pending';
+  };
+
+  const assessmentTypes = Array.from(
+    new Set(assignments.map((assignment) => getAssessmentTypeLabel(assignment)))
+  ).sort();
+
+  const filteredAssignments = assignments.filter((assignment) => {
+    const statusMatch = selectedStatus === 'all' || getStatusKey(assignment) === selectedStatus;
+    const typeMatch = selectedType === 'all' || getAssessmentTypeLabel(assignment) === selectedType;
+    const query = searchQuery.trim().toLowerCase();
+    const queryMatch = !query || assignment.name.toLowerCase().includes(query);
+    return statusMatch && typeMatch && queryMatch;
+  });
+
   const getSubmissionDetails = (assignment: AssignmentWithResult) => {
     console.log('--- Getting Submission Details ---');
     console.log('Assignment:', assignment.name);
@@ -440,12 +470,51 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-2xl font-semibold text-gray-800 mb-2">My Assignments</h2>
-        <p className="text-gray-600">Submit your assignments and track your progress</p>
+        <h2 className="text-2xl font-semibold text-gray-800 mb-2">My Assessments</h2>
+        <p className="text-gray-600">
+          Complete assessments, review feedback, and focus on how to improve.
+        </p>
+      </div>
+
+      <div className="bg-white rounded-lg shadow p-4">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+          <div className="flex items-center gap-2 text-sm text-slate-600">Filters</div>
+          <div className="flex flex-wrap gap-2">
+            <input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search assessments"
+              className="px-3 py-2 text-sm border border-slate-200 rounded-md"
+            />
+            <select
+              value={selectedType}
+              onChange={(event) => setSelectedType(event.target.value)}
+              className="px-3 py-2 text-sm border border-slate-200 rounded-md"
+            >
+              <option value="all">All types</option>
+              {assessmentTypes.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+            <select
+              value={selectedStatus}
+              onChange={(event) => setSelectedStatus(event.target.value as any)}
+              className="px-3 py-2 text-sm border border-slate-200 rounded-md"
+            >
+              <option value="all">All status</option>
+              <option value="pending">Pending</option>
+              <option value="submitted">Submitted</option>
+              <option value="graded">Graded</option>
+              <option value="overdue">Overdue</option>
+            </select>
+          </div>
+        </div>
       </div>
 
       <div className="space-y-4">
-        {assignments.map((assignment) => (
+        {filteredAssignments.map((assignment) => (
           <div key={assignment.id} className="bg-white rounded-lg shadow p-6">
             <div className="flex items-start justify-between mb-4">
               <div className="flex-1">
@@ -458,7 +527,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                 </div>
                 <p className="text-gray-600 mb-3">{assignment.description}</p>
                 
-                <div className="flex items-center gap-6 text-sm text-gray-500">
+                <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500">
                   <div className="flex items-center gap-1">
                     <Calendar className="w-4 h-4" />
                     <span>Due: {assignment.dueDate.toLocaleDateString()}</span>
@@ -470,12 +539,45 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                   <div className="flex items-center gap-1">
                     <span>Weight: {assignment.weight}%</span>
                   </div>
+                  <span className="px-2 py-0.5 rounded-full text-xs bg-slate-100 text-slate-600">
+                    {getAssessmentTypeLabel(assignment)}
+                  </span>
                 </div>
+                {!assignment.isSubmitted && onOpenTutor && (
+                  <div className="mt-3">
+                    <button
+                      type="button"
+                      onClick={() => onOpenTutor(`Help me plan and reason through "${assignment.name}".`)}
+                      className="text-xs text-blue-600 hover:text-blue-700"
+                    >
+                      Ask AI Tutor for guidance before you start
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
             {/* Display submission and result details */}
             {getSubmissionDetails(assignment)}
+
+            {assignment.result && (
+              <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-slate-600">
+                <span className="px-2.5 py-1 rounded-full bg-amber-50 text-amber-700">
+                  Reflect: Explain what went wrong before reviewing answers.
+                </span>
+                {onOpenTutor && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenTutor(
+                      `Help me improve on "${assignment.name}". My feedback: ${assignment.result?.feedback || 'No feedback yet.'}`
+                    )}
+                    className="px-3 py-1.5 rounded-full bg-blue-50 text-blue-700 hover:bg-blue-100"
+                  >
+                    Ask AI Tutor
+                  </button>
+                )}
+              </div>
+            )}
 
             {!assignment.isSubmitted && (
               <div className="border-t pt-4">
@@ -556,7 +658,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                       ) : (
                         <>
                           <Upload className="w-4 h-4" />
-                          Submit Assignment
+                          Submit Assessment
                         </>
                       )}
                     </button>
@@ -576,7 +678,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
               <div className="border-t pt-4">
                 <div className="flex items-center gap-2 text-blue-600">
                   <CheckCircle className="w-5 h-5" />
-                  <span>Assignment submitted and automatically graded. Awaiting teacher review.</span>
+                  <span>Assessment submitted and automatically graded. Awaiting teacher review.</span>
                 </div>
               </div>
             )}
@@ -584,11 +686,11 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
         ))}
       </div>
 
-      {assignments.length === 0 && !loading && (
+      {filteredAssignments.length === 0 && !loading && (
         <div className="bg-white rounded-lg shadow p-8 text-center">
           <FileText className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-xl font-semibold text-gray-700 mb-2">No Assignments</h3>
-          <p className="text-gray-500">You don't have any assignments at the moment.</p>
+          <h3 className="text-xl font-semibold text-gray-700 mb-2">No Assessments</h3>
+          <p className="text-gray-500">No assessments match the selected filters.</p>
         </div>
       )}
 
