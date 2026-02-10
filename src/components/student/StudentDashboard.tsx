@@ -3,16 +3,19 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard,
   BookOpen,
+  PlusCircle,
   Target,
   TrendingUp,
   Calendar,
   MessageCircle,
   LogOut,
   ChevronRight,
+  Menu,
   BarChart2,
   FileText,
   Sparkles,
   Users,
+  User,
 } from 'lucide-react';
 import { Student, DevelopmentPlan, Subject } from '../../types';
 import { studentService, developmentService, subjectService } from '../../services/api';
@@ -24,6 +27,7 @@ import StudentResults from './StudentResults';
 import StudentTutor from './StudentTutor';
 import StudentPeerStudy from './StudentPeerStudy';
 import StudentMasteryGaps from './StudentMasteryGaps';
+import StudentProfileSettings from './StudentProfileSettings';
 
 // ---------------------------------------------------------------- //
 // A new type and a mock service for Subject, as it's not in api.ts
@@ -39,7 +43,16 @@ import StudentMasteryGaps from './StudentMasteryGaps';
 // not just IDs, as per the typical structure of a populated Mongoose object from a REST API.
 // ---------------------------------------------------------------- //
 
-type NavItemKey = 'overview' | 'plan' | 'stats' | 'messages' | 'assessments' | 'results' | 'tutor' | 'peer-study' | 'mastery-gaps';
+type NavItemKey =
+  | 'overview'
+  | 'plan'
+  | 'messages'
+  | 'assessments'
+  | 'results'
+  | 'tutor'
+  | 'peer-study'
+  | 'mastery-gaps'
+  | 'profile';
 
 type StatCardProps = {
   icon: React.ComponentType<{ className?: string }>;
@@ -73,14 +86,14 @@ const StatCard: React.FC<StatCardProps> = ({ icon: Icon, title, value, color, ch
 const DashboardSkeleton = () => (
   <div className="flex">
     <div className="w-64 bg-white h-screen p-4">
-      <div className="h-10 bg-blue-100 rounded mb-8 animate-pulse"></div>
+      <div className="h-10 bg-blue-50 rounded mb-8 animate-pulse"></div>
       <div className="space-y-4">
         {[...Array(4)].map((_, i) => (
-          <div key={i} className="h-10 bg-blue-100 rounded animate-pulse"></div>
+          <div key={i} className="h-10 bg-blue-50 rounded animate-pulse"></div>
         ))}
       </div>
       <div className="absolute bottom-4 w-56">
-        <div className="h-12 bg-blue-100 rounded animate-pulse"></div>
+        <div className="h-12 bg-blue-50 rounded animate-pulse"></div>
       </div>
     </div>
     <div className="flex-1 p-8">
@@ -111,6 +124,34 @@ const StudentDashboard: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<NavItemKey>('overview');
   const [tutorPrefill, setTutorPrefill] = useState<string>('');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [peerStudyModalOpen, setPeerStudyModalOpen] = useState(false);
+  const [resultsTab, setResultsTab] = useState<'analytics' | 'results'>('analytics');
+  const avatarGradients = [
+    'from-indigo-500 to-sky-500',
+    'from-rose-500 to-amber-500',
+    'from-emerald-500 to-teal-500',
+    'from-purple-500 to-pink-500',
+    'from-blue-600 to-cyan-500',
+    'from-orange-500 to-yellow-400',
+  ];
+
+  const avatarInitials = useMemo(() => {
+    if (!student) return 'S';
+    const first = student.firstName?.[0] || '';
+    const last = student.lastName?.[0] || '';
+    return `${first}${last}`.toUpperCase() || 'S';
+  }, [student]);
+
+  const avatarGradient = useMemo(() => {
+    if (!student) return avatarGradients[0];
+    const seed = `${student.id || ''}${student.firstName || ''}${student.lastName || ''}`;
+    let hash = 0;
+    for (let i = 0; i < seed.length; i += 1) {
+      hash = (hash * 31 + seed.charCodeAt(i)) % 1000;
+    }
+    return avatarGradients[hash % avatarGradients.length];
+  }, [student, avatarGradients]);
 
   const viewMeta = useMemo(() => {
     switch (activeView) {
@@ -119,9 +160,7 @@ const StudentDashboard: React.FC = () => {
       case 'assessments':
         return { title: 'Assessments', subtitle: 'Complete tasks independently and reflect on feedback.' };
       case 'results':
-        return { title: 'Results & Feedback', subtitle: 'Understand your mastery gaps and next steps.' };
-      case 'stats':
-        return { title: 'Mastery & Growth', subtitle: 'Track strengths and focus areas over time.' };
+        return { title: 'Results & Analytics', subtitle: 'See performance trends, feedback, and next steps.' };
       case 'messages':
         return { title: 'Messages', subtitle: 'Collaborate with teachers and classmates.' };
       case 'tutor':
@@ -130,6 +169,8 @@ const StudentDashboard: React.FC = () => {
         return { title: 'Peer Study', subtitle: 'Collaborate with classmates on weak topics.' };
       case 'mastery-gaps':
         return { title: 'Mastery Gaps', subtitle: 'See what to fix next and practice retrieval.' };
+      case 'profile':
+        return { title: 'Profile & Settings', subtitle: 'Update your details, avatar, and preferences.' };
       default:
         return { title: `Welcome back, ${student?.firstName || ''}!`, subtitle: "Here's your academic and development snapshot." };
     }
@@ -179,6 +220,15 @@ const StudentDashboard: React.FC = () => {
     fetchStudentData();
   }, []);
 
+  useEffect(() => {
+    if (activeView !== 'peer-study') {
+      setPeerStudyModalOpen(false);
+    }
+    if (activeView !== 'results') {
+      setResultsTab('analytics');
+    }
+  }, [activeView]);
+
   const handleLogout = () => {
     console.log('🔒 Logout initiated by student.');
     localStorage.clear();
@@ -189,12 +239,12 @@ const StudentDashboard: React.FC = () => {
     { key: 'overview', label: 'Dashboard', icon: LayoutDashboard },
     { key: 'plan', label: 'My Plan', icon: BookOpen },
     { key: 'assessments', label: 'Assessments', icon: FileText },
-    { key: 'results', label: 'Results', icon: BarChart2 },
+    { key: 'results', label: 'Results & Analytics', icon: BarChart2 },
     { key: 'mastery-gaps', label: 'Mastery Gaps', icon: Target },
     { key: 'peer-study', label: 'Peer Study', icon: Users },
-    { key: 'stats', label: 'Statistics', icon: BarChart2 },
     { key: 'tutor', label: 'AI Tutor', icon: Sparkles },
     { key: 'messages', label: 'Messages', icon: MessageCircle },
+    { key: 'profile', label: 'Profile', icon: User },
   ];
 
   const containerVariants = {
@@ -228,8 +278,6 @@ const StudentDashboard: React.FC = () => {
             <p className="text-slate-500">You don't have an active development plan assigned yet.</p>
           </div>
         );
-      case 'stats':
-        return <StudentStats student={student} selectedSubjectId={selectedSubjectId} />;
       case 'messages':
         return <StudentMessages studentId={student.id} />;
       case 'assessments':
@@ -242,11 +290,41 @@ const StudentDashboard: React.FC = () => {
         );
       case 'results':
         return (
-          <StudentResults
-            studentId={student.id}
-            selectedSubjectId={selectedSubjectId}
-            onOpenTutor={handleOpenTutor}
-          />
+          <div className="space-y-6">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setResultsTab('analytics')}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition ${
+                  resultsTab === 'analytics'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                Performance Analytics
+              </button>
+              <button
+                type="button"
+                onClick={() => setResultsTab('results')}
+                className={`px-4 py-2 rounded-md text-sm font-medium transition ${
+                  resultsTab === 'results'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                Assessment Results
+              </button>
+            </div>
+            {resultsTab === 'analytics' ? (
+              <StudentStats student={student} selectedSubjectId={selectedSubjectId} />
+            ) : (
+              <StudentResults
+                studentId={student.id}
+                selectedSubjectId={selectedSubjectId}
+                onOpenTutor={handleOpenTutor}
+              />
+            )}
+          </div>
         );
       case 'tutor':
         return (
@@ -260,7 +338,14 @@ const StudentDashboard: React.FC = () => {
           />
         );
       case 'peer-study':
-        return <StudentPeerStudy selectedSubjectId={selectedSubjectId} subjects={subjects} />;
+        return (
+          <StudentPeerStudy
+            selectedSubjectId={selectedSubjectId}
+            subjects={subjects}
+            isCreateOpen={peerStudyModalOpen}
+            onCloseCreate={() => setPeerStudyModalOpen(false)}
+          />
+        );
       case 'mastery-gaps':
         return (
           <StudentMasteryGaps
@@ -268,6 +353,13 @@ const StudentDashboard: React.FC = () => {
             subjects={subjects}
             activePlan={activePlan}
             onOpenTutor={handleOpenTutor}
+          />
+        );
+      case 'profile':
+        return (
+          <StudentProfileSettings
+            student={student}
+            onStudentUpdated={(updated) => setStudent(updated)}
           />
         );
       default:
@@ -376,78 +468,133 @@ const StudentDashboard: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 flex">
+    <div className="h-screen bg-slate-100 flex overflow-hidden">
       {/* Sidebar Navigation */}
-      <aside className="w-64 bg-white shadow-md flex-shrink-0 flex flex-col">
-        <div className="p-6 text-2xl font-bold text-blue-600 border-b border-slate-200">
-          Student Portal
+      <aside
+        className={`bg-white shadow-md flex-shrink-0 flex flex-col h-screen sticky top-0 transition-all duration-200 ${
+          sidebarCollapsed ? 'w-20' : 'w-64'
+        }`}
+      >
+        <div className={`p-6 border-b border-slate-200 ${sidebarCollapsed ? 'px-4' : ''}`}>
+          <div className="flex items-start justify-between">
+            {!sidebarCollapsed && (
+              <div className="text-2xl font-bold text-blue-600">Student Portal</div>
+            )}
+            <button
+              type="button"
+              onClick={() => setSidebarCollapsed((prev) => !prev)}
+              className="ml-auto inline-flex items-center justify-center w-8 h-8 rounded-md hover:bg-slate-100 text-slate-600 transition-colors"
+              aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            >
+              <Menu className="w-4 h-4" />
+            </button>
+          </div>
+          <div className={`mt-4 flex items-center gap-3 ${sidebarCollapsed ? 'flex-col' : ''}`}>
+            <div
+              className={`w-12 h-12 rounded-full overflow-hidden flex items-center justify-center text-sm font-semibold transition-colors ${
+                student.avatar
+                  ? 'bg-slate-100 border border-slate-200 text-slate-600'
+                  : `bg-gradient-to-br ${avatarGradient} text-white shadow-sm`
+              }`}
+            >
+              {student.avatar ? (
+                <img
+                  src={student.avatar}
+                  alt={`${student.firstName} avatar`}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                avatarInitials
+              )}
+            </div>
+            {!sidebarCollapsed && (
+              <div className="text-sm">
+                <p className="font-semibold text-slate-800">
+                  {student.firstName} {student.lastName}
+                </p>
+              </div>
+            )}
+          </div>
         </div>
-        <nav className="flex-grow p-4">
+        <nav className={`flex-grow p-4 ${sidebarCollapsed ? 'px-2' : ''}`}>
           {navItems.map(({ key, label, icon: Icon }) => (
             <button
               key={key}
               onClick={() => setActiveView(key)}
-              className={`w-full flex items-center px-4 py-3 my-1 rounded-lg text-left font-semibold transition-all duration-200 ${
+              title={sidebarCollapsed ? label : undefined}
+              className={`w-full flex items-center ${
+                sidebarCollapsed ? 'justify-center px-2' : 'px-4'
+              } py-3 my-1 rounded-lg text-left font-semibold transition-all duration-200 ${
                 activeView === key
                   ? 'bg-blue-600 text-white shadow-lg'
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-800'
               }`}
             >
-              <Icon className="w-5 h-5 mr-3" />
-              {label}
+              <Icon className={`w-5 h-5 ${sidebarCollapsed ? '' : 'mr-3'}`} />
+              {!sidebarCollapsed && label}
             </button>
           ))}
         </nav>
         <div className="p-4 border-t border-slate-200">
           <button
             onClick={handleLogout}
-            className="w-full flex items-center px-4 py-3 rounded-lg text-slate-600 font-semibold bg-slate-100 hover:bg-red-100 hover:text-red-700 transition-colors duration-200"
+            title={sidebarCollapsed ? 'Logout' : undefined}
+            className={`w-full flex items-center ${
+              sidebarCollapsed ? 'justify-center px-2' : 'px-4'
+            } py-3 rounded-lg text-slate-600 font-semibold bg-slate-100 hover:bg-red-100 hover:text-red-700 transition-colors duration-200`}
           >
-            <LogOut className="w-5 h-5 mr-3" />
-            Logout
+            <LogOut className={`w-5 h-5 ${sidebarCollapsed ? '' : 'mr-3'}`} />
+            {!sidebarCollapsed && 'Logout'}
           </button>
         </div>
       </aside>
 
       {/* Main Content */}
       <main className="flex-1 p-8 overflow-y-auto">
-        <header className="mb-8 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <div className="space-y-2">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-blue-600 text-white flex items-center justify-center text-lg font-semibold">
-                {student.firstName?.charAt(0) || 'S'}
-              </div>
-              <div>
-                <h1 className={`${activeView === 'overview' ? 'text-4xl' : 'text-2xl'} font-bold text-slate-800`}>
-                  {viewMeta.title}
-                </h1>
-                <p className="text-slate-500 mt-1">{viewMeta.subtitle}</p>
+        <header className="mb-8">
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <div>
+                  <h1 className={`${activeView === 'overview' ? 'text-3xl' : 'text-2xl'} font-bold text-slate-900`}>
+                    {viewMeta.title}
+                  </h1>
+                  <p className="text-slate-500 mt-1">{viewMeta.subtitle}</p>
+                </div>
               </div>
             </div>
-            {activeView === 'overview' && (
-              <div className="flex flex-wrap gap-2 text-xs text-slate-500">
-                <span className="px-2.5 py-1 rounded-full bg-slate-100">Think first</span>
-                <span className="px-2.5 py-1 rounded-full bg-slate-100">Attempt before hints</span>
-                <span className="px-2.5 py-1 rounded-full bg-slate-100">Explain your reasoning</span>
-                <span className="px-2.5 py-1 rounded-full bg-slate-100">Retrieval practice</span>
+            {subjects.length > 0 && (
+              <div className="flex flex-wrap items-center gap-3">
+                {activeView === 'peer-study' && (
+                  <button
+                    type="button"
+                    onClick={() => setPeerStudyModalOpen(true)}
+                    className="inline-flex items-center justify-center gap-2 bg-blue-600 text-white text-sm font-semibold px-4 py-2 rounded-md hover:bg-blue-700"
+                  >
+                    <PlusCircle className="w-4 h-4" />
+                    Create collaboration request
+                  </button>
+                )}
+                <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2 shadow-sm">
+                  <BookOpen className="w-4 h-4 text-slate-500" />
+                  <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Subject</span>
+                  <select
+                    value={selectedSubjectId}
+                    onChange={(e) => setSelectedSubjectId(e.target.value)}
+                    className="bg-transparent text-sm font-semibold text-slate-700 focus:outline-none min-w-[170px]"
+                  >
+                    <option value="all">All Subjects</option>
+                    {subjects.map(subject => (
+                      <option key={subject.id} value={subject.id}>
+                        {`${subject.code}: ${subject.name}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             )}
           </div>
-          {/* Subject Selection Dropdown */}
-          {subjects.length > 0 && (
-            <select
-              value={selectedSubjectId}
-              onChange={(e) => setSelectedSubjectId(e.target.value)}
-              className="p-2 border border-slate-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
-            >
-              <option value="all">All Subjects</option>
-              {subjects.map(subject => (
-                <option key={subject.id} value={subject.id}>
-                  {`${subject.code}: ${subject.name}`}
-                </option>
-              ))}
-            </select>
-          )}
         </header>
         <AnimatePresence mode="wait">
           <motion.div
