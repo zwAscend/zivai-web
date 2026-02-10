@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from 'react';
-import { Users, Search, PlusCircle, MessageCircle, Calendar, BookOpen } from 'lucide-react';
+import React, { useMemo, useState, useEffect } from 'react';
+import { Dialog } from '@headlessui/react';
+import { Search, MessageCircle, Calendar, BookOpen } from 'lucide-react';
 import { Subject } from '../../types';
 
 type PeerStudyRequest = {
@@ -15,6 +16,8 @@ type PeerStudyRequest = {
 type StudentPeerStudyProps = {
   selectedSubjectId: string;
   subjects: Subject[];
+  isCreateOpen: boolean;
+  onCloseCreate: () => void;
 };
 
 const sampleRequestsTemplate = [
@@ -44,12 +47,19 @@ const sampleRequestsTemplate = [
   },
 ];
 
-const StudentPeerStudy: React.FC<StudentPeerStudyProps> = ({ selectedSubjectId, subjects }) => {
+const StudentPeerStudy: React.FC<StudentPeerStudyProps> = ({
+  selectedSubjectId,
+  subjects,
+  isCreateOpen,
+  onCloseCreate,
+}) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [requestType, setRequestType] = useState<'all' | PeerStudyRequest['type']>('all');
   const [topic, setTopic] = useState('');
   const [note, setNote] = useState('');
   const [preferredTime, setPreferredTime] = useState('');
+  const [newRequestType, setNewRequestType] = useState<PeerStudyRequest['type']>('need-help');
+  const [newRequestSubjectId, setNewRequestSubjectId] = useState<string>('all');
 
   const subjectMap = useMemo(() => {
     return new Map(subjects.map((subject) => [subject.id, subject.name]));
@@ -71,23 +81,29 @@ const StudentPeerStudy: React.FC<StudentPeerStudyProps> = ({ selectedSubjectId, 
     });
   }, [requestType, searchQuery, selectedSubjectId, subjects]);
 
+  useEffect(() => {
+    if (isCreateOpen) {
+      const defaultSubject =
+        selectedSubjectId !== 'all' ? selectedSubjectId : (subjects[0]?.id || 'all');
+      setNewRequestSubjectId(defaultSubject);
+    }
+  }, [isCreateOpen, selectedSubjectId, subjects]);
+
+  const handleCloseModal = () => {
+    setTopic('');
+    setNote('');
+    setPreferredTime('');
+    setNewRequestType('need-help');
+    onCloseCreate();
+  };
+
+  const handleSubmitRequest = () => {
+    if (!topic.trim() || !note.trim()) return;
+    handleCloseModal();
+  };
+
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-semibold text-gray-800 mb-2">Peer Study</h2>
-            <p className="text-gray-600">
-              Collaborate with classmates on specific topics, explain solutions, and learn together.
-            </p>
-          </div>
-          <div className="hidden md:flex items-center gap-2 text-sm text-slate-500">
-            <Users className="w-4 h-4" />
-            Study circles & collaboration requests
-          </div>
-        </div>
-      </div>
-
       <div className="bg-white rounded-lg shadow p-4">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <div className="flex items-center gap-2 text-sm text-slate-600">Filters</div>
@@ -116,39 +132,34 @@ const StudentPeerStudy: React.FC<StudentPeerStudyProps> = ({ selectedSubjectId, 
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_1.9fr] gap-6">
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex items-center gap-2 text-sm text-slate-600 mb-4">
-            <PlusCircle className="w-4 h-4 text-blue-600" />
-            Create collaboration request
+        <div className="bg-white rounded-2xl shadow p-6 space-y-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-900">Mastery & focus</h3>
+              <p className="text-sm text-slate-500 mt-1">
+                Based on recent results, here is where you are strongest and what to fix next.
+              </p>
+            </div>
+            <span className="text-xs px-2 py-1 rounded-full bg-amber-50 text-amber-700">Live snapshot</span>
           </div>
-          <div className="space-y-3">
-            <input
-              value={topic}
-              onChange={(event) => setTopic(event.target.value)}
-              placeholder="Topic (e.g. Algebra: Linear Equations)"
-              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-md"
-            />
-            <textarea
-              value={note}
-              onChange={(event) => setNote(event.target.value)}
-              placeholder="Explain what you need or what you can offer."
-              className="w-full min-h-[120px] px-3 py-2 text-sm border border-slate-200 rounded-md"
-            />
-            <input
-              value={preferredTime}
-              onChange={(event) => setPreferredTime(event.target.value)}
-              placeholder="Preferred time (e.g. Wed 6pm)"
-              className="w-full px-3 py-2 text-sm border border-slate-200 rounded-md"
-            />
-            <button
-              type="button"
-              className="w-full bg-blue-600 text-white text-sm font-semibold py-2 rounded-md hover:bg-blue-700"
-            >
-              Post Request
-            </button>
-            <p className="text-xs text-slate-500">
-              Use collaboration to compare strategies and refine reasoning.
-            </p>
+          <div className="space-y-4">
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Strengths</p>
+              <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                <span className="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700">Algebraic manipulation</span>
+                <span className="px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700">Graph interpretation</span>
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Needs attention</p>
+              <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                <span className="px-2.5 py-1 rounded-full bg-amber-50 text-amber-700">Word problems</span>
+                <span className="px-2.5 py-1 rounded-full bg-amber-50 text-amber-700">Geometry proofs</span>
+              </div>
+            </div>
+          </div>
+          <div className="rounded-lg border border-slate-100 bg-slate-50 p-3 text-xs text-slate-600">
+            Use peer study to compare strategies and explain your reasoning aloud.
           </div>
         </div>
 
@@ -193,6 +204,79 @@ const StudentPeerStudy: React.FC<StudentPeerStudyProps> = ({ selectedSubjectId, 
           )}
         </div>
       </div>
+
+      <Dialog open={isCreateOpen} onClose={handleCloseModal} className="relative z-50">
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm" aria-hidden="true" />
+        <div className="fixed inset-0 flex items-center justify-center p-4">
+          <Dialog.Panel className="w-full max-w-lg rounded-lg bg-white p-6 shadow-xl">
+            <Dialog.Title className="text-lg font-semibold text-slate-900">
+              Create collaboration request
+            </Dialog.Title>
+            <p className="text-sm text-slate-500 mt-1">
+              Set the topic, explain your need or offer, and share a preferred time.
+            </p>
+            <div className="mt-5 space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <select
+                  value={newRequestType}
+                  onChange={(event) => setNewRequestType(event.target.value as PeerStudyRequest['type'])}
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-md"
+                >
+                  <option value="need-help">Need help</option>
+                  <option value="offer-help">Offer help</option>
+                  <option value="study-group">Study group</option>
+                </select>
+                <select
+                  value={newRequestSubjectId}
+                  onChange={(event) => setNewRequestSubjectId(event.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-md"
+                >
+                  {subjects.map((subject) => (
+                    <option key={subject.id} value={subject.id}>
+                      {subject.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <input
+                value={topic}
+                onChange={(event) => setTopic(event.target.value)}
+                placeholder="Topic (e.g. Algebra: Linear Equations)"
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-md"
+              />
+              <textarea
+                value={note}
+                onChange={(event) => setNote(event.target.value)}
+                placeholder="Explain what you need or what you can offer."
+                className="w-full min-h-[120px] px-3 py-2 text-sm border border-slate-200 rounded-md"
+              />
+              <input
+                type="datetime-local"
+                value={preferredTime}
+                onChange={(event) => setPreferredTime(event.target.value)}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-md"
+              />
+            </div>
+            <div className="mt-6 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={handleCloseModal}
+                className="px-4 py-2 text-sm font-semibold text-slate-600 hover:text-slate-800"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSubmitRequest}
+                disabled={!topic.trim() || !note.trim()}
+                className="px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-md hover:bg-blue-700 disabled:opacity-60"
+              >
+                Post request
+              </button>
+            </div>
+          </Dialog.Panel>
+        </div>
+      </Dialog>
     </div>
   );
 };

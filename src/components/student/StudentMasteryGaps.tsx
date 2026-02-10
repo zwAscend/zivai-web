@@ -37,13 +37,6 @@ const StudentMasteryGaps: React.FC<StudentMasteryGapsProps> = ({
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-2xl font-semibold text-gray-800 mb-2">Mastery Gaps</h2>
-        <p className="text-gray-600">
-          Identify what to fix next in {selectedSubject?.name || 'this subject'} and practice retrieval.
-        </p>
-      </div>
-
       {planForSubject ? (
         <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_1.3fr] gap-6">
           <div className="space-y-4">

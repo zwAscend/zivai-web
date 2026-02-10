@@ -469,13 +469,6 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
 
   return (
     <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow p-6">
-        <h2 className="text-2xl font-semibold text-gray-800 mb-2">My Assessments</h2>
-        <p className="text-gray-600">
-          Complete assessments, review feedback, and focus on how to improve.
-        </p>
-      </div>
-
       <div className="bg-white rounded-lg shadow p-4">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <div className="flex items-center gap-2 text-sm text-slate-600">Filters</div>

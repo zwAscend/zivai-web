@@ -43,6 +43,7 @@ export interface Student {
   strength: string; // E.g., 'Problem Solving', 'Networking'
   performance: string; // E.g., 'Excellent', 'Good', 'Needs Improvement'
   engagement: string; // E.g., 'High', 'Medium', 'Low'
+  avatar?: string; // Optional avatar URL
   // References to other models
   subjects?: Array<string | Subject>; // Array of Subject IDs or populated Subject objects
   activePlan?: DevelopmentPlan; // The student's currently active development plan (populated)
