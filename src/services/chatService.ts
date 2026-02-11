@@ -11,7 +11,7 @@ export interface UnreadChatCount {
 
 export const chatService = {
   getMessages: async (studentId: string): Promise<ChatMessage[]> => {
-    return fetchData<ChatMessage[]>(`/chat/messages/${studentId}`);
+    return fetchData<ChatMessage[]>(`/chat/messages/${studentId}`, { skipCache: true });
   },
 
   sendMessage: async (studentId: string, content: string, senderId?: string): Promise<ChatMessage> => {
@@ -28,6 +28,6 @@ export const chatService = {
   },
 
   getUnreadCounts: async (): Promise<UnreadChatCount[]> => {
-    return fetchData<UnreadChatCount[]>('/chat/unread');
+    return fetchData<UnreadChatCount[]>('/chat/unread', { skipCache: true });
   },
 };

@@ -30,6 +30,6 @@ export const notificationService = {
   },
 
   getUnreadCount: async () => {
-    return fetchData('/notifications/unread-count');
+    return fetchData('/notifications/unread-count', { skipCache: true });
   }
 };
