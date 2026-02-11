@@ -64,50 +64,96 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
   };
 
   return (
-    <div className="min-h-screen bg-blue-700 flex items-center justify-center p-6">
-      <div className="bg-white rounded-lg shadow-xl p-8 w-full max-w-md">
-        <h2 className="text-3xl font-bold text-center mb-8">Welcome Back</h2>
+    <div
+      className="min-h-screen bg-slate-50 text-slate-900"
+      style={{ fontFamily: '"Space Grotesk", "Sora", "Segoe UI", sans-serif' }}
+    >
+      <div className="relative min-h-screen overflow-hidden">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(37,99,235,0.08),_transparent_55%),radial-gradient(circle_at_bottom,_rgba(16,185,129,0.08),_transparent_55%)]" />
+        <div className="pointer-events-none absolute -top-24 -right-28 h-72 w-72 rounded-full bg-blue-200/40 blur-3xl" />
+        <div className="pointer-events-none absolute -bottom-24 -left-24 h-72 w-72 rounded-full bg-emerald-200/40 blur-3xl" />
 
-        {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-            {error}
+        <div className="relative mx-auto flex min-h-screen w-full max-w-6xl items-center px-6 py-16">
+          <div className="grid w-full gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
+            <div className="space-y-6">
+              <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-700">
+                Zivai Platform
+              </div>
+              <div className="space-y-3">
+                <h1 className="text-4xl font-bold text-slate-900 lg:text-5xl">
+                  One portal for learners, teachers, and school leaders.
+                </h1>
+                <p className="text-base text-slate-600 lg:text-lg">
+                  Build mastery with guided practice, AI-supported reasoning, and clear progress tracking—without
+                  shortcuts.
+                </p>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
+                  <p className="text-sm font-semibold text-slate-800">Critical thinking</p>
+                  <p className="text-xs text-slate-500">Explain reasoning, not just answers.</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
+                  <p className="text-sm font-semibold text-slate-800">Guided practice</p>
+                  <p className="text-xs text-slate-500">Target gaps with retrieval work.</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
+                  <p className="text-sm font-semibold text-slate-800">AI tutor support</p>
+                  <p className="text-xs text-slate-500">Clarify, practice, reflect.</p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
+                  <p className="text-sm font-semibold text-slate-800">Collaboration</p>
+                  <p className="text-xs text-slate-500">Learn by teaching peers.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-3xl border border-slate-200 bg-white p-10 shadow-xl">
+              <div className="mb-8 space-y-2">
+                <h2 className="text-3xl font-bold text-slate-900">Welcome back</h2>
+                <p className="text-base text-slate-500">Sign in to continue your learning journey.</p>
+              </div>
+
+              {error && (
+                <div className="mb-4 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600">
+                  {error}
+                </div>
+              )}
+
+              <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700">Email</label>
+                  <input
+                    type="email"
+                    {...register('email')}
+                    placeholder="Enter your email"
+                    className="mt-2 block w-full rounded-xl border border-slate-200 px-4 py-3.5 text-base text-slate-700 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  />
+                  {errors.email && <p className="mt-1 text-sm text-red-600">{errors.email.message}</p>}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700">Password</label>
+                  <input
+                    type="password"
+                    {...register('password')}
+                    placeholder="Enter your password"
+                    className="mt-2 block w-full rounded-xl border border-slate-200 px-4 py-3.5 text-base text-slate-700 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                  />
+                  {errors.password && <p className="mt-1 text-sm text-red-600">{errors.password.message}</p>}
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full rounded-xl bg-blue-600 py-3 text-base font-semibold text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                  disabled={loading}
+                >
+                  {loading ? 'Signing In...' : 'Sign In'}
+                </button>
+              </form>
+            </div>
           </div>
-        )}
-
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Email</label>
-            <input
-              type="email"
-              {...register('email')}
-              placeholder="Enter your email"
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-            />
-            {errors.email && <p className="mt-1 text-sm text-red-600">{errors.email.message}</p>}
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Password</label>
-            <input
-              type="password"
-              {...register('password')}
-              placeholder="Enter your password"
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-            />
-            {errors.password && <p className="mt-1 text-sm text-red-600">{errors.password.message}</p>}
-          </div>
-
-          <button
-            type="submit"
-            className="w-full bg-blue-600 text-white rounded-md py-2 px-4 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-            disabled={loading}
-          >
-            {loading ? 'Signing In...' : 'Sign In'}
-          </button>
-        </form>
-
-        <div className="mt-6 text-center text-sm text-gray-600">
-          Account creation is currently managed by an administrator.
         </div>
       </div>
     </div>
