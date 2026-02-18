@@ -166,7 +166,14 @@ const AssessmentsDashboardPage: React.FC = () => {
           ).then((items) => items.filter(Boolean) as AssessmentWithResult[]);
         }
 
-        setFiltered(results);
+        const sortedResults = [...results].sort((left, right) => {
+          const leftMarked = nextMetrics[left.assessment.id]?.attempted ?? 0;
+          const rightMarked = nextMetrics[right.assessment.id]?.attempted ?? 0;
+          if (rightMarked !== leftMarked) return rightMarked - leftMarked;
+          return (left.assessment.name || '').localeCompare(right.assessment.name || '');
+        });
+
+        setFiltered(sortedResults);
       } catch (error) {
         console.error('Failed to filter assessments:', error);
         setFiltered([]);
@@ -217,6 +224,7 @@ const AssessmentsDashboardPage: React.FC = () => {
           <div>
             <h1 className="text-2xl font-bold">Assessments</h1>
             <p className="text-sm text-gray-500">Create, view, and track assessments by subject or student.</p>
+            <p className="text-xs text-slate-500 mt-1">Marked submissions saved from the Mark Assessment workspace appear here automatically.</p>
           </div>
           <button
             onClick={() => navigate('/reports')}
@@ -329,6 +337,11 @@ const AssessmentsDashboardPage: React.FC = () => {
                         {assessment.type || (assessment as any).assessmentType || 'Assessment'} • Status: {assessment.status || 'draft'}
                       </div>
                     </div>
+                    {(metricsByAssessment[assessment.id]?.attempted ?? 0) > 0 && (
+                      <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        Marked
+                      </span>
+                    )}
                     {selectedStudentId && (
                       <div className="text-sm text-gray-600">
                         Score: {resultScore ?? 0}/{resultExpected ?? 0}
@@ -350,7 +363,7 @@ const AssessmentsDashboardPage: React.FC = () => {
                     </div>
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-6 gap-2 text-xs text-gray-600">
-                    <div className="bg-slate-50 rounded px-2 py-1">Attempted: {metricsByAssessment[assessment.id]?.attempted ?? 0}</div>
+                    <div className="bg-slate-50 rounded px-2 py-1">Marked submissions: {metricsByAssessment[assessment.id]?.attempted ?? 0}</div>
                     <div className="bg-slate-50 rounded px-2 py-1">Submitted: {metricsByAssessment[assessment.id]?.submitted ?? 0}</div>
                     <div className="bg-slate-50 rounded px-2 py-1">Passed: {metricsByAssessment[assessment.id]?.passed ?? 0}</div>
                     <div className="bg-slate-50 rounded px-2 py-1">Failed: {metricsByAssessment[assessment.id]?.failed ?? 0}</div>
