@@ -1,9 +1,9 @@
 // src/components/resources/ResourcesDashboard.tsx
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { clsx } from 'clsx';
-import { ArrowLeft, Folder, Search as SearchIcon, BarChart, Star, UploadCloud, Link as LinkIcon, Sparkles, BookOpen, CalendarDays, Send, Maximize2, Minimize2 } from 'lucide-react';
+import { ArrowLeft, Folder, Search as SearchIcon, BarChart, Star, UploadCloud, Link as LinkIcon, Sparkles, BookOpen, CalendarDays, Send, Maximize2, Minimize2, GripVertical, Wand2, Paperclip, X } from 'lucide-react';
 import { toast } from 'sonner';
 import Sidebar from './Sidebar';
 import UploadModal from './UploadModal';
@@ -44,11 +44,17 @@ const ResourcesDashboard: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [analytics, setAnalytics] = useState<Analytics>({ totalResources: 0, averageDownloads: 0, mostPopularResource: 'N/A', topClassEngagement: 'N/A' });
     const [activeAction, setActiveAction] = useState<'view-notes' | 'generate-notes' | 'lesson-plans' | 'drafts' | 'material'>('generate-notes');
-    const [noteMode, setNoteMode] = useState<'ai' | 'manual'>('ai');
-    const [noteStep, setNoteStep] = useState<'details' | 'generate' | 'review'>('details');
+    const [isContentGenerating, setIsContentGenerating] = useState(false);
     const [isContentExpanded, setIsContentExpanded] = useState(false);
+    const [isAiPanelCollapsed, setIsAiPanelCollapsed] = useState(false);
+    const [aiPanelWidth, setAiPanelWidth] = useState(360);
+    const [isResizingAiPanel, setIsResizingAiPanel] = useState(false);
+    const [isDesktop, setIsDesktop] = useState(() => (typeof window !== 'undefined' ? window.innerWidth >= 1280 : true));
     const [contentType, setContentType] = useState('Notes');
     const [contentFiles, setContentFiles] = useState<File[]>([]);
+    const [selectedReferenceResourceIds, setSelectedReferenceResourceIds] = useState<string[]>([]);
+    const workspaceRef = useRef<HTMLDivElement | null>(null);
+    const contextFileInputRef = useRef<HTMLInputElement | null>(null);
     const [noteForm, setNoteForm] = useState({
         subjectId: '',
         grade: 'Form 1',
@@ -102,6 +108,44 @@ const ResourcesDashboard: React.FC = () => {
     useEffect(() => {
         fetchDashboardData();
     }, [fetchDashboardData]);
+
+    useEffect(() => {
+        if (!isResizingAiPanel) return;
+
+        const handleMouseMove = (event: MouseEvent) => {
+            const bounds = workspaceRef.current?.getBoundingClientRect();
+            if (!bounds) return;
+            const minPanelWidth = 280;
+            const maxPanelWidth = 640;
+            const nextWidth = bounds.right - event.clientX;
+            const clampedWidth = Math.max(minPanelWidth, Math.min(maxPanelWidth, nextWidth));
+            setAiPanelWidth(clampedWidth);
+        };
+
+        const handleMouseUp = () => {
+            setIsResizingAiPanel(false);
+        };
+
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+        window.addEventListener('mousemove', handleMouseMove);
+        window.addEventListener('mouseup', handleMouseUp);
+
+        return () => {
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+        };
+    }, [isResizingAiPanel]);
+
+    useEffect(() => {
+        const onResize = () => {
+            setIsDesktop(window.innerWidth >= 1280);
+        };
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+    }, []);
 
     useMemo(() => {
         if (subjects.length === 0) return;
@@ -164,32 +208,48 @@ const ResourcesDashboard: React.FC = () => {
         return matchesSubject && matchesType && matchesQuery;
     });
 
+    const availableReferenceResources = useMemo(() => {
+        if (!noteForm.subjectId) return recentUploads.slice(0, 12);
+        return recentUploads
+            .filter((upload) => upload.subject?.id === noteForm.subjectId)
+            .slice(0, 12);
+    }, [recentUploads, noteForm.subjectId]);
+
+    useEffect(() => {
+        setSelectedReferenceResourceIds((prev) =>
+            prev.filter((id) => availableReferenceResources.some((resource) => resource.id === id))
+        );
+    }, [availableReferenceResources]);
+
     const handleGenerateNotes = () => {
         setSelectedClass(null);
         setActiveAction('generate-notes');
-        setNoteStep('details');
     };
 
-    const handleNotesNext = () => {
-        if (noteStep === 'details') {
-            if (!noteForm.title.trim()) {
-                toast.error('Please add a title for the content.');
-                return;
-            }
-            if (noteMode === 'ai') {
-                setNoteStep('generate');
-                setTimeout(() => {
-                    setNoteForm((prev) => ({
-                        ...prev,
-                        content: prev.content || `Draft content for ${prev.title}. Update this content before publishing.`
-                    }));
-                    setNoteStep('review');
-                }, 700);
-                return;
-            }
-            setNoteStep('review');
+    const handleGenerateOnCanvas = () => {
+        if (!noteForm.title.trim()) {
+            toast.error('Please add a title for the content.');
             return;
         }
+        if (!noteForm.instructions.trim()) {
+            toast.error('Add a collaborator prompt for AI.');
+            return;
+        }
+        const selectedReferenceNames = availableReferenceResources
+            .filter((resource) => selectedReferenceResourceIds.includes(resource.id))
+            .map((resource) => resource.name);
+        setIsContentGenerating(true);
+        setTimeout(() => {
+            const referencesBlock = selectedReferenceNames.length > 0
+                ? `\n\n## Referenced material\n${selectedReferenceNames.map((name) => `- ${name}`).join('\n')}`
+                : '';
+            setNoteForm((prev) => ({
+                ...prev,
+                content: `${prev.content ? `${prev.content}\n\n` : ''}# ${prev.title}\n\n${prev.instructions}\n\n## Suggested outline\n- Learning objective\n- Key concept explanation\n- Worked example\n- Retrieval check questions\n- Reflection prompt${referencesBlock}`,
+            }));
+            setIsContentGenerating(false);
+            toast.success('AI draft added to canvas. Review and edit freely.');
+        }, 700);
     };
 
     const handleSaveDraft = () => {
@@ -203,7 +263,6 @@ const ResourcesDashboard: React.FC = () => {
 
     const handlePublish = () => {
         toast.success('Content published to students.');
-        setNoteStep('details');
         setNoteForm((prev) => ({ ...prev, content: '', instructions: '', title: '' }));
     };
 
@@ -215,16 +274,10 @@ const ResourcesDashboard: React.FC = () => {
         toast.success('Content scheduled.');
     };
 
-    const contentSteps = noteMode === 'ai' ? ['details', 'generate', 'review'] : ['details', 'review'];
-    const activeContentStepIndex = Math.max(contentSteps.indexOf(noteStep), 0);
-    const contentStepIndex = activeContentStepIndex + 1;
-
     const handleEditDraft = (draftIndex: number) => {
         const draft = draftNotes[draftIndex];
         if (!draft) return;
         setNoteForm(draft);
-        setNoteMode(draft.instructions ? 'ai' : 'manual');
-        setNoteStep('review');
         setActiveAction('generate-notes');
     };
 
@@ -303,7 +356,7 @@ const ResourcesDashboard: React.FC = () => {
                 activeAction={activeAction}
                 recentUploads={recentUploads}
             />
-            <main className="flex-1 p-8 overflow-y-auto">
+            <main className={`flex-1 p-8 ${activeAction === 'generate-notes' ? 'overflow-hidden flex flex-col' : 'overflow-y-auto'}`}>
                 {activeAction === 'view-notes' && (
                     <>
                         <header className="flex justify-between items-center mb-8">
@@ -394,352 +447,309 @@ const ResourcesDashboard: React.FC = () => {
                 )}
 
                 {activeAction === 'generate-notes' && (
-                    <div className="space-y-6">
-                        <header className="flex items-center justify-between">
-                            <div>
-                                <h1 className="text-2xl font-bold">Generate Content</h1>
-                                <p className="text-sm text-slate-500">Create learning content with AI assistance or upload your own material.</p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                            </div>
-                        </header>
-
+                    <div className="flex-1 min-h-0">
                         {isContentExpanded && <div className="fixed inset-0 bg-black/30 z-40" />}
-                        <div className={`${isContentExpanded ? 'fixed inset-4 z-50' : ''}`}>
-                        <div className={`${isContentExpanded ? 'bg-white rounded-lg shadow-2xl border border-slate-200 max-w-5xl mx-auto relative h-full flex flex-col' : 'bg-white rounded-lg shadow-sm border border-slate-200 p-6 space-y-6'}`}>
-                            {isContentExpanded && (
-                                <button
-                                    onClick={() => setIsContentExpanded(false)}
-                                    className="absolute top-4 right-4 p-2 rounded-md border border-slate-200 hover:bg-slate-50"
-                                    aria-label="Collapse"
-                                >
-                                    <Minimize2 size={18} />
-                                </button>
-                            )}
-                            {isContentExpanded ? (
-                                <div className="p-6 pb-0">
-                                    <div className="flex flex-wrap items-center gap-2">
-                                        <button
-                                            onClick={() => { setNoteMode('ai'); setNoteStep('details'); }}
-                                            className={`px-4 py-2 rounded-md text-sm font-medium transition ${
-                                                noteMode === 'ai' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                            }`}
-                                        >
-                                            AI-Assisted
-                                        </button>
-                                        <button
-                                            onClick={() => { setNoteMode('manual'); setNoteStep('details'); }}
-                                            className={`px-4 py-2 rounded-md text-sm font-medium transition ${
-                                                noteMode === 'manual' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                            }`}
-                                        >
-                                            Manual
-                                        </button>
+                        <div className={`${isContentExpanded ? 'fixed top-4 left-4 right-4 bottom-6 z-50' : 'h-full'}`}>
+                            <div className={`${isContentExpanded ? 'bg-white rounded-lg shadow-2xl border border-slate-200 h-full max-h-[calc(100vh-2rem)] overflow-hidden flex flex-col' : 'bg-white rounded-lg shadow-sm border border-slate-200 h-full overflow-hidden flex flex-col'}`}>
+                                {isContentExpanded && (
+                                    <button
+                                        onClick={() => setIsContentExpanded(false)}
+                                        className="absolute top-3 right-3 z-10 p-2 rounded-md border border-slate-200 bg-white hover:bg-slate-50"
+                                        aria-label="Collapse canvas"
+                                    >
+                                        <Minimize2 size={18} />
+                                    </button>
+                                )}
+                                <div className="flex items-center justify-between p-4 border-b border-slate-200 bg-slate-50">
+                                    <div className="flex items-center gap-2 text-sm text-slate-600">
+                                        <Wand2 className="w-4 h-4 text-blue-600" />
+                                        Unified teacher + AI authoring workspace
                                     </div>
-                                </div>
-                            ) : (
-                                <div className="flex flex-wrap items-center gap-2">
                                     <button
-                                        onClick={() => { setNoteMode('ai'); setNoteStep('details'); }}
-                                        className={`px-4 py-2 rounded-md text-sm font-medium transition ${
-                                            noteMode === 'ai' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                        }`}
+                                        onClick={() => setIsContentExpanded((prev) => !prev)}
+                                        className="p-2 rounded-full hover:bg-gray-100"
+                                        aria-label={isContentExpanded ? 'Collapse' : 'Expand'}
                                     >
-                                        AI-Assisted
-                                    </button>
-                                    <button
-                                        onClick={() => { setNoteMode('manual'); setNoteStep('details'); }}
-                                        className={`px-4 py-2 rounded-md text-sm font-medium transition ${
-                                            noteMode === 'manual' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                        }`}
-                                    >
-                                        Manual
-                                    </button>
-                                    <button
-                                        onClick={() => setIsContentExpanded(true)}
-                                        className="ml-auto p-2 rounded-md border border-slate-200 hover:bg-slate-50"
-                                        aria-label="Expand"
-                                    >
-                                        <Maximize2 size={18} />
+                                        {isContentExpanded ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
                                     </button>
                                 </div>
-                            )}
-
-                            <div className="border border-slate-200 rounded-lg overflow-hidden mt-6 flex-1 flex flex-col min-h-0">
-                                <div className="bg-slate-50 border-b border-slate-200 p-4">
-                                    <div className="flex items-center justify-between">
-                                        <h2 className="text-lg font-semibold text-slate-800">Create Content</h2>
-                                        <span className="text-sm text-slate-500">
-                                            Step {contentStepIndex} of {contentSteps.length}
-                                        </span>
-                                    </div>
-                                    <div className="flex items-center gap-2 mt-3">
-                                        {contentSteps.map((step, index) => (
-                                            <React.Fragment key={step}>
-                                                <div className={`flex items-center gap-2 ${
-                                                    index <= activeContentStepIndex ? 'text-blue-600' : 'text-gray-400'
-                                                }`}>
-                                                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium ${
-                                                        index <= activeContentStepIndex
-                                                            ? 'bg-blue-600 text-white'
-                                                            : 'bg-gray-100 text-gray-400'
-                                                    }`}>
-                                                        {index + 1}
-                                                    </div>
-                                                    <span className="text-sm font-medium hidden sm:block">
-                                                        {noteMode === 'ai'
-                                                            ? (index === 0 ? 'Details' : index === 1 ? 'Generate' : 'Review')
-                                                            : (index === 0 ? 'Details' : 'Review')}
-                                                    </span>
-                                                </div>
-                                                {index < contentSteps.length - 1 && <div className="flex-1 h-0.5 bg-gray-200" />}
-                                            </React.Fragment>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                <div className="p-6 space-y-6 overflow-y-auto flex-1">
-                                    {noteStep === 'details' && (
-                                        <>
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                <div>
-                                                    <label className="text-xs text-slate-500">Subject</label>
-                                                    <select
-                                                        className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm"
-                                                        value={noteForm.subjectId}
-                                                        onChange={(e) => setNoteForm((prev) => ({ ...prev, subjectId: e.target.value }))}
-                                                    >
-                                                        <option value="">Select subject</option>
-                                                        {subjects.map(subject => (
-                                                            <option key={subject.id} value={subject.id}>{subject.name}</option>
-                                                        ))}
-                                                    </select>
-                                                </div>
-                                                <div>
-                                                    <label className="text-xs text-slate-500">Grade/Form</label>
-                                                    <select
-                                                        className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm"
-                                                        value={noteForm.grade}
-                                                        onChange={(e) => setNoteForm((prev) => ({ ...prev, grade: e.target.value }))}
-                                                    >
-                                                        <option>Form 1</option>
-                                                        <option>Form 2</option>
-                                                        <option>Form 3</option>
-                                                        <option>Form 4</option>
-                                                        <option>Form 5</option>
-                                                        <option>Form 6</option>
-                                                    </select>
-                                                </div>
-                                            </div>
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                <div>
-                                                    <label className="text-xs text-slate-500">Content Title</label>
-                                                    <input
-                                                        className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm"
-                                                        placeholder="e.g., Algebraic Expressions Overview"
-                                                        value={noteForm.title}
-                                                        onChange={(e) => setNoteForm((prev) => ({ ...prev, title: e.target.value }))}
-                                                    />
-                                                </div>
-                                                <div>
-                                                    <label className="text-xs text-slate-500">Content Type</label>
-                                                    <select
-                                                        className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm"
-                                                        value={contentType}
-                                                        onChange={(e) => setContentType(e.target.value)}
-                                                    >
-                                                        <option>Notes</option>
-                                                        <option>Worksheet</option>
-                                                        <option>Slides</option>
-                                                        <option>Revision Pack</option>
-                                                        <option>Lesson Summary</option>
-                                                    </select>
-                                                </div>
-                                            </div>
-                                            {noteMode === 'ai' ? (
-                                                <>
-                                                    <div>
-                                                        <label className="text-xs text-slate-500">Instructions for AI</label>
-                                                        <textarea
-                                                            className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm min-h-[140px]"
-                                                            placeholder="Describe the content you want, include depth, examples, and any constraints."
-                                                            value={noteForm.instructions}
-                                                            onChange={(e) => setNoteForm((prev) => ({ ...prev, instructions: e.target.value }))}
-                                                        />
-                                                    </div>
-                                                    <div className="border border-slate-200 rounded-lg p-4 space-y-3 bg-slate-50">
-                                                        <div>
-                                                            <label className="text-xs text-slate-600">Attach Context Material (Optional)</label>
-                                                            <p className="text-xs text-slate-500">Upload or reference existing material to guide the AI output (syllabus, lesson notes, worksheets, or examples).</p>
-                                                        </div>
-                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                                            <div>
-                                                                <label className="text-xs text-slate-500">Upload new files</label>
-                                                                <input
-                                                                    type="file"
-                                                                    className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm bg-white"
-                                                                    onChange={(e) => setContentFiles(e.target.files ? Array.from(e.target.files) : [])}
-                                                                    multiple
-                                                                />
-                                                                {contentFiles.length > 0 && (
-                                                                    <p className="text-xs text-slate-500 mt-1">{contentFiles.length} file(s) selected.</p>
-                                                                )}
-                                                            </div>
-                                                            <div>
-                                                                <label className="text-xs text-slate-500">Reference existing material</label>
-                                                                <select
-                                                                    className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm bg-white"
-                                                                >
-                                                                    <option value="">Select from uploaded material</option>
-                                                                    {recentUploads.map((item) => (
-                                                                        <option key={item.id} value={item.id}>{item.name}</option>
-                                                                    ))}
-                                                                </select>
-                                                                <p className="text-xs text-slate-500 mt-1">Choose a previously uploaded file to provide context.</p>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <div>
-                                                        <label className="text-xs text-slate-500">Write Content</label>
-                                                        <textarea
-                                                            className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm min-h-[180px]"
-                                                            placeholder="Start typing your content..."
-                                                            value={noteForm.content}
-                                                            onChange={(e) => setNoteForm((prev) => ({ ...prev, content: e.target.value }))}
-                                                        />
-                                                    </div>
-                                                    <div className="border border-slate-200 rounded-lg p-4 space-y-3 bg-slate-50">
-                                                        <div>
-                                                            <label className="text-xs text-slate-600">Attach Material (Optional)</label>
-                                                            <p className="text-xs text-slate-500">Attach supporting files like worksheets, slides, or documents for students.</p>
-                                                        </div>
-                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                                            <div>
-                                                                <label className="text-xs text-slate-500">Upload new files</label>
-                                                                <input
-                                                                    type="file"
-                                                                    className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm bg-white"
-                                                                    onChange={(e) => setContentFiles(e.target.files ? Array.from(e.target.files) : [])}
-                                                                    multiple
-                                                                />
-                                                                {contentFiles.length > 0 && (
-                                                                    <p className="text-xs text-slate-500 mt-1">{contentFiles.length} file(s) selected.</p>
-                                                                )}
-                                                            </div>
-                                                            <div>
-                                                                <label className="text-xs text-slate-500">Reference existing material</label>
-                                                                <select
-                                                                    className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm bg-white"
-                                                                >
-                                                                    <option value="">Select from uploaded material</option>
-                                                                    {recentUploads.map((item) => (
-                                                                        <option key={item.id} value={item.id}>{item.name}</option>
-                                                                    ))}
-                                                                </select>
-                                                                <p className="text-xs text-slate-500 mt-1">Use an existing upload instead of adding a new file.</p>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </>
-                                            )}
-                                        </>
-                                    )}
-
-                                    {noteStep === 'generate' && (
-                                        <div className="flex flex-col items-center justify-center py-12 text-slate-600">
-                                            <Sparkles size={32} className="text-blue-500 mb-4" />
-                                            <p className="text-sm">Generating content. Please wait...</p>
-                                        </div>
-                                    )}
-
-                                    {noteStep === 'review' && (
-                                        <>
+                                <div ref={workspaceRef} className="flex-1 min-h-0 flex flex-col xl:flex-row gap-0">
+                                    <div className="min-w-0 flex-1 p-6 space-y-6 overflow-y-auto">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                             <div>
-                                                <label className="text-xs text-slate-500">Review & Edit Content</label>
-                                                <textarea
-                                                    className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm min-h-[240px]"
-                                                    value={noteForm.content}
-                                                    onChange={(e) => setNoteForm((prev) => ({ ...prev, content: e.target.value }))}
+                                                <label className="text-xs text-slate-500">Subject</label>
+                                                <select
+                                                    className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm"
+                                                    value={noteForm.subjectId}
+                                                    onChange={(e) => setNoteForm((prev) => ({ ...prev, subjectId: e.target.value }))}
+                                                >
+                                                    <option value="">Select subject</option>
+                                                    {subjects.map(subject => (
+                                                        <option key={subject.id} value={subject.id}>{subject.name}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="text-xs text-slate-500">Grade/Form</label>
+                                                <select
+                                                    className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm"
+                                                    value={noteForm.grade}
+                                                    onChange={(e) => setNoteForm((prev) => ({ ...prev, grade: e.target.value }))}
+                                                >
+                                                    <option>Form 1</option>
+                                                    <option>Form 2</option>
+                                                    <option>Form 3</option>
+                                                    <option>Form 4</option>
+                                                    <option>Form 5</option>
+                                                    <option>Form 6</option>
+                                                </select>
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="text-xs text-slate-500">Content Title</label>
+                                                <input
+                                                    className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm"
+                                                    placeholder="e.g., Algebraic Expressions Overview"
+                                                    value={noteForm.title}
+                                                    onChange={(e) => setNoteForm((prev) => ({ ...prev, title: e.target.value }))}
                                                 />
                                             </div>
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                <div>
-                                                    <label className="text-xs text-slate-500">Status</label>
-                                                    <select
-                                                        className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm"
-                                                        value={noteForm.status}
-                                                        onChange={(e) => setNoteForm((prev) => ({ ...prev, status: e.target.value }))}
-                                                    >
-                                                        <option value="draft">Draft</option>
-                                                        <option value="publish">Publish Now</option>
-                                                        <option value="schedule">Schedule</option>
-                                                    </select>
-                                                </div>
-                                                <div>
-                                                    <label className="text-xs text-slate-500">Schedule For</label>
-                                                    <input
-                                                        type="datetime-local"
-                                                        className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm"
-                                                        value={noteForm.scheduledFor}
-                                                        onChange={(e) => setNoteForm((prev) => ({ ...prev, scheduledFor: e.target.value }))}
-                                                        disabled={noteForm.status !== 'schedule'}
-                                                    />
-                                                </div>
+                                            <div>
+                                                <label className="text-xs text-slate-500">Content Type</label>
+                                                <select
+                                                    className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm"
+                                                    value={contentType}
+                                                    onChange={(e) => setContentType(e.target.value)}
+                                                >
+                                                    <option>Notes</option>
+                                                    <option>Worksheet</option>
+                                                    <option>Slides</option>
+                                                    <option>Revision Pack</option>
+                                                    <option>Lesson Summary</option>
+                                                </select>
                                             </div>
-                                        </>
+                                        </div>
+
+                                        <div>
+                                            <label className="text-xs text-slate-500">Content Canvas</label>
+                                            <textarea
+                                                className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm min-h-[280px]"
+                                                value={noteForm.content}
+                                                onChange={(e) => setNoteForm((prev) => ({ ...prev, content: e.target.value }))}
+                                                placeholder="Write the lesson material here. AI drafts will be inserted directly into this canvas."
+                                            />
+                                        </div>
+
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="text-xs text-slate-500">Status</label>
+                                                <select
+                                                    className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm"
+                                                    value={noteForm.status}
+                                                    onChange={(e) => setNoteForm((prev) => ({ ...prev, status: e.target.value }))}
+                                                >
+                                                    <option value="draft">Draft</option>
+                                                    <option value="publish">Publish Now</option>
+                                                    <option value="schedule">Schedule</option>
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="text-xs text-slate-500">Schedule For</label>
+                                                <input
+                                                    type="datetime-local"
+                                                    className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm"
+                                                    value={noteForm.scheduledFor}
+                                                    onChange={(e) => setNoteForm((prev) => ({ ...prev, scheduledFor: e.target.value }))}
+                                                    disabled={noteForm.status !== 'schedule'}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {!isAiPanelCollapsed && (
+                                        <button
+                                            type="button"
+                                            onMouseDown={(event) => {
+                                                event.preventDefault();
+                                                setIsResizingAiPanel(true);
+                                            }}
+                                            className="hidden xl:flex w-2 shrink-0 cursor-col-resize items-center justify-center border-l border-r border-slate-100 bg-slate-50 hover:bg-blue-50 transition-colors"
+                                            aria-label="Resize AI collaborator panel"
+                                        >
+                                            <GripVertical className="w-3 h-8 text-slate-400" />
+                                        </button>
                                     )}
 
+                                    <aside
+                                        className={`space-y-4 bg-slate-50 overflow-y-auto border-t xl:border-t-0 xl:border-l border-slate-100 transition-all duration-200 ${isAiPanelCollapsed ? 'p-3' : 'p-6'}`}
+                                        style={isDesktop ? { width: isAiPanelCollapsed ? 56 : aiPanelWidth } : undefined}
+                                    >
+                                        <div className={`flex items-center ${isAiPanelCollapsed ? 'justify-center' : 'justify-between'} gap-2`}>
+                                            {!isAiPanelCollapsed && (
+                                                <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                                                    <Sparkles size={16} className="text-blue-600" />
+                                                    AI Collaborator
+                                                </div>
+                                            )}
+                                            <button
+                                                type="button"
+                                                onClick={() => setIsAiPanelCollapsed((prev) => !prev)}
+                                                className="p-2 rounded-md border border-slate-200 bg-white text-slate-600 hover:text-slate-800 hover:border-slate-300"
+                                                aria-label={isAiPanelCollapsed ? 'Expand AI collaborator panel' : 'Collapse AI collaborator panel'}
+                                            >
+                                                {isAiPanelCollapsed ? <Maximize2 size={16} /> : <Minimize2 size={16} />}
+                                            </button>
+                                        </div>
+
+                                        {isAiPanelCollapsed ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => setIsAiPanelCollapsed(false)}
+                                                className="w-full mt-2 inline-flex items-center justify-center rounded-md border border-slate-200 bg-white py-2 text-slate-600 hover:text-slate-800"
+                                                aria-label="Expand AI collaborator panel"
+                                            >
+                                                <Sparkles size={16} />
+                                            </button>
+                                        ) : (
+                                            <>
+                                                <p className="text-xs text-slate-500">Prompt AI and insert generated draft content into the canvas while you stay in control.</p>
+
+                                                <div className="border border-slate-200 rounded-lg bg-white p-3 space-y-3">
+                                                    <label className="text-xs text-slate-500">Prompt</label>
+                                                    <textarea
+                                                        className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm min-h-[140px]"
+                                                        placeholder="Describe the exact content, depth, and style you need."
+                                                        value={noteForm.instructions}
+                                                        onChange={(e) => setNoteForm((prev) => ({ ...prev, instructions: e.target.value }))}
+                                                    />
+                                                    <input
+                                                        ref={contextFileInputRef}
+                                                        type="file"
+                                                        className="hidden"
+                                                        multiple
+                                                        onChange={(event) => {
+                                                            const nextFiles = event.target.files ? Array.from(event.target.files) : [];
+                                                            if (!nextFiles.length) return;
+                                                            setContentFiles((prev) => {
+                                                                const merged = [...prev];
+                                                                nextFiles.forEach((file) => {
+                                                                    const exists = merged.some(
+                                                                        (existing) => existing.name === file.name
+                                                                            && existing.size === file.size
+                                                                            && existing.lastModified === file.lastModified
+                                                                    );
+                                                                    if (!exists) merged.push(file);
+                                                                });
+                                                                return merged;
+                                                            });
+                                                            event.target.value = '';
+                                                        }}
+                                                    />
+                                                    <div className="flex items-center justify-between gap-2">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => contextFileInputRef.current?.click()}
+                                                            className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 hover:text-blue-700"
+                                                        >
+                                                            <Paperclip size={14} />
+                                                            Attach context
+                                                        </button>
+                                                        {contentFiles.length > 0 && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setContentFiles([])}
+                                                                className="text-xs text-slate-500 hover:text-red-600"
+                                                            >
+                                                                Clear all
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                    {contentFiles.length > 0 && (
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {contentFiles.map((file, index) => (
+                                                                <span key={`${file.name}-${file.lastModified}-${index}`} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
+                                                                    {file.name}
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => setContentFiles((prev) => prev.filter((_, fileIndex) => fileIndex !== index))}
+                                                                        className="text-slate-400 hover:text-slate-700"
+                                                                        aria-label={`Remove ${file.name}`}
+                                                                    >
+                                                                        <X size={12} />
+                                                                    </button>
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                <div className="border border-slate-200 rounded-lg p-4 space-y-3 bg-white">
+                                                    <label className="text-xs text-slate-600">Reference Material In Library (Optional)</label>
+                                                    {availableReferenceResources.length === 0 ? (
+                                                        <p className="text-xs text-slate-500">No uploaded material available for this subject yet.</p>
+                                                    ) : (
+                                                        <div className="max-h-36 overflow-y-auto space-y-2">
+                                                            {availableReferenceResources.map((resource) => (
+                                                                <label key={resource.id} className="flex items-start gap-2 text-xs text-slate-700">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={selectedReferenceResourceIds.includes(resource.id)}
+                                                                        onChange={(event) => {
+                                                                            setSelectedReferenceResourceIds((prev) => (
+                                                                                event.target.checked
+                                                                                    ? [...prev, resource.id]
+                                                                                    : prev.filter((id) => id !== resource.id)
+                                                                            ));
+                                                                        }}
+                                                                        className="mt-0.5"
+                                                                    />
+                                                                    <span>{resource.name}</span>
+                                                                </label>
+                                                            ))}
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                <button
+                                                    onClick={handleGenerateOnCanvas}
+                                                    disabled={isContentGenerating}
+                                                    className="w-full bg-blue-600 text-white font-semibold px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-60"
+                                                >
+                                                    {isContentGenerating ? 'Generating...' : 'Generate on Canvas'}
+                                                </button>
+                                            </>
+                                        )}
+                                    </aside>
                                 </div>
+
                                 <div className="bg-slate-50 border-t border-slate-200 p-4">
-                                    <div className="flex flex-wrap justify-between gap-3">
+                                    <div className="flex flex-wrap justify-end gap-3">
                                         <button
-                                            onClick={() => setNoteStep('details')}
+                                            onClick={handleSaveDraft}
                                             className="border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg hover:bg-slate-50 transition-colors"
                                         >
-                                            Back
+                                            Save Draft
                                         </button>
-                                        <div className="flex flex-wrap gap-3">
-                                            <button
-                                                onClick={handleSaveDraft}
-                                                className="border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg hover:bg-slate-50 transition-colors"
-                                            >
-                                                Save Draft
-                                            </button>
-                                            {noteStep !== 'review' ? (
-                                                <button
-                                                    onClick={handleNotesNext}
-                                                    className="bg-blue-600 text-white font-semibold px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-                                                >
-                                                    {noteMode === 'ai' ? 'Generate Content' : 'Continue'}
-                                                </button>
-                                            ) : (
-                                                <>
-                                                    <button
-                                                        onClick={handlePublish}
-                                                        className="bg-blue-600 text-white font-semibold px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-                                                    >
-                                                        Publish Now
-                                                    </button>
-                                                    <button
-                                                        onClick={handleSchedule}
-                                                        className="border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg hover:bg-slate-50 transition-colors"
-                                                    >
-                                                        Schedule
-                                                    </button>
-                                                </>
-                                            )}
-                                        </div>
+                                        <button
+                                            onClick={handlePublish}
+                                            className="bg-blue-600 text-white font-semibold px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
+                                        >
+                                            Publish Now
+                                        </button>
+                                        <button
+                                            onClick={handleSchedule}
+                                            className="border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg hover:bg-slate-50 transition-colors"
+                                        >
+                                            Schedule
+                                        </button>
                                     </div>
                                 </div>
                             </div>
-                        </div>
                         </div>
                     </div>
                 )}
-
                 {activeAction === 'lesson-plans' && (
                     <div className="space-y-6">
                         <header className="flex items-center justify-between">
