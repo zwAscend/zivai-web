@@ -153,7 +153,7 @@ const UploadModal: React.FC<UploadModalProps> = ({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-2xl max-h-[90vh] p-0 overflow-hidden">
         {/* Header */}
-        <DialogHeader className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white p-6">
+        <DialogHeader className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-6">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
@@ -163,7 +163,7 @@ const UploadModal: React.FC<UploadModalProps> = ({
                 <DialogTitle className="text-2xl font-bold text-white">
                   Upload Resource
                 </DialogTitle>
-                <p className="text-indigo-100 mt-1">
+                <p className="text-blue-100 mt-1">
                   Add files to your subject library
                 </p>
               </div>
@@ -188,7 +188,7 @@ const UploadModal: React.FC<UploadModalProps> = ({
             </div>
             
             <select
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 bg-white"
+              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
               value={selectedSubject?.id || ''}
               onChange={(e) => {
                 const subject = subjects.find(c => c.id === e.target.value);
@@ -221,7 +221,7 @@ const UploadModal: React.FC<UploadModalProps> = ({
               <div 
                 className={`border-2 border-dashed rounded-xl p-8 text-center transition-all cursor-pointer ${
                   dragActive 
-                    ? 'border-indigo-500 bg-indigo-50' 
+                    ? 'border-blue-500 bg-blue-50' 
                     : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
                 }`}
                 onDragEnter={handleDrag}
@@ -240,10 +240,10 @@ const UploadModal: React.FC<UploadModalProps> = ({
                 
                 <div className="space-y-3">
                   <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto ${
-                    dragActive ? 'bg-indigo-100' : 'bg-gray-100'
+                    dragActive ? 'bg-blue-100' : 'bg-gray-100'
                   }`}>
                     <UploadCloud className={`w-8 h-8 ${
-                      dragActive ? 'text-indigo-600' : 'text-gray-400'
+                      dragActive ? 'text-blue-600' : 'text-gray-400'
                     }`} />
                   </div>
                   <div>
@@ -295,7 +295,7 @@ const UploadModal: React.FC<UploadModalProps> = ({
               value={tags}
               onChange={(e) => setTags(e.target.value)}
               placeholder="Enter tags separated by commas (e.g., homework, chapter1, important)"
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
               disabled={isUploading}
             />
             <p className="text-sm text-gray-500">
@@ -348,7 +348,7 @@ const UploadModal: React.FC<UploadModalProps> = ({
               <Button
                 onClick={handleUpload}
                 disabled={!selectedFile || !selectedSubject || isUploading}
-                className="min-w-[120px] bg-indigo-600 hover:bg-indigo-700"
+                className="min-w-[120px] bg-blue-600 hover:bg-blue-700"
               >
                 {isUploading ? (
                   <>

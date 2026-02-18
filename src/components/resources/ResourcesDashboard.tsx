@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { clsx } from 'clsx';
-import { ArrowLeft, Folder, Search as SearchIcon, BarChart, Star, UploadCloud, Link as LinkIcon, Sparkles, BookOpen, CalendarDays, Send, Maximize2, Minimize2, GripVertical, Wand2, Paperclip, X } from 'lucide-react';
+import { ArrowLeft, ArrowUp, Folder, Search as SearchIcon, BarChart, Star, UploadCloud, Link as LinkIcon, Sparkles, BookOpen, CalendarDays, Send, Maximize2, Minimize2, GripVertical, Wand2, Paperclip, Settings2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import Sidebar from './Sidebar';
 import UploadModal from './UploadModal';
@@ -33,6 +33,15 @@ export interface Analytics {
     topClassEngagement: string;
 }
 
+interface CollaboratorThreadEntry {
+    id: string;
+    role: 'user' | 'assistant';
+    type: 'prompt' | 'summary';
+    text: string;
+    details?: string[];
+    status?: 'success' | 'error' | 'info';
+}
+
 // --- Component Starts ---
 const ResourcesDashboard: React.FC = () => {
     const navigate = useNavigate();
@@ -52,6 +61,7 @@ const ResourcesDashboard: React.FC = () => {
     const [isDesktop, setIsDesktop] = useState(() => (typeof window !== 'undefined' ? window.innerWidth >= 1280 : true));
     const [contentType, setContentType] = useState('Notes');
     const [contentFiles, setContentFiles] = useState<File[]>([]);
+    const [isPreviewOpen, setIsPreviewOpen] = useState(false);
     const [selectedReferenceResourceIds, setSelectedReferenceResourceIds] = useState<string[]>([]);
     const workspaceRef = useRef<HTMLDivElement | null>(null);
     const contextFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -70,10 +80,19 @@ const ResourcesDashboard: React.FC = () => {
     const [materialSearch, setMaterialSearch] = useState('');
     const [materialSubjectFilter, setMaterialSubjectFilter] = useState('all');
     const [materialTypeFilter, setMaterialTypeFilter] = useState('all');
+    const [mentionQuery, setMentionQuery] = useState('');
+    const [isMentionOpen, setIsMentionOpen] = useState(false);
+    const [isConfigOpen, setIsConfigOpen] = useState(false);
+    const [referenceSearch, setReferenceSearch] = useState('');
+    const [aiThread, setAiThread] = useState<CollaboratorThreadEntry[]>([]);
 
     // Modals State
     const [showUploadModal, setShowUploadModal] = useState(false);
     const [selectedSubjectForUpload, setSelectedSubjectForUpload] = useState<Subject | null>(null);
+    const collaboratorPromptRef = useRef<HTMLTextAreaElement | null>(null);
+    const threadEndRef = useRef<HTMLDivElement | null>(null);
+    const configButtonRef = useRef<HTMLButtonElement | null>(null);
+    const configMenuRef = useRef<HTMLDivElement | null>(null);
 
     const API_URL = 'http://localhost:5000';
 
@@ -215,11 +234,111 @@ const ResourcesDashboard: React.FC = () => {
             .slice(0, 12);
     }, [recentUploads, noteForm.subjectId]);
 
+    const selectedSubjectName = useMemo(() => (
+        subjects.find((subject) => subject.id === noteForm.subjectId)?.name || 'Not selected'
+    ), [subjects, noteForm.subjectId]);
+
+    const mentionSuggestions = useMemo(() => {
+        const query = mentionQuery.trim().toLowerCase();
+        return availableReferenceResources
+            .filter((resource) => (
+                (!query || resource.name.toLowerCase().includes(query))
+                && !selectedReferenceResourceIds.includes(resource.id)
+            ))
+            .slice(0, 8);
+    }, [availableReferenceResources, mentionQuery, selectedReferenceResourceIds]);
+
+    const selectedReferenceResources = useMemo(() => (
+        availableReferenceResources.filter((resource) => selectedReferenceResourceIds.includes(resource.id))
+    ), [availableReferenceResources, selectedReferenceResourceIds]);
+
+    const filteredReferenceResources = useMemo(() => {
+        const query = referenceSearch.trim().toLowerCase();
+        if (!query) return availableReferenceResources;
+        return availableReferenceResources.filter((resource) => resource.name.toLowerCase().includes(query));
+    }, [availableReferenceResources, referenceSearch]);
+
     useEffect(() => {
         setSelectedReferenceResourceIds((prev) =>
             prev.filter((id) => availableReferenceResources.some((resource) => resource.id === id))
         );
     }, [availableReferenceResources]);
+
+    useEffect(() => {
+        if (!isConfigOpen) return;
+
+        const onPointerDown = (event: MouseEvent) => {
+            const target = event.target as Node;
+            if (configMenuRef.current?.contains(target)) return;
+            if (configButtonRef.current?.contains(target)) return;
+            setIsConfigOpen(false);
+        };
+
+        const onEscape = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                setIsConfigOpen(false);
+            }
+        };
+
+        window.addEventListener('mousedown', onPointerDown);
+        window.addEventListener('keydown', onEscape);
+        return () => {
+            window.removeEventListener('mousedown', onPointerDown);
+            window.removeEventListener('keydown', onEscape);
+        };
+    }, [isConfigOpen]);
+
+    useEffect(() => {
+        if (isAiPanelCollapsed) {
+            setIsConfigOpen(false);
+        }
+    }, [isAiPanelCollapsed]);
+
+    useEffect(() => {
+        if (isAiPanelCollapsed) return;
+        threadEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }, [aiThread, isContentGenerating, isAiPanelCollapsed]);
+
+    const handleCollaboratorPromptChange = (value: string, cursorPosition: number) => {
+        setNoteForm((prev) => ({ ...prev, instructions: value }));
+        const beforeCursor = value.slice(0, cursorPosition);
+        const mentionMatch = /(?:^|\s)@([^\s@]*)$/.exec(beforeCursor);
+        if (mentionMatch) {
+            setMentionQuery(mentionMatch[1] || '');
+            setIsMentionOpen(true);
+        } else {
+            setMentionQuery('');
+            setIsMentionOpen(false);
+        }
+    };
+
+    const insertReferenceMention = (resource: RecentUpload) => {
+        const textarea = collaboratorPromptRef.current;
+        const currentPrompt = noteForm.instructions;
+        const cursorPosition = textarea?.selectionStart ?? currentPrompt.length;
+        const beforeCursor = currentPrompt.slice(0, cursorPosition);
+        const afterCursor = currentPrompt.slice(cursorPosition);
+        const mentionToken = `@[${resource.name}]`;
+        const nextBefore = beforeCursor.replace(/(?:^|\s)@([^\s@]*)$/, (match) => {
+            if (match.startsWith(' ')) return ` ${mentionToken}`;
+            return mentionToken;
+        });
+        const nextPrompt = `${nextBefore}${afterCursor}`;
+
+        setNoteForm((prev) => ({ ...prev, instructions: nextPrompt }));
+        setSelectedReferenceResourceIds((prev) => (
+            prev.includes(resource.id) ? prev : [...prev, resource.id]
+        ));
+        setIsMentionOpen(false);
+        setMentionQuery('');
+
+        requestAnimationFrame(() => {
+            if (!textarea) return;
+            const nextCursor = nextBefore.length;
+            textarea.focus();
+            textarea.setSelectionRange(nextCursor, nextCursor);
+        });
+    };
 
     const handleGenerateNotes = () => {
         setSelectedClass(null);
@@ -235,9 +354,22 @@ const ResourcesDashboard: React.FC = () => {
             toast.error('Add a collaborator prompt for AI.');
             return;
         }
+        const promptText = noteForm.instructions.trim();
         const selectedReferenceNames = availableReferenceResources
             .filter((resource) => selectedReferenceResourceIds.includes(resource.id))
             .map((resource) => resource.name);
+        setAiThread((prev) => ([
+            ...prev,
+            {
+                id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                role: 'user',
+                type: 'prompt',
+                text: promptText,
+            },
+        ]));
+        setNoteForm((prev) => ({ ...prev, instructions: '' }));
+        setMentionQuery('');
+        setIsMentionOpen(false);
         setIsContentGenerating(true);
         setTimeout(() => {
             const referencesBlock = selectedReferenceNames.length > 0
@@ -245,8 +377,24 @@ const ResourcesDashboard: React.FC = () => {
                 : '';
             setNoteForm((prev) => ({
                 ...prev,
-                content: `${prev.content ? `${prev.content}\n\n` : ''}# ${prev.title}\n\n${prev.instructions}\n\n## Suggested outline\n- Learning objective\n- Key concept explanation\n- Worked example\n- Retrieval check questions\n- Reflection prompt${referencesBlock}`,
+                content: `${prev.content ? `${prev.content}\n\n` : ''}# ${prev.title}\n\n${promptText}\n\n## Suggested outline\n- Learning objective\n- Key concept explanation\n- Worked example\n- Retrieval check questions\n- Reflection prompt${referencesBlock}`,
             }));
+            setAiThread((prev) => ([
+                ...prev,
+                {
+                    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                    role: 'assistant',
+                    type: 'summary',
+                    status: 'success',
+                    text: 'Done. I generated a draft and inserted it into the content canvas.',
+                    details: [
+                        `Title: ${noteForm.title}`,
+                        `Content type: ${contentType}`,
+                        selectedReferenceNames.length > 0 ? `References attached: ${selectedReferenceNames.length}` : '',
+                        contentFiles.length > 0 ? `Context files used: ${contentFiles.length}` : '',
+                    ].filter(Boolean),
+                },
+            ]));
             setIsContentGenerating(false);
             toast.success('AI draft added to canvas. Review and edit freely.');
         }, 700);
@@ -583,7 +731,7 @@ const ResourcesDashboard: React.FC = () => {
                                     )}
 
                                     <aside
-                                        className={`space-y-4 bg-slate-50 overflow-y-auto border-t xl:border-t-0 xl:border-l border-slate-100 transition-all duration-200 ${isAiPanelCollapsed ? 'p-3' : 'p-6'}`}
+                                        className={`bg-slate-50 overflow-hidden border-t xl:border-t-0 xl:border-l border-slate-100 transition-all duration-200 ${isAiPanelCollapsed ? 'p-3' : 'p-6'} flex flex-col gap-4`}
                                         style={isDesktop ? { width: isAiPanelCollapsed ? 56 : aiPanelWidth } : undefined}
                                     >
                                         <div className={`flex items-center ${isAiPanelCollapsed ? 'justify-center' : 'justify-between'} gap-2`}>
@@ -614,16 +762,94 @@ const ResourcesDashboard: React.FC = () => {
                                             </button>
                                         ) : (
                                             <>
-                                                <p className="text-xs text-slate-500">Prompt AI and insert generated draft content into the canvas while you stay in control.</p>
+                                                <div className="flex-1 min-h-0 border border-slate-200 rounded-lg bg-white p-3 overflow-y-auto space-y-3">
+                                                    {aiThread.length === 0 && !isContentGenerating && (
+                                                        <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+                                                            Prompts and AI completion summaries will appear here.
+                                                        </div>
+                                                    )}
+                                                    {aiThread.map((entry) => (
+                                                        <div
+                                                            key={entry.id}
+                                                            className={entry.role === 'user'
+                                                                ? 'ml-auto max-w-[92%] rounded-xl bg-blue-600 px-3 py-2 text-sm text-white'
+                                                                : clsx(
+                                                                    'mr-auto max-w-[95%] rounded-xl border px-3 py-2 text-sm',
+                                                                    entry.status === 'error' && 'border-rose-200 bg-rose-50 text-rose-700',
+                                                                    entry.status === 'success' && 'border-emerald-200 bg-emerald-50 text-emerald-700',
+                                                                    !entry.status && 'border-slate-200 bg-white text-slate-700'
+                                                                )}
+                                                        >
+                                                            {entry.role === 'assistant' && entry.type === 'summary' && (
+                                                                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide opacity-80">Completion summary</div>
+                                                            )}
+                                                            <p className="whitespace-pre-wrap">{entry.text}</p>
+                                                            {entry.details && entry.details.length > 0 && (
+                                                                <div className="mt-2 space-y-1 text-xs">
+                                                                    {entry.details.map((detail) => (
+                                                                        <div key={`${entry.id}-${detail}`}>- {detail}</div>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                    {isContentGenerating && (
+                                                        <div className="mr-auto inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+                                                            <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:-0.2s]" />
+                                                            <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:-0.1s]" />
+                                                            <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce" />
+                                                        </div>
+                                                    )}
+                                                    <div ref={threadEndRef} />
+                                                </div>
 
-                                                <div className="border border-slate-200 rounded-lg bg-white p-3 space-y-3">
-                                                    <label className="text-xs text-slate-500">Prompt</label>
-                                                    <textarea
-                                                        className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm min-h-[140px]"
-                                                        placeholder="Describe the exact content, depth, and style you need."
-                                                        value={noteForm.instructions}
-                                                        onChange={(e) => setNoteForm((prev) => ({ ...prev, instructions: e.target.value }))}
-                                                    />
+                                                <div className="mt-auto border border-slate-200 rounded-lg bg-white p-3 space-y-3">
+                                                    <div className="relative">
+                                                        <textarea
+                                                            ref={collaboratorPromptRef}
+                                                            className="w-full border border-slate-200 rounded-md px-3 py-2 pr-16 pb-12 text-sm min-h-[140px]"
+                                                            placeholder="Prompt AI here. Use @ to attach library references."
+                                                            value={noteForm.instructions}
+                                                            onChange={(e) => handleCollaboratorPromptChange(e.target.value, e.target.selectionStart ?? e.target.value.length)}
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === 'Enter' && isMentionOpen && mentionSuggestions.length > 0) {
+                                                                    e.preventDefault();
+                                                                    insertReferenceMention(mentionSuggestions[0]);
+                                                                }
+                                                            }}
+                                                        />
+                                                        {isMentionOpen && mentionSuggestions.length > 0 && (
+                                                            <div className="absolute left-0 right-0 mt-1 z-20 border border-slate-200 bg-white rounded-md shadow-lg max-h-44 overflow-y-auto">
+                                                                {mentionSuggestions.map((resource) => (
+                                                                    <button
+                                                                        key={resource.id}
+                                                                        type="button"
+                                                                        onClick={() => insertReferenceMention(resource)}
+                                                                        className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                                                                    >
+                                                                        @{resource.name}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleGenerateOnCanvas}
+                                                            disabled={isContentGenerating}
+                                                            className="absolute right-2 bottom-2 inline-flex h-9 min-w-9 items-center justify-center rounded-full bg-blue-600 px-3 text-white hover:bg-blue-700 disabled:opacity-60"
+                                                            aria-label={isContentGenerating ? 'AI is thinking' : 'Generate on canvas'}
+                                                        >
+                                                            {isContentGenerating ? (
+                                                                <span className="inline-flex items-center gap-1">
+                                                                    <span className="h-1.5 w-1.5 rounded-full bg-white animate-bounce [animation-delay:-0.2s]" />
+                                                                    <span className="h-1.5 w-1.5 rounded-full bg-white animate-bounce [animation-delay:-0.1s]" />
+                                                                    <span className="h-1.5 w-1.5 rounded-full bg-white animate-bounce" />
+                                                                </span>
+                                                            ) : (
+                                                                <ArrowUp size={14} />
+                                                            )}
+                                                        </button>
+                                                    </div>
                                                     <input
                                                         ref={contextFileInputRef}
                                                         type="file"
@@ -648,14 +874,66 @@ const ResourcesDashboard: React.FC = () => {
                                                         }}
                                                     />
                                                     <div className="flex items-center justify-between gap-2">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => contextFileInputRef.current?.click()}
-                                                            className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 hover:text-blue-700"
-                                                        >
-                                                            <Paperclip size={14} />
-                                                            Attach context
-                                                        </button>
+                                                        <div className="flex items-center gap-2">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => contextFileInputRef.current?.click()}
+                                                                className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 hover:text-blue-700"
+                                                            >
+                                                                <Paperclip size={14} />
+                                                                Attach context
+                                                            </button>
+                                                            <div className="relative z-20">
+                                                                <button
+                                                                    ref={configButtonRef}
+                                                                    type="button"
+                                                                    onClick={() => setIsConfigOpen((prev) => !prev)}
+                                                                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-blue-700"
+                                                                >
+                                                                    <Settings2 size={14} />
+                                                                    Configure
+                                                                </button>
+                                                                {isConfigOpen && (
+                                                                    <div
+                                                                        ref={configMenuRef}
+                                                                        className="absolute right-0 top-full mt-2 z-40 w-[320px] max-w-[80vw] border border-slate-200 rounded-lg bg-white shadow-xl p-3 space-y-3"
+                                                                    >
+                                                                        <label className="text-xs text-slate-600">Reference Material In Library (Optional)</label>
+                                                                        <input
+                                                                            value={referenceSearch}
+                                                                            onChange={(e) => setReferenceSearch(e.target.value)}
+                                                                            className="w-full border border-slate-200 rounded-md px-2 py-1 text-xs"
+                                                                            placeholder="Search..."
+                                                                        />
+                                                                        {availableReferenceResources.length === 0 ? (
+                                                                            <p className="text-xs text-slate-500">No uploaded material available for this subject yet.</p>
+                                                                        ) : filteredReferenceResources.length === 0 ? (
+                                                                            <p className="text-xs text-slate-500">No matching material.</p>
+                                                                        ) : (
+                                                                            <div className="max-h-44 overflow-y-auto border border-slate-200 rounded-md bg-white p-2 space-y-2">
+                                                                                {filteredReferenceResources.map((resource) => (
+                                                                                    <label key={resource.id} className="flex items-start gap-2 text-xs text-slate-700">
+                                                                                        <input
+                                                                                            type="checkbox"
+                                                                                            checked={selectedReferenceResourceIds.includes(resource.id)}
+                                                                                            onChange={(event) => {
+                                                                                                setSelectedReferenceResourceIds((prev) => (
+                                                                                                    event.target.checked
+                                                                                                        ? [...prev, resource.id]
+                                                                                                        : prev.filter((id) => id !== resource.id)
+                                                                                                ));
+                                                                                            }}
+                                                                                            className="mt-0.5"
+                                                                                        />
+                                                                                        <span>{resource.name}</span>
+                                                                                    </label>
+                                                                                ))}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
                                                         {contentFiles.length > 0 && (
                                                             <button
                                                                 type="button"
@@ -666,6 +944,24 @@ const ResourcesDashboard: React.FC = () => {
                                                             </button>
                                                         )}
                                                     </div>
+                                                    <span className="text-[11px] text-slate-500">Type @ to attach reference</span>
+                                                    {selectedReferenceResources.length > 0 && (
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {selectedReferenceResources.map((resource) => (
+                                                                <span key={resource.id} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
+                                                                    @{resource.name}
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => setSelectedReferenceResourceIds((prev) => prev.filter((id) => id !== resource.id))}
+                                                                        className="text-slate-400 hover:text-slate-700"
+                                                                        aria-label={`Remove ${resource.name}`}
+                                                                    >
+                                                                        <X size={12} />
+                                                                    </button>
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    )}
                                                     {contentFiles.length > 0 && (
                                                         <div className="flex flex-wrap gap-2">
                                                             {contentFiles.map((file, index) => (
@@ -684,66 +980,43 @@ const ResourcesDashboard: React.FC = () => {
                                                         </div>
                                                     )}
                                                 </div>
-
-                                                <div className="border border-slate-200 rounded-lg p-4 space-y-3 bg-white">
-                                                    <label className="text-xs text-slate-600">Reference Material In Library (Optional)</label>
-                                                    {availableReferenceResources.length === 0 ? (
-                                                        <p className="text-xs text-slate-500">No uploaded material available for this subject yet.</p>
-                                                    ) : (
-                                                        <div className="max-h-36 overflow-y-auto space-y-2">
-                                                            {availableReferenceResources.map((resource) => (
-                                                                <label key={resource.id} className="flex items-start gap-2 text-xs text-slate-700">
-                                                                    <input
-                                                                        type="checkbox"
-                                                                        checked={selectedReferenceResourceIds.includes(resource.id)}
-                                                                        onChange={(event) => {
-                                                                            setSelectedReferenceResourceIds((prev) => (
-                                                                                event.target.checked
-                                                                                    ? [...prev, resource.id]
-                                                                                    : prev.filter((id) => id !== resource.id)
-                                                                            ));
-                                                                        }}
-                                                                        className="mt-0.5"
-                                                                    />
-                                                                    <span>{resource.name}</span>
-                                                                </label>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                </div>
-
-                                                <button
-                                                    onClick={handleGenerateOnCanvas}
-                                                    disabled={isContentGenerating}
-                                                    className="w-full bg-blue-600 text-white font-semibold px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-60"
-                                                >
-                                                    {isContentGenerating ? 'Generating...' : 'Generate on Canvas'}
-                                                </button>
                                             </>
                                         )}
                                     </aside>
                                 </div>
 
-                                <div className="bg-slate-50 border-t border-slate-200 p-4">
-                                    <div className="flex flex-wrap justify-end gap-3">
+                                <div className="bg-gray-50 border-t border-gray-200 p-4">
+                                    <div className="flex items-center justify-between gap-3">
                                         <button
-                                            onClick={handleSaveDraft}
-                                            className="border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg hover:bg-slate-50 transition-colors"
+                                            type="button"
+                                            onClick={() => setIsPreviewOpen(true)}
+                                            className="px-4 py-2 text-sm rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                                         >
-                                            Save Draft
+                                            Preview Content
                                         </button>
-                                        <button
-                                            onClick={handlePublish}
-                                            className="bg-blue-600 text-white font-semibold px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-                                        >
-                                            Publish Now
-                                        </button>
-                                        <button
-                                            onClick={handleSchedule}
-                                            className="border border-slate-200 text-slate-700 font-semibold px-4 py-2 rounded-lg hover:bg-slate-50 transition-colors"
-                                        >
-                                            Schedule
-                                        </button>
+                                        <div className="flex flex-wrap justify-end gap-3">
+                                            <button
+                                                type="button"
+                                                onClick={handleSaveDraft}
+                                                className="px-4 py-2 text-sm rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                            >
+                                                Save Draft
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={handleSchedule}
+                                                className="px-4 py-2 text-sm rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                            >
+                                                Schedule
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={handlePublish}
+                                                className="px-4 py-2 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700"
+                                            >
+                                                Publish Now
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -911,6 +1184,73 @@ const ResourcesDashboard: React.FC = () => {
                     </div>
                 )}
             </main>
+
+            {isPreviewOpen && (
+                <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4">
+                    <div className="w-full max-w-4xl max-h-[92vh] bg-white rounded-xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col">
+                        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-slate-50">
+                            <div>
+                                <h2 className="text-lg font-semibold text-slate-900">Content Preview</h2>
+                                <p className="text-xs text-slate-600">{contentType} • {selectedSubjectName} • {noteForm.grade}</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setIsPreviewOpen(false)}
+                                className="px-3 py-1.5 rounded-md text-sm border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                            >
+                                Close
+                            </button>
+                        </div>
+
+                        <div className="overflow-y-auto p-5 space-y-5">
+                            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 space-y-2">
+                                <div className="text-sm font-semibold text-slate-900">{noteForm.title || 'Untitled content'}</div>
+                                <div className="text-xs text-slate-600">
+                                    Status: {noteForm.status === 'publish' ? 'Publish Now' : noteForm.status === 'schedule' ? 'Schedule' : 'Draft'}
+                                </div>
+                                {noteForm.instructions && (
+                                    <p className="text-sm text-slate-700 whitespace-pre-wrap">{noteForm.instructions}</p>
+                                )}
+                            </div>
+
+                            {noteForm.content ? (
+                                <div className="border border-slate-200 rounded-lg p-4 bg-white space-y-2">
+                                    <h3 className="text-sm font-semibold text-slate-800">Canvas Content</h3>
+                                    <p className="text-sm text-slate-700 whitespace-pre-wrap">{noteForm.content}</p>
+                                </div>
+                            ) : (
+                                <div className="border border-dashed border-slate-300 rounded-lg p-6 text-sm text-slate-500">
+                                    No content in canvas yet.
+                                </div>
+                            )}
+
+                            {selectedReferenceResourceIds.length > 0 && (
+                                <div className="border border-slate-200 rounded-lg p-4 bg-white space-y-2">
+                                    <h3 className="text-sm font-semibold text-slate-800">Reference Material</h3>
+                                    <ul className="text-sm text-slate-700 space-y-1">
+                                        {availableReferenceResources
+                                            .filter((resource) => selectedReferenceResourceIds.includes(resource.id))
+                                            .map((resource) => (
+                                                <li key={`preview-reference-${resource.id}`}>- {resource.name}</li>
+                                            ))}
+                                    </ul>
+                                </div>
+                            )}
+
+                            {contentFiles.length > 0 && (
+                                <div className="border border-slate-200 rounded-lg p-4 bg-white space-y-2">
+                                    <h3 className="text-sm font-semibold text-slate-800">Attached Context Files</h3>
+                                    <ul className="text-sm text-slate-700 space-y-1">
+                                        {contentFiles.map((file, index) => (
+                                            <li key={`preview-file-${file.name}-${index}`}>- {file.name}</li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
             
             <UploadModal isOpen={showUploadModal} onClose={() => setShowUploadModal(false)} onUploadSuccess={handleFileUploadSuccess} selectedSubject={selectedSubjectForUpload} subjects={subjects} onSubjectSelect={setSelectedSubjectForUpload} />
         </div>
