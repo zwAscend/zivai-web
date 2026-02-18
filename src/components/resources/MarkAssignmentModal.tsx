@@ -1,11 +1,10 @@
-import React, { useState, DragEvent } from 'react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
+import React, { useEffect, useMemo, useState, DragEvent } from 'react';
+import { Dialog, DialogContent } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Progress } from '../ui/progress';
 import { Badge } from '../ui/badge';
 import { 
   Loader2, 
-  X, 
   Upload, 
   FileText, 
   CheckCircle, 
@@ -13,14 +12,23 @@ import {
   TrendingUp,
   Award,
   Eye,
-  Download
+  Download,
+  User
 } from 'lucide-react';
 import { markingService } from '@/services/markingService';
 import { toast } from 'sonner';
+import { Assessment, Student, Subject } from '@/types';
+import { assessmentService } from '@/services/assessmentService';
 
 interface MarkAssignmentModalProps {
-  isOpen: boolean;
-  onOpenChange: (open: boolean) => void;
+  isOpen?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  embedded?: boolean;
+  subjects: Subject[];
+  selectedSubjectId: string;
+  onSubjectChange: (subjectId: string) => void;
+  students: Student[];
+  assessments: Assessment[];
 }
 
 interface MarkingResult {
@@ -36,12 +44,43 @@ interface MarkingResult {
 export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
   isOpen,
   onOpenChange,
+  embedded = false,
+  subjects,
+  selectedSubjectId,
+  onSubjectChange,
+  students,
+  assessments,
 }) => {
   const [file, setFile] = useState<File | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isSavingResult, setIsSavingResult] = useState(false);
   const [results, setResults] = useState<MarkingResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  const [selectedStudentId, setSelectedStudentId] = useState('');
+  const [selectedAssessmentId, setSelectedAssessmentId] = useState('');
+
+  useEffect(() => {
+    if (!selectedStudentId || !students.some((student) => student.id === selectedStudentId)) {
+      setSelectedStudentId(students[0]?.id || '');
+    }
+  }, [students, selectedStudentId]);
+
+  useEffect(() => {
+    if (!selectedAssessmentId || !assessments.some((assessment) => assessment.id === selectedAssessmentId)) {
+      setSelectedAssessmentId(assessments[0]?.id || '');
+    }
+  }, [assessments, selectedAssessmentId]);
+
+  const selectedStudent = useMemo(
+    () => students.find((student) => student.id === selectedStudentId),
+    [students, selectedStudentId],
+  );
+
+  const selectedAssessment = useMemo(
+    () => assessments.find((assessment) => assessment.id === selectedAssessmentId),
+    [assessments, selectedAssessmentId],
+  );
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -75,7 +114,11 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
         'application/pdf',
         'application/msword',
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        'text/plain'
+        'text/plain',
+        'image/png',
+        'image/jpeg',
+        'image/jpg',
+        'image/webp'
       ];
       
       if (allowedTypes.includes(droppedFile.type)) {
@@ -83,9 +126,17 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
         setError(null);
         setResults(null);
       } else {
-        setError('Please upload a PDF, Word document, or text file');
+        setError('Please upload a PDF, Word document, text file, or image');
       }
     }
+  };
+
+  const resolveGrade = (marks: number) => {
+    if (marks >= 80) return 'A';
+    if (marks >= 70) return 'B';
+    if (marks >= 60) return 'C';
+    if (marks >= 50) return 'D';
+    return 'F';
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -93,6 +144,16 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
     
     if (!file) {
       toast.error('Please select a file to mark');
+      return;
+    }
+
+    if (!selectedStudentId) {
+      toast.error('Select the student whose work is being marked');
+      return;
+    }
+
+    if (!selectedAssessmentId) {
+      toast.error('Select the assessment being marked');
       return;
     }
 
@@ -113,12 +174,45 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
     }
   };
 
+  const handleSaveResult = async () => {
+    if (!results || !selectedAssessmentId || !selectedStudentId) {
+      toast.error('Missing assessment or student selection.');
+      return;
+    }
+
+    setIsSavingResult(true);
+    try {
+      await assessmentService.addResult(selectedAssessmentId, {
+        student: selectedStudentId,
+        expectedMark: selectedAssessment?.maxScore ?? 100,
+        actualMark: results.marks,
+        grade: resolveGrade(results.marks),
+        feedback: results.feedback,
+        submittedDate: new Date(),
+        externalAssessmentData: {
+          source: 'ai_marking_workspace',
+          fileName: file?.name || null,
+          criteria: results.criteria,
+        },
+      });
+      toast.success('Marked result saved to the selected student.');
+    } catch (saveError) {
+      console.error('Failed to save marked result:', saveError);
+      const message = saveError instanceof Error ? saveError.message : 'Failed to save marked result';
+      toast.error(message);
+    } finally {
+      setIsSavingResult(false);
+    }
+  };
+
   const handleClose = () => {
     setFile(null);
     setResults(null);
     setError(null);
     setIsLoading(false);
-    onOpenChange(false);
+    if (!embedded) {
+      onOpenChange?.(false);
+    }
   };
 
   const getGradeColor = (marks: number) => {
@@ -135,146 +229,195 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
     return 'bg-red-500';
   };
 
-  return (
-    <Dialog open={isOpen} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[95vh] p-0 overflow-hidden">
-        {/* Header */}
-        <DialogHeader className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-white/20 rounded-lg flex items-center justify-center">
-                <Award className="w-5 h-5" />
-              </div>
-              <div>
-                <DialogTitle className="text-2xl font-bold text-white">
-                  AI Assessment Marker
-                </DialogTitle>
-                <p className="text-blue-100 mt-1">
-                  Upload an assessment to get instant AI-powered grading and feedback
-                </p>
-              </div>
-            </div>
-            <button 
-              onClick={handleClose}
-              className="p-2 hover:bg-white/20 rounded-full transition-colors"
-              disabled={isLoading}
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
-        </DialogHeader>
-        
-        <div className="flex-1 overflow-y-auto p-6">
+  const workspace = (
+    <div className="h-full flex flex-col">
+        <div className="flex-1 min-h-0 bg-white">
           {!results ? (
             /* Upload Section */
-            <form onSubmit={handleSubmit} className="space-y-6">
-              {/* File Upload Area */}
-              <div className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <Upload className="w-5 h-5 text-gray-600" />
-                  <h3 className="text-lg font-semibold text-gray-900">Upload Assessment</h3>
+            <form onSubmit={handleSubmit} className="h-full min-h-0 flex flex-col">
+              <div className="flex-1 min-h-0 overflow-y-auto p-6 space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="text-xs text-gray-500">Subject</label>
+                    <select
+                      value={selectedSubjectId}
+                      onChange={(event) => onSubjectChange(event.target.value)}
+                      className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
+                    >
+                      {subjects.map((subject) => (
+                        <option key={subject.id} value={subject.id}>
+                          {subject.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500">Assessment</label>
+                    <select
+                      value={selectedAssessmentId}
+                      onChange={(event) => setSelectedAssessmentId(event.target.value)}
+                      className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
+                    >
+                      {assessments.length === 0 ? (
+                        <option value="">No assessments for this subject</option>
+                      ) : assessments.map((assessment) => (
+                        <option key={assessment.id} value={assessment.id}>
+                          {assessment.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500">Student</label>
+                    <select
+                      value={selectedStudentId}
+                      onChange={(event) => setSelectedStudentId(event.target.value)}
+                      className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
+                    >
+                      {students.length === 0 ? (
+                        <option value="">No students for this subject</option>
+                      ) : students.map((student) => (
+                        <option key={student.id} value={student.id}>
+                          {student.firstName} {student.lastName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-                
-                <div 
-                  className={`relative border-2 border-dashed rounded-xl p-8 text-center transition-all ${
-                    dragActive 
-                      ? 'border-blue-500 bg-blue-50' 
-                      : error 
-                        ? 'border-red-300 bg-red-50' 
-                        : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
-                  }`}
-                  onDragOver={handleDragOver}
-                  onDragLeave={handleDragLeave}
-                  onDrop={handleDrop}
-                  onClick={() => document.getElementById('file-upload')?.click()}
-                >
-                  <input
-                    id="file-upload"
-                    type="file"
-                    accept=".pdf,.doc,.docx,.txt"
-                    onChange={handleFileChange}
-                    disabled={isLoading}
-                    className="hidden"
-                  />
-                  
-                  {file ? (
-                    <div className="space-y-3">
-                      <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto">
-                        <FileText className="w-8 h-8 text-blue-600" />
-                      </div>
-                      <div>
-                        <p className="font-semibold text-gray-900">{file.name}</p>
-                        <p className="text-sm text-gray-500">
-                          {(file.size / 1024 / 1024).toFixed(2)} MB
-                        </p>
-                      </div>
-                      <button 
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setFile(null);
-                        }}
-                        className="text-red-600 hover:text-red-800 text-sm font-medium"
-                      >
-                        Remove file
-                      </button>
+
+                {selectedStudent && (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                    <div className="flex items-center gap-2 text-slate-700">
+                      <User className="w-4 h-4" />
+                      <span className="text-sm font-semibold">Student Context</span>
                     </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto ${
-                        dragActive ? 'bg-blue-100' : 'bg-gray-100'
-                      }`}>
-                        <Upload className={`w-8 h-8 ${
-                          dragActive ? 'text-blue-600' : 'text-gray-400'
-                        }`} />
-                      </div>
-                      <div>
-                        <p className="text-lg font-medium text-gray-900">
-                          {dragActive ? 'Drop your file here' : 'Upload assessment file'}
-                        </p>
-                        <p className="text-gray-500 mt-1">
-                          Drag & drop or click to browse
-                        </p>
-                        <p className="text-sm text-gray-400 mt-2">
-                          Supported: PDF, DOC, DOCX, TXT (max 10MB)
-                        </p>
-                      </div>
+                    <div className="mt-2 text-sm text-slate-600 space-y-1">
+                      <div>{selectedStudent.firstName} {selectedStudent.lastName}</div>
+                      <div className="text-xs">{selectedStudent.email}</div>
+                      <div className="text-xs">Performance: {selectedStudent.performance || 'N/A'}</div>
                     </div>
-                  )}
-                </div>
-                
-                {error && (
-                  <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
-                    <AlertTriangle className="w-5 h-5 text-red-600" />
-                    <p className="text-red-700 text-sm">{error}</p>
                   </div>
                 )}
+
+                {/* File Upload Area */}
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2">
+                    <Upload className="w-5 h-5 text-gray-600" />
+                    <h3 className="text-lg font-semibold text-gray-900">Upload Assessment</h3>
+                  </div>
+
+                  <div
+                    className={`relative border-2 border-dashed rounded-xl p-8 text-center transition-all ${
+                      dragActive
+                        ? 'border-blue-500 bg-blue-50'
+                        : error
+                          ? 'border-red-300 bg-red-50'
+                          : 'border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                    }`}
+                    onDragOver={handleDragOver}
+                    onDragLeave={handleDragLeave}
+                    onDrop={handleDrop}
+                    onClick={() => document.getElementById('file-upload')?.click()}
+                  >
+                    <input
+                      id="file-upload"
+                      type="file"
+                      accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg,.webp"
+                      onChange={handleFileChange}
+                      disabled={isLoading}
+                      className="hidden"
+                    />
+
+                    {file ? (
+                      <div className="space-y-3">
+                        <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto">
+                          <FileText className="w-8 h-8 text-blue-600" />
+                        </div>
+                        <div>
+                          <p className="font-semibold text-gray-900">{file.name}</p>
+                          <p className="text-sm text-gray-500">
+                            {(file.size / 1024 / 1024).toFixed(2)} MB
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setFile(null);
+                          }}
+                          className="text-red-600 hover:text-red-800 text-sm font-medium"
+                        >
+                          Remove file
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto ${
+                          dragActive ? 'bg-blue-100' : 'bg-gray-100'
+                        }`}>
+                          <Upload className={`w-8 h-8 ${
+                            dragActive ? 'text-blue-600' : 'text-gray-400'
+                          }`} />
+                        </div>
+                        <div>
+                          <p className="text-lg font-medium text-gray-900">
+                            {dragActive ? 'Drop your file here' : 'Upload assessment file'}
+                          </p>
+                          <p className="text-gray-500 mt-1">
+                            Drag & drop or click to browse
+                          </p>
+                          <p className="text-sm text-gray-400 mt-2">
+                            Supported: PDF, DOC, DOCX, TXT, PNG, JPG, WEBP (max 10MB)
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {error && (
+                    <div className="flex items-center gap-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+                      <AlertTriangle className="w-5 h-5 text-red-600" />
+                      <p className="text-red-700 text-sm">{error}</p>
+                    </div>
+                  )}
+                </div>
               </div>
 
-              {/* Submit Button */}
-              <div className="flex justify-end">
-                <Button
-                  type="submit"
-                  disabled={isLoading || !file}
-                  className="min-w-[140px] bg-blue-600 hover:bg-blue-700"
-                >
-                  {isLoading ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                      Marking...
-                    </>
-                  ) : (
-                    <>
-                      <Award className="w-4 h-4 mr-2" />
-                      Mark Assessment
-                    </>
-                  )}
-                </Button>
+              <div className="bg-slate-50 border-t border-slate-200 p-4">
+                <div className="flex justify-end gap-3">
+                  <Button
+                    type="submit"
+                    disabled={isLoading || !file}
+                    className="px-4 py-2 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60 min-w-[160px]"
+                  >
+                    {isLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                        Marking...
+                      </>
+                    ) : (
+                      <>
+                        <Award className="w-4 h-4 mr-2" />
+                        Mark Assessment
+                      </>
+                    )}
+                  </Button>
+                </div>
               </div>
             </form>
           ) : (
             /* Results Section */
-            <div className="space-y-6">
+            <div className="h-full min-h-0 overflow-y-auto p-6 space-y-6">
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                <div className="text-sm font-semibold text-slate-800">Marked For</div>
+                <div className="mt-1 text-sm text-slate-600">
+                  {selectedStudent ? `${selectedStudent.firstName} ${selectedStudent.lastName}` : 'No student selected'}
+                </div>
+                <div className="text-xs text-slate-500">
+                  {selectedAssessment?.name || 'No assessment selected'}
+                </div>
+              </div>
+
               {/* Overall Score */}
               <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-6">
                 <div className="flex items-center justify-between mb-4">
@@ -358,6 +501,23 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
                 
                 <div className="flex gap-3">
                   <Button
+                    onClick={handleSaveResult}
+                    disabled={isSavingResult}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-2"
+                  >
+                    {isSavingResult ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="w-4 h-4" />
+                        Save to Student
+                      </>
+                    )}
+                  </Button>
+                  <Button
                     variant="outline"
                     onClick={() => {
                       // Export results functionality
@@ -393,6 +553,17 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
             </div>
           )}
         </div>
+    </div>
+  );
+
+  if (embedded) {
+    return workspace;
+  }
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-4xl max-h-[95vh] p-0 overflow-hidden">
+        {workspace}
       </DialogContent>
     </Dialog>
   );
