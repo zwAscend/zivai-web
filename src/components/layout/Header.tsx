@@ -71,7 +71,7 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, portalType = '
   const pieData: GradeCategory[] =
     classSummary.totalStudents > 0
       ? classSummary.categories
-      : [{ name: 'No data', count: 1, minScore: 0, color: '#e2e8f0' }];
+      : [{ name: 'No data', count: 1, minScore: 0, color: '#1d4ed8' }];
 
   useEffect(() => {
     const fetchUnreadCount = async () => {
@@ -228,22 +228,26 @@ const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, portalType = '
             location.pathname.startsWith('/classroom') ? (
               <div className="bg-[#ececed] p-2 shadow-md mb-2 h-[70px] w-[280px] flex items-center justify-between rounded-md">
                 <div className="relative w-[90px] h-[70px] flex items-center justify-center">
-                  <PieChart width={60} height={60}>
-                    <Pie
-                      data={pieData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={20}
-                      outerRadius={30}
-                      dataKey="count"
-                      startAngle={90}
-                      endAngle={-270}
-                    >
-                      {pieData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                  </PieChart>
+                  <div className="rounded-full bg-white ring-1 ring-slate-300 p-0.5">
+                    <PieChart width={52} height={52}>
+                      <Pie
+                        data={pieData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={16}
+                        outerRadius={26}
+                        dataKey="count"
+                        startAngle={90}
+                        endAngle={-270}
+                        stroke="#ffffff"
+                        strokeWidth={1.5}
+                      >
+                        {pieData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                    </PieChart>
+                  </div>
                   <div className="absolute text-xs font-bold">{classSummary.totalStudents}</div>
                 </div>
                 <div className="flex flex-col justify-center ml-2 text-sm flex-1">
