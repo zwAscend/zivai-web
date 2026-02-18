@@ -10,6 +10,10 @@ export const assessmentService = {
     return fetchData<Assessment>(`/assessments/${id}`);
   },
 
+  getAssessmentWithQuestions: async (id: string): Promise<any> => {
+    return fetchData(`/assessments/${id}/with-questions`);
+  },
+
   getAssessmentsBySubjectId: async (subjectId: string): Promise<Assessment[]> => {
     return fetchData<Assessment[]>(`/assessments?subjectId=${subjectId}`);
   },
@@ -44,6 +48,17 @@ export const assessmentService = {
   addResult: async (id: string, resultData: Omit<Result, 'id' | 'createdAt' | 'updatedAt' | 'assessment'>): Promise<Result> => {
     return fetchData<Result>(`/assessments/${id}/results`, {
       method: 'POST',
+      body: JSON.stringify(resultData),
+    });
+  },
+
+  updateResult: async (
+    assessmentId: string,
+    resultId: string,
+    resultData: Partial<Result>,
+  ): Promise<Result> => {
+    return fetchData<Result>(`/assessments/${assessmentId}/results/${resultId}`, {
+      method: 'PUT',
       body: JSON.stringify(resultData),
     });
   },

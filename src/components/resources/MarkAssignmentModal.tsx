@@ -59,6 +59,18 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
   const [dragActive, setDragActive] = useState(false);
   const [selectedStudentId, setSelectedStudentId] = useState('');
   const [selectedAssessmentId, setSelectedAssessmentId] = useState('');
+  const [editableMarks, setEditableMarks] = useState(0);
+  const [editableGrade, setEditableGrade] = useState('');
+  const [editableFeedback, setEditableFeedback] = useState('');
+  const [editableCriteria, setEditableCriteria] = useState<MarkingResult['criteria']>([]);
+
+  const resolveGrade = (marks: number) => {
+    if (marks >= 80) return 'A';
+    if (marks >= 70) return 'B';
+    if (marks >= 60) return 'C';
+    if (marks >= 50) return 'D';
+    return 'F';
+  };
 
   useEffect(() => {
     if (!selectedStudentId || !students.some((student) => student.id === selectedStudentId)) {
@@ -81,6 +93,36 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
     () => assessments.find((assessment) => assessment.id === selectedAssessmentId),
     [assessments, selectedAssessmentId],
   );
+
+  const assessmentQuestions = useMemo(() => {
+    const rawQuestions = selectedAssessment?.questions;
+    if (!rawQuestions) return [];
+    if (Array.isArray(rawQuestions)) return rawQuestions;
+    if (typeof rawQuestions === 'string') {
+      try {
+        const parsed = JSON.parse(rawQuestions);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (_error) {
+        return [];
+      }
+    }
+    return [];
+  }, [selectedAssessment]);
+
+  useEffect(() => {
+    if (!results) {
+      setEditableMarks(0);
+      setEditableGrade('');
+      setEditableFeedback('');
+      setEditableCriteria([]);
+      return;
+    }
+
+    setEditableMarks(results.marks);
+    setEditableGrade(resolveGrade(results.marks));
+    setEditableFeedback(results.feedback || '');
+    setEditableCriteria(results.criteria || []);
+  }, [results]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
@@ -131,14 +173,6 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
     }
   };
 
-  const resolveGrade = (marks: number) => {
-    if (marks >= 80) return 'A';
-    if (marks >= 70) return 'B';
-    if (marks >= 60) return 'C';
-    if (marks >= 50) return 'D';
-    return 'F';
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -180,20 +214,33 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
       return;
     }
 
+    const normalizedMarks = Number.isFinite(editableMarks)
+      ? Math.max(0, Math.min(100, editableMarks))
+      : 0;
+    const expectedMark = selectedAssessment?.maxScore ?? 100;
+    const actualMark = Number(((normalizedMarks / 100) * expectedMark).toFixed(2));
+    const grade = editableGrade.trim() || resolveGrade(normalizedMarks);
+
     setIsSavingResult(true);
     try {
       await assessmentService.addResult(selectedAssessmentId, {
         student: selectedStudentId,
-        expectedMark: selectedAssessment?.maxScore ?? 100,
-        actualMark: results.marks,
-        grade: resolveGrade(results.marks),
-        feedback: results.feedback,
+        expectedMark,
+        actualMark,
+        grade,
+        feedback: editableFeedback,
         submittedDate: new Date(),
         externalAssessmentData: {
           source: 'ai_marking_workspace',
           fileName: file?.name || null,
-          criteria: results.criteria,
+          scorePercent: normalizedMarks,
+          criteria: editableCriteria,
         },
+      });
+      setResults({
+        marks: normalizedMarks,
+        feedback: editableFeedback,
+        criteria: editableCriteria,
       });
       toast.success('Marked result saved to the selected student.');
     } catch (saveError) {
@@ -210,6 +257,10 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
     setResults(null);
     setError(null);
     setIsLoading(false);
+    setEditableMarks(0);
+    setEditableGrade('');
+    setEditableFeedback('');
+    setEditableCriteria([]);
     if (!embedded) {
       onOpenChange?.(false);
     }
@@ -418,26 +469,98 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
                 </div>
               </div>
 
-              {/* Overall Score */}
+              <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
+                <h4 className="text-lg font-semibold text-slate-900">Assessment Display</h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                  <div className="rounded-md bg-slate-50 border border-slate-200 px-3 py-2">
+                    <div className="text-xs text-slate-500">Title</div>
+                    <div className="font-medium text-slate-900">{selectedAssessment?.name || 'N/A'}</div>
+                  </div>
+                  <div className="rounded-md bg-slate-50 border border-slate-200 px-3 py-2">
+                    <div className="text-xs text-slate-500">Type</div>
+                    <div className="font-medium text-slate-900">{selectedAssessment?.type || 'N/A'}</div>
+                  </div>
+                  <div className="rounded-md bg-slate-50 border border-slate-200 px-3 py-2">
+                    <div className="text-xs text-slate-500">Max Score</div>
+                    <div className="font-medium text-slate-900">{selectedAssessment?.maxScore ?? 100}</div>
+                  </div>
+                </div>
+                {selectedAssessment?.description && (
+                  <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 whitespace-pre-wrap">
+                    {selectedAssessment.description}
+                  </div>
+                )}
+                {assessmentQuestions.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="text-sm font-semibold text-slate-800">Assessment Questions</div>
+                    <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-md p-3 space-y-2 bg-white">
+                      {assessmentQuestions.map((question: any, index) => (
+                        <div key={`${question.id || index}-question`} className="text-sm text-slate-700">
+                          <span className="font-semibold text-slate-900">Q{index + 1}.</span>{' '}
+                          {question.text || `Question ${index + 1}`}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Editable Grading & Feedback */}
               <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl p-6">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-xl font-bold text-green-900">Marking Results</h3>
-                  <Badge className={`text-lg px-4 py-2 ${getGradeColor(results.marks)}`}>
-                    {results.marks}/100
+                  <h3 className="text-xl font-bold text-green-900">Review Grading & Feedback</h3>
+                  <Badge className={`text-lg px-4 py-2 ${getGradeColor(editableMarks)}`}>
+                    {editableMarks.toFixed(1)}%
                   </Badge>
                 </div>
-                
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                  <div>
+                    <label className="text-xs text-slate-600">Score (%)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="0.1"
+                      value={editableMarks}
+                      onChange={(event) => {
+                        const next = Number(event.target.value);
+                        if (Number.isFinite(next)) {
+                          const clamped = Math.max(0, Math.min(100, next));
+                          setEditableMarks(clamped);
+                        }
+                      }}
+                      className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-600">Grade</label>
+                    <input
+                      value={editableGrade}
+                      onChange={(event) => setEditableGrade(event.target.value)}
+                      className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm"
+                      placeholder="e.g. A"
+                    />
+                  </div>
+                  <div className="rounded-md bg-white border border-slate-200 px-3 py-2 text-sm">
+                    <div className="text-xs text-slate-500">Score to save</div>
+                    <div className="font-semibold text-slate-900">
+                      {Number(((editableMarks / 100) * (selectedAssessment?.maxScore ?? 100)).toFixed(2))}/{selectedAssessment?.maxScore ?? 100}
+                    </div>
+                  </div>
+                </div>
+
                 <div className="space-y-3">
                   <div className="flex items-center justify-between text-sm">
                     <span className="text-green-700 font-medium">Overall Performance</span>
-                    <span className="text-green-900 font-bold">{results.marks}%</span>
+                    <span className="text-green-900 font-bold">{editableMarks.toFixed(1)}%</span>
                   </div>
-                  <Progress value={results.marks} className="h-3" />
+                  <Progress value={editableMarks} className="h-3" />
                 </div>
               </div>
 
               {/* Criteria Breakdown */}
-              {results.criteria.length > 0 && (
+              {editableCriteria.length > 0 && (
                 <div className="space-y-4">
                   <h4 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
                     <TrendingUp className="w-5 h-5 text-blue-600" />
@@ -445,13 +568,28 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
                   </h4>
                   
                   <div className="grid gap-4">
-                    {results.criteria.map((criterion, index) => (
+                    {editableCriteria.map((criterion, index) => (
                       <div key={index} className="bg-white border border-gray-200 rounded-lg p-4">
                         <div className="flex items-center justify-between mb-3">
                           <h5 className="font-semibold text-gray-800">{criterion.criterion}</h5>
-                          <Badge variant="outline" className="font-bold">
-                            {criterion.score}/100
-                          </Badge>
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            step="0.1"
+                            value={criterion.score}
+                            onChange={(event) => {
+                              const next = Number(event.target.value);
+                              setEditableCriteria((previous) =>
+                                previous.map((item, itemIndex) =>
+                                  itemIndex === index
+                                    ? { ...item, score: Number.isFinite(next) ? Math.max(0, Math.min(100, next)) : item.score }
+                                    : item,
+                                ),
+                              );
+                            }}
+                            className="w-24 border border-slate-200 rounded-md px-2 py-1 text-sm text-right"
+                          />
                         </div>
                         
                         <div className="space-y-2">
@@ -462,9 +600,19 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
                               '--progress-background': getCriterionColor(criterion.score)
                             } as React.CSSProperties}
                           />
-                          <p className="text-sm text-gray-600 leading-relaxed">
-                            {criterion.comments}
-                          </p>
+                          <textarea
+                            value={criterion.comments}
+                            onChange={(event) => {
+                              const next = event.target.value;
+                              setEditableCriteria((previous) =>
+                                previous.map((item, itemIndex) =>
+                                  itemIndex === index ? { ...item, comments: next } : item,
+                                ),
+                              );
+                            }}
+                            className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm min-h-[90px]"
+                            placeholder="Criterion feedback..."
+                          />
                         </div>
                       </div>
                     ))}
@@ -478,11 +626,12 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
                   <Eye className="w-5 h-5" />
                   Overall Feedback
                 </h4>
-                <div className="prose prose-sm max-w-none">
-                  <p className="text-blue-800 leading-relaxed whitespace-pre-wrap">
-                    {results.feedback}
-                  </p>
-                </div>
+                <textarea
+                  value={editableFeedback}
+                  onChange={(event) => setEditableFeedback(event.target.value)}
+                  className="w-full border border-blue-200 rounded-md px-3 py-2 text-sm min-h-[140px] text-blue-900"
+                  placeholder="Review and edit teacher feedback..."
+                />
               </div>
 
               {/* Action Buttons */}
@@ -492,6 +641,10 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
                   onClick={() => {
                     setResults(null);
                     setFile(null);
+                    setEditableMarks(0);
+                    setEditableGrade('');
+                    setEditableFeedback('');
+                    setEditableCriteria([]);
                   }}
                   className="flex items-center gap-2"
                 >
@@ -513,7 +666,7 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
                     ) : (
                       <>
                         <CheckCircle className="w-4 h-4" />
-                        Save to Student
+                        Save Feedback & Grade
                       </>
                     )}
                   </Button>
@@ -523,9 +676,10 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
                       // Export results functionality
                       const exportData = {
                         fileName: file?.name,
-                        marks: results.marks,
-                        feedback: results.feedback,
-                        criteria: results.criteria,
+                        marks: editableMarks,
+                        grade: editableGrade,
+                        feedback: editableFeedback,
+                        criteria: editableCriteria,
                         markedAt: new Date().toISOString()
                       };
                       

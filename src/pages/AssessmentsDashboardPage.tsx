@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, Filter, FileText } from 'lucide-react';
+import { Search, Filter } from 'lucide-react';
 import { assessmentService, studentService, subjectService } from '../services/api';
 import { Assessment, Student, Subject } from '../types';
 import Sidebar from '../components/resources/Sidebar';
@@ -39,9 +39,9 @@ const AssessmentsDashboardPage: React.FC = () => {
   const [selectedSubjectId, setSelectedSubjectId] = useState('');
   const [selectedType, setSelectedType] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
-  const [studentQuery, setStudentQuery] = useState('');
+  const [searchMode, setSearchMode] = useState<'assessment' | 'student'>('assessment');
+  const [searchQuery, setSearchQuery] = useState('');
   const [selectedStudentId, setSelectedStudentId] = useState('');
-  const [assessmentQuery, setAssessmentQuery] = useState('');
 
   useEffect(() => {
     const loadSubjects = async () => {
@@ -95,7 +95,9 @@ const AssessmentsDashboardPage: React.FC = () => {
       setLoading(true);
       try {
         let list = assessments;
-        const assessmentSearch = assessmentQuery.trim().toLowerCase();
+        const assessmentSearch = searchMode === 'assessment'
+          ? searchQuery.trim().toLowerCase()
+          : '';
         if (assessmentSearch) {
           list = list.filter((item) =>
             (item.name || '').toLowerCase().includes(assessmentSearch)
@@ -183,19 +185,19 @@ const AssessmentsDashboardPage: React.FC = () => {
     };
 
     applyFilters();
-  }, [assessments, selectedType, selectedStatus, selectedStudentId, assessmentQuery]);
+  }, [assessments, selectedType, selectedStatus, selectedStudentId, searchMode, searchQuery]);
 
   const matchingStudents = useMemo(() => {
-    const query = studentQuery.trim().toLowerCase();
+    const query = searchMode === 'student' ? searchQuery.trim().toLowerCase() : '';
     if (!query) return students;
     return students.filter((student) => {
       const fullName = `${student.firstName} ${student.lastName}`.toLowerCase();
       return fullName.includes(query) || (student.email || '').toLowerCase().includes(query);
     });
-  }, [students, studentQuery]);
+  }, [students, searchMode, searchQuery]);
 
   useEffect(() => {
-    const query = studentQuery.trim();
+    const query = searchMode === 'student' ? searchQuery.trim() : '';
     if (!query) {
       setSelectedStudentId('');
       return;
@@ -205,7 +207,7 @@ const AssessmentsDashboardPage: React.FC = () => {
     } else {
       setSelectedStudentId('');
     }
-  }, [studentQuery, matchingStudents]);
+  }, [searchMode, searchQuery, matchingStudents]);
 
   return (
     <div className="flex h-full bg-slate-50 text-slate-900 overflow-hidden">
@@ -220,47 +222,35 @@ const AssessmentsDashboardPage: React.FC = () => {
         recentUploads={[]}
       />
       <main className="flex-1 p-8 overflow-y-auto">
-        <header className="flex flex-wrap items-center justify-between gap-4 mb-6">
-          <div>
-            <h1 className="text-2xl font-bold">Assessments</h1>
-            <p className="text-sm text-gray-500">Create, view, and track assessments by subject or student.</p>
-            <p className="text-xs text-slate-500 mt-1">Marked submissions saved from the Mark Assessment workspace appear here automatically.</p>
-          </div>
-          <button
-            onClick={() => navigate('/reports')}
-            className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition"
-          >
-            <FileText className="h-4 w-4" />
-            Open Reports
-          </button>
-        </header>
-
         <div className="bg-white rounded-lg shadow p-4 mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
             <div>
-              <label className="text-xs text-gray-500">Search assessment</label>
-              <div className="relative">
-                <Search className="h-4 w-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  value={assessmentQuery}
-                  onChange={(e) => setAssessmentQuery(e.target.value)}
-                  placeholder="Search assessment name"
-                  className="w-full border border-gray-200 rounded-md pl-9 pr-3 py-2 text-sm"
-                />
-              </div>
+              <label className="text-xs text-gray-500">Search by</label>
+              <select
+                value={searchMode}
+                onChange={(e) => setSearchMode(e.target.value as 'assessment' | 'student')}
+                className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
+              >
+                <option value="assessment">Assessment name</option>
+                <option value="student">Student</option>
+              </select>
             </div>
-            <div>
-              <label className="text-xs text-gray-500">Search student</label>
+            <div className="md:col-span-2">
+              <label className="text-xs text-gray-500">
+                {searchMode === 'assessment' ? 'Search assessment' : 'Search student'}
+              </label>
               <div className="relative">
                 <Search className="h-4 w-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
-                  value={studentQuery}
-                  onChange={(e) => setStudentQuery(e.target.value)}
-                  placeholder="Search student"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder={searchMode === 'assessment' ? 'Search assessment name' : 'Search student'}
                   className="w-full border border-gray-200 rounded-md pl-9 pr-3 py-2 text-sm"
                 />
               </div>
-              <p className="text-[11px] text-gray-400 mt-1">All students by default. Search will narrow to a single match.</p>
+              {searchMode === 'student' && (
+                <p className="text-[11px] text-gray-400 mt-1">All students by default. Search will narrow to a single match.</p>
+              )}
             </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

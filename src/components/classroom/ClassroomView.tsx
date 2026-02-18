@@ -191,7 +191,6 @@ const ClassroomView: React.FC = () => {
                 <div className="bg-white rounded-lg shadow p-4 mb-3">
                   <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
                     <div className="flex flex-col gap-2">
-                      <div className="flex items-center gap-2 text-sm text-slate-600">Filters</div>
                       <input
                         value={searchQuery}
                         onChange={(event) => setSearchQuery(event.target.value)}
