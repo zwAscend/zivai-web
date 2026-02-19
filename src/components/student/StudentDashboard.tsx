@@ -1,23 +1,26 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard,
   BookOpen,
   PlusCircle,
   Target,
-  TrendingUp,
-  Calendar,
   MessageCircle,
   LogOut,
-  ChevronRight,
-  Menu,
   BarChart2,
   FileText,
-  Sparkles,
   Users,
   User,
+  CheckCircle2,
+  Play,
+  RotateCcw,
+  Video,
+  Edit,
+  ChevronDown,
+  Flame,
+  Settings,
 } from 'lucide-react';
-import { Student, DevelopmentPlan, Subject } from '../../types';
+import { Student, DevelopmentPlan, Subject, StepType } from '../../types';
 import { studentService, developmentService, subjectService } from '../../services/api';
 import StudentPlanView from './StudentPlanView';
 import StudentStats from './StudentStats';
@@ -28,24 +31,12 @@ import StudentTutor from './StudentTutor';
 import StudentPeerStudy from './StudentPeerStudy';
 import StudentMasteryGaps from './StudentMasteryGaps';
 import StudentProfileSettings from './StudentProfileSettings';
-
-// ---------------------------------------------------------------- //
-// A new type and a mock service for Subject, as it's not in api.ts
-// In a real app, this would be in your services/api.ts
-// type Subject = {
-//   id: string;
-//   name: string;
-//   // ... other subject properties
-// };
-
-// The original mock `subjectService` is removed as we now use the one from api.ts.
-// The `getSubject` method is not needed as `studentData.subjects` is an array of subject objects,
-// not just IDs, as per the typical structure of a populated Mongoose object from a REST API.
-// ---------------------------------------------------------------- //
+import StudentSubjectsView from './StudentSubjectsView';
 
 type NavItemKey =
   | 'overview'
   | 'plan'
+  | 'subjects'
   | 'messages'
   | 'assessments'
   | 'results'
@@ -54,79 +45,153 @@ type NavItemKey =
   | 'mastery-gaps'
   | 'profile';
 
-type StatCardProps = {
-  icon: React.ComponentType<{ className?: string }>;
-  title: string;
-  value: React.ReactNode;
-  color: string;
-  change?: string;
+const STEP_TYPE_SEQUENCE: StepType[] = ['document', 'assignment', 'quiz', 'discussion', 'video'];
+
+const getStepIcon = (type: StepType) => {
+  switch (type) {
+    case 'document':
+      return <FileText className="w-4 h-4" />;
+    case 'assignment':
+      return <Edit className="w-4 h-4" />;
+    case 'video':
+      return <Video className="w-4 h-4" />;
+    default:
+      return <BookOpen className="w-4 h-4" />;
+  }
 };
 
-const StatCard: React.FC<StatCardProps> = ({ icon: Icon, title, value, color, change }) => (
-  <motion.div
-    className="bg-white p-6 rounded-2xl shadow-sm hover:shadow-lg transition-shadow duration-300 flex flex-col justify-between"
-    variants={{
-      hidden: { opacity: 0, y: 20 },
-      visible: { opacity: 1, y: 0 },
-    }}
-  >
-    <div className="flex items-center justify-between mb-4">
-      <h3 className="text-md font-medium text-slate-500">{title}</h3>
-      <div className={`w-10 h-10 flex items-center justify-center rounded-full ${color}`}>
-        <Icon className="w-5 h-5 text-white" />
-      </div>
-    </div>
-    <div>
-      <p className="text-3xl font-bold text-slate-800">{value}</p>
-      {change && <p className="text-sm text-slate-500 mt-1">{change}</p>}
-    </div>
-  </motion.div>
-);
+const getMockStepTitles = (subjectName: string): string[] => {
+  const name = subjectName.toLowerCase();
+  if (name.includes('english')) {
+    return [
+      'Read short story',
+      'Write a paragraph response',
+      'Vocabulary reinforcement quiz',
+      'Peer discussion reflection',
+      'Weekly tutor feedback',
+    ];
+  }
+  if (name.includes('math')) {
+    return [
+      'Review concept notes',
+      'Solve guided examples',
+      'Timed practice set',
+      'Reasoning checkpoint',
+      'Mastery quiz',
+    ];
+  }
+  if (name.includes('physics')) {
+    return [
+      'Read topic overview',
+      'Explain formulas in words',
+      'Problem solving set',
+      'Experiment reflection',
+      'Topic checkpoint quiz',
+    ];
+  }
+  return [
+    'Read concept overview',
+    'Write understanding summary',
+    'Practice exercises',
+    'Reasoning dialogue',
+    'Mastery checkpoint',
+  ];
+};
+
+const buildMockPlan = (subject: Subject, index: number): DevelopmentPlan => {
+  const stepTitles = getMockStepTitles(subject.name);
+  const progress = 22 + ((index * 17) % 53);
+  const steps = stepTitles.map((title, stepIndex) => ({
+    title,
+    type: STEP_TYPE_SEQUENCE[stepIndex % STEP_TYPE_SEQUENCE.length],
+    order: stepIndex + 1,
+    link: '',
+    additionalResources: [],
+  }));
+
+  return {
+    id: `mock-plan-${subject.id}`,
+    student: 'mock-student',
+    plan: {
+      id: `mock-plan-template-${subject.id}`,
+      name: `${subject.name} Mastery Plan`,
+      description: `Structured weekly plan for ${subject.name} with guided practice and coaching.`,
+      progress,
+      potentialOverall: 85,
+      eta: 28,
+      performance: 'Good',
+      skills: [],
+      steps,
+      subjectId: subject.id,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      link: '',
+      additionalResources: [],
+    },
+    startDate: new Date(),
+    currentProgress: progress,
+    status: 'Active',
+    skillProgress: [],
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+};
+
+const MOCK_SUBJECTS: Subject[] = [
+  {
+    id: 'mock-subject-math',
+    code: 'MTH-01',
+    name: 'Mathematics',
+    description: 'Numeracy, algebra, and problem solving.',
+    teacher: 'mock-teacher',
+  },
+  {
+    id: 'mock-subject-english',
+    code: 'ENG-01',
+    name: 'English Language',
+    description: 'Reading, writing, and communication skills.',
+    teacher: 'mock-teacher',
+  },
+  {
+    id: 'mock-subject-physics',
+    code: 'PHY-01',
+    name: 'Physics',
+    description: 'Mechanics, waves, and scientific reasoning.',
+    teacher: 'mock-teacher',
+  },
+  {
+    id: 'mock-subject-biology',
+    code: 'BIO-01',
+    name: 'Biology',
+    description: 'Life sciences, systems, and data interpretation.',
+    teacher: 'mock-teacher',
+  },
+];
 
 const DashboardSkeleton = () => (
-  <div className="flex">
-    <div className="w-64 bg-white h-screen p-4">
-      <div className="h-10 bg-blue-50 rounded mb-8 animate-pulse"></div>
-      <div className="space-y-4">
-        {[...Array(4)].map((_, i) => (
-          <div key={i} className="h-10 bg-blue-50 rounded animate-pulse"></div>
-        ))}
-      </div>
-      <div className="absolute bottom-4 w-56">
-        <div className="h-12 bg-blue-50 rounded animate-pulse"></div>
-      </div>
-    </div>
-    <div className="flex-1 p-8">
-      <div className="h-12 bg-blue-100 rounded mb-8 w-1/3 animate-pulse"></div>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
-        {[...Array(3)].map((_, i) => (
-          <div key={i} className="h-36 bg-blue-50 rounded-2xl p-6 animate-pulse">
-            <div className="h-6 w-1/2 bg-blue-100 rounded mb-4"></div>
-            <div className="h-10 w-1/3 bg-blue-100 rounded"></div>
-          </div>
-        ))}
-      </div>
-      <div className="h-64 bg-blue-50 rounded-2xl p-6 animate-pulse">
-        <div className="h-8 w-1/4 bg-blue-100 rounded mb-6"></div>
-        <div className="h-10 w-full bg-blue-100 rounded mb-4"></div>
-        <div className="h-4 w-3/4 bg-blue-100 rounded"></div>
-      </div>
-    </div>
+  <div className="min-h-screen bg-slate-100 p-6 space-y-4">
+    <div className="h-16 bg-blue-100 rounded-2xl animate-pulse" />
+    <div className="h-12 bg-blue-50 rounded-xl animate-pulse" />
+    <div className="h-[480px] bg-white rounded-2xl border border-slate-200 animate-pulse" />
   </div>
 );
 
 const StudentDashboard: React.FC = () => {
   const [student, setStudent] = useState<Student | null>(null);
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [subjectPlans, setSubjectPlans] = useState<DevelopmentPlan[]>([]);
   const [selectedSubjectId, setSelectedSubjectId] = useState<string>('all');
   const [activePlan, setActivePlan] = useState<DevelopmentPlan | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<NavItemKey>('overview');
   const [tutorPrefill, setTutorPrefill] = useState<string>('');
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [peerStudyModalOpen, setPeerStudyModalOpen] = useState(false);
   const [resultsTab, setResultsTab] = useState<'analytics' | 'results'>('analytics');
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [isHeaderCompact, setIsHeaderCompact] = useState(false);
+  const accountMenuRef = useRef<HTMLDivElement | null>(null);
+
   const avatarGradients = [
     'from-indigo-500 to-sky-500',
     'from-rose-500 to-amber-500',
@@ -151,12 +216,14 @@ const StudentDashboard: React.FC = () => {
       hash = (hash * 31 + seed.charCodeAt(i)) % 1000;
     }
     return avatarGradients[hash % avatarGradients.length];
-  }, [student, avatarGradients]);
+  }, [student]);
 
   const viewMeta = useMemo(() => {
     switch (activeView) {
       case 'plan':
         return { title: 'My Development Plan', subtitle: 'Guided practice and reasoning checkpoints for each step.' };
+      case 'subjects':
+        return { title: 'My Subjects', subtitle: 'Track curriculum coverage, mastery, and recommended resources.' };
       case 'assessments':
         return { title: 'Assessments', subtitle: 'Complete tasks independently and reflect on feedback.' };
       case 'results':
@@ -164,7 +231,7 @@ const StudentDashboard: React.FC = () => {
       case 'messages':
         return { title: 'Messages', subtitle: 'Collaborate with teachers and classmates.' };
       case 'tutor':
-        return { title: 'AI Tutor', subtitle: 'Ask for clarity, practice, and reasoning checks.' };
+        return { title: 'AI Study Coach', subtitle: 'Collaborate in a guided workspace: plan, reason, and reflect.' };
       case 'peer-study':
         return { title: 'Peer Study', subtitle: 'Collaborate with classmates on weak topics.' };
       case 'mastery-gaps':
@@ -172,9 +239,60 @@ const StudentDashboard: React.FC = () => {
       case 'profile':
         return { title: 'Profile & Settings', subtitle: 'Update your details, avatar, and preferences.' };
       default:
-        return { title: `Welcome back, ${student?.firstName || ''}!`, subtitle: "Here's your academic and development snapshot." };
+        return { title: `Welcome back, ${student?.firstName || ''}!`, subtitle: 'My subjects and development plans.' };
     }
   }, [activeView, student?.firstName]);
+
+  const realPlanBySubjectId = useMemo(() => {
+    const planMap = new Map<string, DevelopmentPlan>();
+    subjectPlans.forEach((planItem) => {
+      const subjectId = planItem.plan?.subjectId;
+      if (!subjectId) return;
+      const current = planMap.get(subjectId);
+      if (!current) {
+        planMap.set(subjectId, planItem);
+        return;
+      }
+      const currentTimestamp = new Date(current.updatedAt || current.startDate || 0).getTime();
+      const nextTimestamp = new Date(planItem.updatedAt || planItem.startDate || 0).getTime();
+      if (nextTimestamp >= currentTimestamp) {
+        planMap.set(subjectId, planItem);
+      }
+    });
+    return planMap;
+  }, [subjectPlans]);
+
+  const displaySubjects = useMemo(() => (subjects.length > 0 ? subjects : MOCK_SUBJECTS), [subjects]);
+  const usingMockSubjects = subjects.length === 0;
+
+  const mockPlanBySubjectId = useMemo(() => {
+    const mockMap = new Map<string, DevelopmentPlan>();
+    displaySubjects.forEach((subject, index) => {
+      mockMap.set(subject.id, buildMockPlan(subject, index));
+    });
+    return mockMap;
+  }, [displaySubjects]);
+
+  const displayPlanBySubjectId = useMemo(() => {
+    const merged = new Map<string, DevelopmentPlan>();
+    displaySubjects.forEach((subject) => {
+      merged.set(subject.id, realPlanBySubjectId.get(subject.id) || mockPlanBySubjectId.get(subject.id)!);
+    });
+    return merged;
+  }, [displaySubjects, realPlanBySubjectId, mockPlanBySubjectId]);
+
+  const overviewSubjects = useMemo(
+    () => displaySubjects.map((subject) => ({ subject, plan: displayPlanBySubjectId.get(subject.id) || null })),
+    [displaySubjects, displayPlanBySubjectId]
+  );
+
+  const averageProgress = useMemo(() => {
+    if (overviewSubjects.length === 0) return 0;
+    const totalProgress = overviewSubjects.reduce((sum, item) => sum + (item.plan?.currentProgress || 0), 0);
+    return Math.round(totalProgress / overviewSubjects.length);
+  }, [overviewSubjects]);
+
+  const streakWeeks = useMemo(() => Math.max(1, Math.ceil((averageProgress || 10) / 12)), [averageProgress]);
 
   useEffect(() => {
     const fetchStudentData = async () => {
@@ -189,34 +307,30 @@ const StudentDashboard: React.FC = () => {
 
         const studentData = await studentService.getStudent(currentUser.studentId);
         setStudent(studentData);
-        console.log("this is all the student data", studentData);
 
-        // Fetch subject data for each subject ID using a more efficient method if possible
         const fetchedSubjects = await Promise.all(
           studentData?.subjects
-            ?.map(subject => typeof subject === 'string' ? subject : subject?.id)
+            ?.map((subject: any) => (typeof subject === 'string' ? subject : subject?.id))
             .filter(Boolean)
-            .map(subjectId => subjectService.getSubjectById(subjectId)) || []
+            .map((subjectId: string) => subjectService.getSubjectById(subjectId)) || []
         );
         setSubjects(fetchedSubjects);
-        console.log("this is all the subjects", fetchedSubjects);
 
-        const studentId = studentData?.id;
-        if (studentId) {
+        if (studentData?.id) {
           try {
-            const plans = await developmentService.getAllPlansForStudent(studentId, 'Active');
-            if (plans.length > 0) setActivePlan(plans[0]);
+            const plans = await developmentService.getAllPlansForStudent(studentData.id, 'Active');
+            setSubjectPlans(plans || []);
           } catch {
-            console.warn('No active development plan found for this student.');
+            setSubjectPlans([]);
           }
         }
       } catch (err: any) {
         setError(err.message || 'Failed to load student data');
-        console.error("Data fetch error:", err);
       } finally {
-        setTimeout(() => setLoading(false), 1000);
+        setTimeout(() => setLoading(false), 500);
       }
     };
+
     fetchStudentData();
   }, []);
 
@@ -227,56 +341,256 @@ const StudentDashboard: React.FC = () => {
     if (activeView !== 'results') {
       setResultsTab('analytics');
     }
+    setAccountMenuOpen(false);
   }, [activeView]);
 
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (accountMenuRef.current && !accountMenuRef.current.contains(event.target as Node)) {
+        setAccountMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsHeaderCompact(window.scrollY > 80);
+    };
+
+    handleScroll();
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  useEffect(() => {
+    if (displaySubjects.length === 0) {
+      setActivePlan(null);
+      return;
+    }
+
+    if (selectedSubjectId === 'all') {
+      const firstSubjectId = displaySubjects[0]?.id;
+      setActivePlan(firstSubjectId ? displayPlanBySubjectId.get(firstSubjectId) || null : null);
+      return;
+    }
+
+    setActivePlan(displayPlanBySubjectId.get(selectedSubjectId) || null);
+  }, [selectedSubjectId, displaySubjects, displayPlanBySubjectId]);
+
   const handleLogout = () => {
-    console.log('🔒 Logout initiated by student.');
     localStorage.clear();
     window.location.href = '/login';
   };
 
   const navItems: Array<{ key: NavItemKey; label: string; icon: React.ComponentType<{ className?: string }> }> = [
-    { key: 'overview', label: 'Dashboard', icon: LayoutDashboard },
+    { key: 'overview', label: 'Home', icon: LayoutDashboard },
     { key: 'plan', label: 'My Plan', icon: BookOpen },
+    { key: 'subjects', label: 'My Subjects', icon: BookOpen },
     { key: 'assessments', label: 'Assessments', icon: FileText },
-    { key: 'results', label: 'Results & Analytics', icon: BarChart2 },
+    { key: 'results', label: 'Results', icon: BarChart2 },
     { key: 'mastery-gaps', label: 'Mastery Gaps', icon: Target },
     { key: 'peer-study', label: 'Peer Study', icon: Users },
-    { key: 'tutor', label: 'AI Tutor', icon: Sparkles },
     { key: 'messages', label: 'Messages', icon: MessageCircle },
-    { key: 'profile', label: 'Profile', icon: User },
   ];
 
-  const containerVariants = {
-    hidden: { opacity: 0 },
-    visible: {
-      opacity: 1,
-      transition: {
-        staggerChildren: 0.1,
-      },
-    },
+  const openPlan = (subjectId: string, plan: DevelopmentPlan) => {
+    if (subjectId.startsWith('mock-subject-')) {
+      setSelectedSubjectId('all');
+    } else {
+      setSelectedSubjectId(subjectId);
+    }
+    setActivePlan(plan);
+    setActiveView('plan');
   };
+
+  const handleOpenTutor = (prompt?: string) => {
+    if (prompt) {
+      setTutorPrefill(prompt);
+    }
+    setActiveView('tutor');
+  };
+
+  const handleOpenProfile = () => {
+    setActiveView('profile');
+    setAccountMenuOpen(false);
+  };
+
+  const handleOpenSettings = () => {
+    setActiveView('profile');
+    setAccountMenuOpen(false);
+  };
+
+  const renderOverview = () => (
+    <div className="space-y-4">
+      <section className="bg-white px-6 py-4">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <p className="text-xl font-semibold text-slate-900">You are on a {streakWeeks}-week streak. Keep going.</p>
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="inline-flex items-center gap-2 text-slate-700">
+              <Flame className="w-5 h-5 text-orange-500" />
+              <span className="text-sm font-semibold">{streakWeeks} week streak</span>
+            </div>
+            <div className="h-8 w-px bg-slate-200" />
+            <div className="min-w-[220px]">
+              <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
+                <span className="font-semibold text-slate-700">Level {(Math.floor(averageProgress / 20) + 1).toString()}</span>
+                <span>{averageProgress}% progress</span>
+              </div>
+              <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
+                <div className="h-2 rounded-full bg-violet-500" style={{ width: `${Math.max(0, Math.min(100, averageProgress))}%` }} />
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="bg-white overflow-hidden">
+        <div className="grid grid-cols-1 xl:grid-cols-[220px_1fr] min-h-[640px]">
+          <aside className="border-r border-slate-200 p-5">
+            <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">My Stuff</p>
+            <button className="w-full mt-3 text-left rounded-md bg-blue-50 text-blue-700 font-semibold px-4 py-2.5 text-sm">
+              My Subjects
+            </button>
+            <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mt-7">My Account</p>
+            <div className="mt-3 space-y-1.5">
+              <button className="w-full text-left rounded-md px-4 py-2 text-sm text-slate-600 hover:bg-slate-100">Progress</button>
+              <button className="w-full text-left rounded-md px-4 py-2 text-sm text-slate-600 hover:bg-slate-100">Profile</button>
+              <button className="w-full text-left rounded-md px-4 py-2 text-sm text-slate-600 hover:bg-slate-100">Teachers</button>
+            </div>
+          </aside>
+
+          <div className="p-6 space-y-8">
+            {usingMockSubjects && (
+              <div className="flex justify-end">
+                <span className="inline-flex items-center rounded-md bg-amber-50 border border-amber-200 px-2.5 py-1 text-[11px] font-semibold text-amber-700">
+                  Mock plans
+                </span>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 2xl:grid-cols-2 gap-x-10 gap-y-10">
+              {overviewSubjects.map(({ subject, plan }) => {
+                if (!plan) return null;
+
+                const sortedSteps = (plan.plan.steps || []).slice().sort((a, b) => (a.order || 0) - (b.order || 0));
+                const totalSteps = sortedSteps.length;
+                const safeProgress = Math.max(0, Math.min(100, plan.currentProgress));
+                const completedSteps = Math.floor((safeProgress / 100) * (totalSteps || 1));
+                const currentStepIndex = Math.min(completedSteps, Math.max(totalSteps - 1, 0));
+                const planAction = safeProgress > 0 ? 'Resume plan' : 'Start plan';
+                const visibleSteps = sortedSteps.slice(0, 4);
+                const visibleStepCount = visibleSteps.length;
+                const completedVisibleSteps = Math.min(completedSteps, visibleStepCount);
+                const connectorProgress =
+                  visibleStepCount <= 1
+                    ? 0
+                    : Math.max(
+                        0,
+                        Math.min(
+                          100,
+                          ((completedVisibleSteps + (completedVisibleSteps < visibleStepCount && safeProgress > 0 ? 0.5 : 0)) /
+                            (visibleStepCount - 1)) *
+                            100
+                        )
+                      );
+
+                return (
+                  <article key={subject.id} className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h3 className="text-2xl font-semibold text-slate-900">{subject.name}</h3>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => openPlan(subject.id, plan)}
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs font-semibold bg-blue-600 text-white hover:bg-blue-700"
+                      >
+                        {safeProgress > 0 ? <RotateCcw className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                        {planAction}
+                      </button>
+                    </div>
+
+                    <div className="border-t border-slate-200 pt-4">
+                      <div className="relative">
+                        {visibleStepCount > 1 && (
+                          <>
+                            <div className="absolute left-4 top-2 bottom-2 w-px bg-slate-200" />
+                            <div
+                              className="absolute left-4 top-2 w-px bg-blue-500"
+                              style={{ height: `${connectorProgress}%` }}
+                            />
+                          </>
+                        )}
+                        <div className="space-y-4">
+                      {visibleSteps.map((step, index) => {
+                        const isCompleted = index < completedSteps;
+                        const isCurrent = !isCompleted && index === currentStepIndex;
+
+                        return (
+                          <div key={`${subject.id}-${step.title}-${index}`} className="flex items-start gap-3 py-0.5">
+                            <div className="flex items-start gap-3 min-w-0">
+                              <div className={`relative z-10 w-8 h-8 rounded-full flex items-center justify-center ${
+                                isCompleted ? 'bg-emerald-100 text-emerald-700' : 'bg-cyan-100 text-cyan-700'
+                              }`}>
+                                {isCompleted ? <CheckCircle2 className="w-4 h-4" /> : getStepIcon(step.type)}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="text-sm font-semibold text-slate-800 truncate">{step.title}</p>
+                                <p className="text-xs text-slate-500 mt-0.5 capitalize">
+                                  {isCompleted ? 'Completed' : isCurrent ? 'In progress' : 'Not started'} • {step.type}
+                                </p>
+                              </div>
+                            </div>
+                            <span
+                              className={`inline-flex items-center rounded-md px-2.5 py-1 text-[11px] font-semibold ${
+                                isCompleted
+                                  ? 'bg-emerald-100 text-emerald-700'
+                                  : isCurrent
+                                    ? 'bg-blue-100 text-blue-700'
+                                    : 'bg-slate-100 text-slate-600'
+                              } shrink-0 mt-0.5`}
+                            >
+                              {isCompleted ? 'Completed' : isCurrent ? 'In progress' : 'Pending'}
+                            </span>
+                          </div>
+                        );
+                      })}
+                        </div>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
 
   const renderContent = () => {
     if (!student) return null;
 
-    const handleOpenTutor = (prompt?: string) => {
-      if (prompt) {
-        setTutorPrefill(prompt);
-      }
-      setActiveView('tutor');
-    };
-
     switch (activeView) {
       case 'plan':
         return activePlan ? (
-          <StudentPlanView plan={activePlan} student={student} onOpenTutor={handleOpenTutor} />
+          <StudentPlanView plan={activePlan} />
         ) : (
-          <div className="bg-white rounded-2xl shadow-sm p-8 text-center animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-sm p-8 text-center">
             <BookOpen className="w-16 h-16 text-slate-300 mx-auto mb-4" />
             <h3 className="text-xl font-semibold text-slate-700 mb-2">No Active Plan</h3>
-            <p className="text-slate-500">You don't have an active development plan assigned yet.</p>
+            <p className="text-slate-500">No plan available for the selected subject.</p>
           </div>
+        );
+      case 'subjects':
+        return (
+          <StudentSubjectsView
+            selectedSubjectId={selectedSubjectId}
+            subjects={displaySubjects}
+          />
         );
       case 'messages':
         return <StudentMessages studentId={student.id} />;
@@ -363,91 +677,7 @@ const StudentDashboard: React.FC = () => {
           />
         );
       default:
-        return (
-          <motion.div
-            className="space-y-8"
-            variants={containerVariants}
-            initial="hidden"
-            animate="visible"
-          >
-            {/* Quick Stats Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              <StatCard icon={TrendingUp} title="Performance" value={student.performance} color="bg-green-500" change={undefined} />
-              <StatCard icon={Target} title="Key Strength" value={student.strength} color="bg-sky-500" change={undefined} />
-              <StatCard icon={Calendar} title="Engagement" value={student.engagement} color="bg-amber-500" change={undefined} />
-            </div>
-
-            {/* Development Plan & Recent Activity */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              {/* Current Plan Preview */}
-              <motion.div
-                className="lg:col-span-2 bg-white rounded-2xl shadow-sm p-8 hover:shadow-lg transition-shadow duration-300"
-                variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }}
-              >
-                {activePlan ? (
-                  <>
-                    <h2 className="text-2xl font-bold text-slate-800 mb-4">Current Development Plan</h2>
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="text-lg font-semibold text-slate-700">{activePlan.plan.name}</h3>
-                      <p className="text-sm text-slate-500">Target: {activePlan.plan.potentialOverall}</p>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <div className="w-full bg-slate-200 rounded-full h-3">
-                        <motion.div
-                          className="bg-blue-600 h-3 rounded-full"
-                          initial={{ width: 0 }}
-                          animate={{ width: `${activePlan.currentProgress}%` }}
-                          transition={{ duration: 1, ease: "easeOut" }}
-                        />
-                      </div>
-                      <span className="text-lg font-bold text-blue-600">{activePlan.currentProgress}%</span>
-                    </div>
-                    <button
-                      onClick={() => setActiveView('plan')}
-                      className="mt-6 inline-flex items-center text-blue-600 font-semibold hover:text-blue-800 transition-colors"
-                    >
-                      View Full Plan <ChevronRight className="w-4 h-4 ml-1" />
-                    </button>
-                  </>
-                ) : (
-                  <div className="text-center py-8">
-                    <BookOpen className="w-12 h-12 text-slate-300 mx-auto mb-4" />
-                    <h3 className="text-lg font-semibold text-slate-700 mb-2">No Active Plan</h3>
-                    <p className="text-slate-500">Your development plan will appear here once assigned.</p>
-                  </div>
-                )}
-              </motion.div>
-
-              {/* Recent Activity */}
-              <motion.div
-                className="bg-white rounded-2xl shadow-sm p-8"
-                variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }}
-              >
-                <h2 className="text-2xl font-bold text-slate-800 mb-6">Recent Activity</h2>
-                <div className="space-y-5">
-                  <div className="flex items-start">
-                    <div className="w-8 h-8 flex-shrink-0 bg-sky-100 rounded-full flex items-center justify-center mr-4">
-                      <BookOpen className="w-4 h-4 text-sky-600" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-slate-700">Completed Lab Exercise</p>
-                      <p className="text-sm text-slate-500">2 hours ago</p>
-                    </div>
-                  </div>
-                  <div className="flex items-start">
-                    <div className="w-8 h-8 flex-shrink-0 bg-green-100 rounded-full flex items-center justify-center mr-4">
-                      <Target className="w-4 h-4 text-green-600" />
-                    </div>
-                    <div>
-                      <p className="font-medium text-slate-700">Skill Improvement</p>
-                      <p className="text-sm text-slate-500">1 day ago</p>
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-            </div>
-          </motion.div>
-        );
+        return renderOverview();
     }
   };
 
@@ -468,145 +698,186 @@ const StudentDashboard: React.FC = () => {
   }
 
   return (
-    <div className="h-screen bg-slate-100 flex overflow-hidden">
-      {/* Sidebar Navigation */}
-      <aside
-        className={`bg-white shadow-md flex-shrink-0 flex flex-col h-screen sticky top-0 transition-all duration-200 ${
-          sidebarCollapsed ? 'w-20' : 'w-64'
-        }`}
-      >
-        <div className={`p-6 border-b border-slate-200 ${sidebarCollapsed ? 'px-4' : ''}`}>
-          <div className="flex items-start justify-between">
-            {!sidebarCollapsed && (
-              <div className="text-2xl font-bold text-blue-600">Student Portal</div>
-            )}
-            <button
-              type="button"
-              onClick={() => setSidebarCollapsed((prev) => !prev)}
-              className="ml-auto inline-flex items-center justify-center w-8 h-8 rounded-md hover:bg-slate-100 text-slate-600 transition-colors"
-              aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-              title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            >
-              <Menu className="w-4 h-4" />
-            </button>
+    <div
+      className="min-h-screen bg-slate-100"
+      style={{ ['--student-header-offset' as string]: isHeaderCompact ? '4.75rem' : '9rem' }}
+    >
+      <header className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-sm">
+        <div
+          className={`transition-all duration-200 ${
+            isHeaderCompact
+              ? 'max-h-0 overflow-hidden opacity-0 -translate-y-1 pointer-events-none'
+              : 'relative z-30 max-h-28 overflow-visible opacity-100 translate-y-0'
+          }`}
+        >
+          <div className="max-w-[1400px] mx-auto px-4 py-3 flex items-center justify-between gap-3">
+            <div className="flex items-center justify-center">
+              <span className="text-2xl font-bold text-blue-700">ZiVAI Learning</span>
+            </div>
+
+            <div className="flex items-center justify-end">
+              <div
+                ref={accountMenuRef}
+                className="relative z-50"
+              >
+                <button
+                  type="button"
+                  onClick={() => setAccountMenuOpen((prev) => !prev)}
+                  className="inline-flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+                  aria-haspopup="menu"
+                  aria-expanded={accountMenuOpen}
+                >
+                  <div
+                    className={`w-8 h-8 rounded-full overflow-hidden flex items-center justify-center text-xs font-semibold ${
+                      student.avatar
+                        ? 'bg-slate-100 border border-slate-200 text-slate-600'
+                        : `bg-gradient-to-br ${avatarGradient} text-white`
+                    }`}
+                  >
+                    {student.avatar ? (
+                      <img
+                        src={student.avatar}
+                        alt={`${student.firstName} avatar`}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      avatarInitials
+                    )}
+                  </div>
+                  <span className="hidden md:block font-medium">{student.firstName} {student.lastName}</span>
+                  <ChevronDown className={`w-4 h-4 transition ${accountMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {accountMenuOpen && (
+                  <div
+                    role="menu"
+                    className="absolute top-full right-0 mt-2 w-44 rounded-lg border border-slate-200 bg-white shadow-lg py-1 z-[70]"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleOpenProfile();
+                        setAccountMenuOpen(false);
+                      }}
+                      className="w-full px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                    >
+                      <User className="w-4 h-4 text-slate-500" />
+                      Profile
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleOpenSettings();
+                        setAccountMenuOpen(false);
+                      }}
+                      className="w-full px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 flex items-center gap-2"
+                    >
+                      <Settings className="w-4 h-4 text-slate-500" />
+                      Settings
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAccountMenuOpen(false);
+                        handleLogout();
+                      }}
+                      className="w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      Logout
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
-          <div className={`mt-4 flex items-center gap-3 ${sidebarCollapsed ? 'flex-col' : ''}`}>
-            <div
-              className={`w-12 h-12 rounded-full overflow-hidden flex items-center justify-center text-sm font-semibold transition-colors ${
-                student.avatar
-                  ? 'bg-slate-100 border border-slate-200 text-slate-600'
-                  : `bg-gradient-to-br ${avatarGradient} text-white shadow-sm`
-              }`}
-            >
-              {student.avatar ? (
-                <img
-                  src={student.avatar}
-                  alt={`${student.firstName} avatar`}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                avatarInitials
+        </div>
+
+        <div className={`${isHeaderCompact ? '' : 'border-t border-slate-200'} relative z-10 bg-slate-50/70`}>
+          <nav className="max-w-[1400px] mx-auto px-4">
+            <div className="flex items-center gap-3 py-1.5">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-6 overflow-x-auto overflow-y-hidden whitespace-nowrap pr-2">
+                  {navItems.map(({ key, label, icon: Icon }) => (
+                    <button
+                      key={key}
+                      type="button"
+                      onClick={() => setActiveView(key)}
+                      className={`group relative inline-flex items-center gap-2 py-3 text-sm transition ${
+                        activeView === key
+                          ? 'text-slate-900 font-semibold'
+                          : 'text-slate-500 font-medium hover:text-slate-900'
+                      }`}
+                    >
+                      <Icon className={`hidden xl:block w-4 h-4 transition ${
+                        activeView === key ? 'text-blue-600' : 'text-slate-400 group-hover:text-slate-700'
+                      }`} />
+                      <span>{label}</span>
+                      <span
+                        className={`absolute left-0 right-0 bottom-0 h-0.5 rounded-full transition ${
+                          activeView === key ? 'bg-blue-600' : 'bg-transparent group-hover:bg-slate-300'
+                        }`}
+                      />
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {subjects.length > 0 && (
+                <div className="hidden md:flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 shrink-0 ml-auto relative z-0">
+                  <BookOpen className="w-4 h-4 text-slate-400" />
+                  <span className="text-xs font-medium text-slate-500">Subject</span>
+                  <div className="relative">
+                    <select
+                      value={selectedSubjectId}
+                      onChange={(e) => setSelectedSubjectId(e.target.value)}
+                      className="appearance-none bg-transparent text-sm font-semibold text-slate-700 focus:outline-none min-w-[170px] pl-1 pr-6 py-0.5"
+                    >
+                      <option value="all">All Subjects</option>
+                      {subjects.map((subject) => (
+                        <option key={subject.id} value={subject.id}>
+                          {`${subject.code}: ${subject.name}`}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-0.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  </div>
+                </div>
               )}
             </div>
-            {!sidebarCollapsed && (
-              <div className="text-sm">
-                <p className="font-semibold text-slate-800">
-                  {student.firstName} {student.lastName}
-                </p>
-              </div>
-            )}
-          </div>
+          </nav>
         </div>
-        <nav className={`flex-grow p-4 ${sidebarCollapsed ? 'px-2' : ''}`}>
-          {navItems.map(({ key, label, icon: Icon }) => (
-            <button
-              key={key}
-              onClick={() => setActiveView(key)}
-              title={sidebarCollapsed ? label : undefined}
-              className={`w-full flex items-center ${
-                sidebarCollapsed ? 'justify-center px-2' : 'px-4'
-              } py-3 my-1 rounded-lg text-left font-semibold transition-all duration-200 ${
-                activeView === key
-                  ? 'bg-blue-600 text-white shadow-lg'
-                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-800'
-              }`}
-            >
-              <Icon className={`w-5 h-5 ${sidebarCollapsed ? '' : 'mr-3'}`} />
-              {!sidebarCollapsed && label}
-            </button>
-          ))}
-        </nav>
-        <div className="p-4 border-t border-slate-200">
-          <button
-            onClick={handleLogout}
-            title={sidebarCollapsed ? 'Logout' : undefined}
-            className={`w-full flex items-center ${
-              sidebarCollapsed ? 'justify-center px-2' : 'px-4'
-            } py-3 rounded-lg text-slate-600 font-semibold bg-slate-100 hover:bg-red-100 hover:text-red-700 transition-colors duration-200`}
-          >
-            <LogOut className={`w-5 h-5 ${sidebarCollapsed ? '' : 'mr-3'}`} />
-            {!sidebarCollapsed && 'Logout'}
-          </button>
-        </div>
-      </aside>
+      </header>
 
-      {/* Main Content */}
-      <main className="flex-1 p-8 overflow-y-auto">
-        <header className="mb-8">
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
-            <div className="space-y-3">
-              <div className="flex items-center gap-3">
-                <div>
-                  <h1 className={`${activeView === 'overview' ? 'text-3xl' : 'text-2xl'} font-bold text-slate-900`}>
-                    {viewMeta.title}
-                  </h1>
-                  <p className="text-slate-500 mt-1">{viewMeta.subtitle}</p>
-                </div>
+      <main className="w-full bg-white py-6">
+        <div className="max-w-[1400px] mx-auto px-4">
+          {activeView === 'peer-study' && (
+            <header className="mb-6">
+              <div className="flex flex-wrap items-center justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setPeerStudyModalOpen(true)}
+                  className="inline-flex items-center justify-center gap-2 bg-blue-600 text-white text-sm font-semibold px-4 py-2 rounded-md hover:bg-blue-700"
+                >
+                  <PlusCircle className="w-4 h-4" />
+                  Create collaboration request
+                </button>
               </div>
-            </div>
-            {subjects.length > 0 && (
-              <div className="flex flex-wrap items-center gap-3">
-                {activeView === 'peer-study' && (
-                  <button
-                    type="button"
-                    onClick={() => setPeerStudyModalOpen(true)}
-                    className="inline-flex items-center justify-center gap-2 bg-blue-600 text-white text-sm font-semibold px-4 py-2 rounded-md hover:bg-blue-700"
-                  >
-                    <PlusCircle className="w-4 h-4" />
-                    Create collaboration request
-                  </button>
-                )}
-                <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2 shadow-sm">
-                  <BookOpen className="w-4 h-4 text-slate-500" />
-                  <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Subject</span>
-                  <select
-                    value={selectedSubjectId}
-                    onChange={(e) => setSelectedSubjectId(e.target.value)}
-                    className="bg-transparent text-sm font-semibold text-slate-700 focus:outline-none min-w-[170px]"
-                  >
-                    <option value="all">All Subjects</option>
-                    {subjects.map(subject => (
-                      <option key={subject.id} value={subject.id}>
-                        {`${subject.code}: ${subject.name}`}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            )}
-          </div>
-        </header>
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={activeView}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            transition={{ duration: 0.3 }}
-          >
-            {renderContent()}
-          </motion.div>
-        </AnimatePresence>
+            </header>
+          )}
+
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={activeView}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.2 }}
+            >
+              {renderContent()}
+            </motion.div>
+          </AnimatePresence>
+        </div>
       </main>
     </div>
   );
