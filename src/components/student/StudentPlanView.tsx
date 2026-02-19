@@ -11,6 +11,7 @@ import {
   FileText,
   Video,
 } from 'lucide-react';
+import StudentPracticeRunner, { buildMockPracticeQuestions } from './StudentPracticeRunner';
 
 interface StudentPlanViewProps {
   plan: DevelopmentPlan;
@@ -191,8 +192,8 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan }) => {
   const currentStepIndex = Math.min(completedStepsCount, Math.max(totalSteps - 1, 0));
 
   const [selectedStepIndex, setSelectedStepIndex] = useState(0);
-  const [stepWorkspaceNotes, setStepWorkspaceNotes] = useState<Record<number, string>>({});
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [completedPracticeSteps, setCompletedPracticeSteps] = useState<Record<number, boolean>>({});
 
   const selectedStep = sortedSteps[selectedStepIndex] || null;
   const nextStep = selectedStepIndex < totalSteps - 1 ? sortedSteps[selectedStepIndex + 1] : null;
@@ -214,6 +215,13 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan }) => {
   useEffect(() => {
     setSelectedStepIndex(currentStepIndex);
   }, [plan.id, currentStepIndex]);
+
+  useEffect(() => {
+    setCompletedPracticeSteps({});
+  }, [plan.id]);
+
+  const selectedStepIsPractice = Boolean(selectedStep && isPracticeStep(selectedStep.type));
+  const showUpNextFooter = !selectedStepIsPractice || Boolean(completedPracticeSteps[selectedStepIndex]);
 
   return (
     <motion.div
@@ -392,60 +400,64 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan }) => {
           )}
 
           {selectedStep && isPracticeStep(selectedStep.type) && (
-            <section className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="text-base font-semibold text-slate-800">Step Workspace</h3>
-                <span className="text-xs text-slate-500">Draft your attempt and notes for this step</span>
-              </div>
-              <textarea
-                value={stepWorkspaceNotes[selectedStepIndex] || ''}
-                onChange={(event) => setStepWorkspaceNotes((prev) => ({ ...prev, [selectedStepIndex]: event.target.value }))}
-                placeholder="Write your attempt, assumptions, and questions for this step..."
-                className="w-full min-h-[150px] rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </section>
+            <StudentPracticeRunner
+              key={`${plan.id}-${selectedStepIndex}`}
+              title={selectedStep.title}
+              subtitle="Practice questions are delivered one at a time. Check each answer before moving on."
+              questions={buildMockPracticeQuestions(selectedStep.title, selectedStep.type === 'assignment' ? 'assignment' : 'quiz')}
+              onComplete={() =>
+                setCompletedPracticeSteps((previous) => ({
+                  ...previous,
+                  [selectedStepIndex]: true,
+                }))
+              }
+            />
           )}
         </div>
 
       </div>
 
-      <div
-        className="hidden md:block fixed bottom-0 z-30"
-        style={{
-          left: 'var(--student-plan-footer-left)',
-          right: 'var(--student-plan-footer-right)',
-        }}
-      >
-        <footer className="border-t border-slate-200 bg-white px-6 py-4">
-          <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={() => {
-                if (nextStep) setSelectedStepIndex((prev) => Math.min(prev + 1, totalSteps - 1));
-              }}
-              disabled={!nextStep}
-              className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
-            >
-              {nextStep ? `Up next: ${getNextStepLabel(nextStep.type)}` : 'Plan complete'}
-            </button>
-          </div>
-        </footer>
-      </div>
-
-      <div className="md:hidden border-t border-slate-200 bg-white px-6 py-4">
-        <div className="flex justify-end">
-          <button
-            type="button"
-            onClick={() => {
-              if (nextStep) setSelectedStepIndex((prev) => Math.min(prev + 1, totalSteps - 1));
+      {showUpNextFooter && (
+        <>
+          <div
+            className="hidden md:block fixed bottom-0 z-30"
+            style={{
+              left: 'var(--student-plan-footer-left)',
+              right: 'var(--student-plan-footer-right)',
             }}
-            disabled={!nextStep}
-            className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
           >
-            {nextStep ? `Up next: ${getNextStepLabel(nextStep.type)}` : 'Plan complete'}
-          </button>
-        </div>
-      </div>
+            <footer className="border-t border-slate-200 bg-white px-6 py-4">
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (nextStep) setSelectedStepIndex((prev) => Math.min(prev + 1, totalSteps - 1));
+                  }}
+                  disabled={!nextStep}
+                  className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
+                >
+                  {nextStep ? `Up next: ${getNextStepLabel(nextStep.type)}` : 'Plan complete'}
+                </button>
+              </div>
+            </footer>
+          </div>
+
+          <div className="md:hidden border-t border-slate-200 bg-white px-6 py-4">
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  if (nextStep) setSelectedStepIndex((prev) => Math.min(prev + 1, totalSteps - 1));
+                }}
+                disabled={!nextStep}
+                className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
+              >
+                {nextStep ? `Up next: ${getNextStepLabel(nextStep.type)}` : 'Plan complete'}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </motion.div>
   );
 };
