@@ -1,41 +1,20 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { DevelopmentPlan, Student, Step } from '../../types';
+import { DevelopmentPlan, Step } from '../../types';
 import {
   BookOpen,
+  ChevronsLeft,
+  ChevronsRight,
   CheckCircle,
   Edit,
   ExternalLink,
   FileText,
-  Loader2,
-  MessageCircle,
-  Send,
-  Sparkles,
   Video,
 } from 'lucide-react';
-import { aiTutorService, AiTutorMessage, AiTutorSession } from '../../services/aiTutorService';
-import { fetchData } from '../../services/http';
 
 interface StudentPlanViewProps {
   plan: DevelopmentPlan;
-  student: Student;
-  onOpenTutor?: (prompt?: string) => void;
 }
-
-interface ResourceSummary {
-  id: string;
-  name: string;
-  originalName?: string | null;
-  mimeType?: string | null;
-  url?: string | null;
-  contentBody?: string | null;
-}
-
-type StepMaterial =
-  | { kind: 'resource'; resource: ResourceSummary }
-  | { kind: 'url'; url: string };
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const getStepIcon = (type: string) => {
   switch (type) {
@@ -54,9 +33,9 @@ const getStepIcon = (type: string) => {
 
 const getProgressColor = (progress: number) => {
   if (progress >= 80) return 'bg-green-500';
-  if (progress >= 60) return 'bg-blue-500';
-  if (progress >= 40) return 'bg-yellow-500';
-  return 'bg-red-500';
+  if (progress >= 60) return 'bg-blue-600';
+  if (progress >= 40) return 'bg-blue-500';
+  return 'bg-blue-400';
 };
 
 const getStepTagColor = (type: string) => {
@@ -76,29 +55,155 @@ const getStepTagColor = (type: string) => {
   }
 };
 
-const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, student, onOpenTutor }) => {
+const isPracticeStep = (type: string) => type === 'assignment' || type === 'quiz';
+
+const getNextStepLabel = (type: string) => {
+  switch (type) {
+    case 'quiz':
+      return 'quiz';
+    case 'document':
+      return 'notes';
+    case 'assignment':
+      return 'article';
+    case 'discussion':
+      return 'article';
+    case 'video':
+      return 'notes';
+    default:
+      return 'next step';
+  }
+};
+
+const getStepLessonContent = (step: Step) => {
+  const topic = step.title;
+
+  if (step.type === 'document') {
+    return {
+      intro: `This lesson introduces ${topic.toLowerCase()} and explains how to apply it in worked examples.`,
+      sections: [
+        {
+          heading: 'What you will learn in this lesson',
+          paragraphs: [
+            `You will build a clear understanding of ${topic.toLowerCase()} and when to use it in classwork or assessments.`,
+            'You should be able to explain the concept in your own words and identify it in practical examples.',
+          ],
+        },
+        {
+          heading: 'Core explanation',
+          paragraphs: [
+            `Start by reading each concept slowly, then summarize each key point before moving on to the next one.`,
+            'As you read, note definitions, rules, and common mistakes to avoid.',
+          ],
+        },
+      ],
+    };
+  }
+
+  if (step.type === 'assignment') {
+    return {
+      intro: `This task is focused on applying ${topic.toLowerCase()} through guided problem solving.`,
+      sections: [
+        {
+          heading: 'How to approach this task',
+          paragraphs: [
+            'Break each question into smaller parts and write your reasoning for every step.',
+            'Do not jump to a final answer without showing method, assumptions, and checks.',
+          ],
+        },
+        {
+          heading: 'Submission quality checklist',
+          paragraphs: [
+            'Show full working, include units/labels where needed, and verify final results.',
+            'Review your answer and explain why your method is valid.',
+          ],
+        },
+      ],
+    };
+  }
+
+  if (step.type === 'quiz') {
+    return {
+      intro: `This quiz checks mastery of ${topic.toLowerCase()} with timed practice items.`,
+      sections: [
+        {
+          heading: 'Before you start',
+          paragraphs: [
+            'Review your notes and recall key formulas, rules, or definitions.',
+            'Focus on accuracy first, then speed.',
+          ],
+        },
+        {
+          heading: 'After each attempt',
+          paragraphs: [
+            'Identify exactly where errors happened and classify the mistake type.',
+            'Retry similar items until your method is consistent.',
+          ],
+        },
+      ],
+    };
+  }
+
+  if (step.type === 'discussion') {
+    return {
+      intro: `This discussion step helps you strengthen reasoning for ${topic.toLowerCase()}.`,
+      sections: [
+        {
+          heading: 'Discussion focus',
+          paragraphs: [
+            'State your position clearly, then support it with evidence from your work.',
+            'Compare alternative approaches and explain which is more reliable.',
+          ],
+        },
+        {
+          heading: 'Reflection prompt',
+          paragraphs: [
+            'What changed in your understanding after this discussion?',
+            'Which misconception did you correct and how will you avoid it next time?',
+          ],
+        },
+      ],
+    };
+  }
+
+  return {
+    intro: `This learning step helps you progress through ${topic.toLowerCase()}.`,
+    sections: [
+      {
+        heading: 'Learning goal',
+        paragraphs: [
+          'Engage with the material actively and write down key takeaways.',
+          'Translate the concept into your own words to confirm understanding.',
+        ],
+      },
+    ],
+  };
+};
+
+const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan }) => {
   const sortedSteps = useMemo(
     () => plan.plan.steps?.slice().sort((a, b) => (a.order || 0) - (b.order || 0)) || [],
     [plan.plan.steps]
   );
 
   const totalSteps = sortedSteps.length;
-  const completedStepsCount = Math.floor((plan.currentProgress / 100) * totalSteps);
+  const safeProgress = Math.max(0, Math.min(100, plan.currentProgress || 0));
+  const completedStepsCount = Math.floor((safeProgress / 100) * totalSteps);
+  const currentStepIndex = Math.min(completedStepsCount, Math.max(totalSteps - 1, 0));
 
   const [selectedStepIndex, setSelectedStepIndex] = useState(0);
   const [stepWorkspaceNotes, setStepWorkspaceNotes] = useState<Record<number, string>>({});
-
-  const [session, setSession] = useState<AiTutorSession | null>(null);
-  const [messages, setMessages] = useState<AiTutorMessage[]>([]);
-  const [aiPrompt, setAiPrompt] = useState('');
-  const [isAiLoading, setIsAiLoading] = useState(false);
-  const [isSending, setIsSending] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
-
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
-  const promptRef = useRef<HTMLTextAreaElement | null>(null);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const selectedStep = sortedSteps[selectedStepIndex] || null;
+  const nextStep = selectedStepIndex < totalSteps - 1 ? sortedSteps[selectedStepIndex + 1] : null;
+  const selectedStepLesson = useMemo(
+    () => (selectedStep ? getStepLessonContent(selectedStep) : null),
+    [selectedStep]
+  );
+  const sidebarDesktopWidth = isSidebarCollapsed ? 'md:w-[88px]' : 'md:w-[340px]';
+  const contentDesktopOffset = isSidebarCollapsed ? 'md:ml-[88px]' : 'md:ml-[340px]';
+  const desktopSidebarWidthPx = isSidebarCollapsed ? 88 : 340;
+  const desktopContainerInset = 'max(1rem, calc((100vw - 1400px)/2 + 1rem))';
 
   useEffect(() => {
     if (selectedStepIndex > sortedSteps.length - 1) {
@@ -107,397 +212,240 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, student, onOpen
   }, [selectedStepIndex, sortedSteps.length]);
 
   useEffect(() => {
-    if (!student?.id || !plan?.plan?.subjectId) {
-      setSession(null);
-      setMessages([]);
-      return;
-    }
-
-    let isActive = true;
-    setIsAiLoading(true);
-    setAiError(null);
-
-    (async () => {
-      const nextSession = await aiTutorService.getOrCreateSession(student.id, plan.plan.subjectId, student.id);
-      if (!isActive) return;
-
-      setSession(nextSession);
-      const chatMessages = await aiTutorService.listMessages(nextSession.id);
-      if (!isActive) return;
-
-      setMessages((chatMessages || []).slice(-40));
-    })()
-      .catch((err: any) => {
-        if (!isActive) return;
-        setAiError(err?.message || 'Failed to initialize plan collaborator.');
-      })
-      .finally(() => {
-        if (isActive) {
-          setIsAiLoading(false);
-        }
-      });
-
-    return () => {
-      isActive = false;
-    };
-  }, [student?.id, plan?.plan?.subjectId]);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [messages, isSending]);
-
-  const buildStepPrompt = (step: Step, intent: 'explain' | 'practice' | 'reasoning' | 'hint') => {
-    const stepNotes = (stepWorkspaceNotes[selectedStepIndex] || '').trim();
-    const notesBlock = stepNotes ? `\nMy attempt so far:\n${stepNotes}` : '';
-
-    if (intent === 'practice') {
-      return `Give me one practice question for "${step.title}". Do not provide the final answer. Guide with hints after I attempt.${notesBlock}`;
-    }
-    if (intent === 'reasoning') {
-      return `I am working on "${step.title}". Review my reasoning and ask probing questions instead of solving it for me.${notesBlock}`;
-    }
-    if (intent === 'hint') {
-      return `I am stuck on "${step.title}". Give me one next hint only, then ask what I think the next move should be.${notesBlock}`;
-    }
-    return `Explain the concept behind "${step.title}" in a guided way. Ask me to restate the key idea in my own words.${notesBlock}`;
-  };
-
-  const handleSendPrompt = async (overridePrompt?: string) => {
-    const prompt = (overridePrompt || aiPrompt).trim();
-    if (!prompt || !session || isSending) {
-      return;
-    }
-
-    setIsSending(true);
-    setAiError(null);
-
-    try {
-      await aiTutorService.sendMessage({
-        sessionId: session.id,
-        senderId: student.id,
-        senderRole: 'student',
-        contentType: 'text',
-        content: prompt,
-        contentPayload: {
-          source: 'student-plan-collaborator',
-          planId: plan.id,
-          planName: plan.plan.name,
-          stepTitle: selectedStep?.title || null,
-          stepType: selectedStep?.type || null,
-          stepOrder: selectedStep?.order ?? null,
-          stepWorkspaceNotes: selectedStep ? (stepWorkspaceNotes[selectedStepIndex] || '') : '',
-          noDirectSolutions: true,
-          coachingExpectation: 'Guide reasoning, ask questions, and provide hints only.',
-        },
-        autoReply: true,
-      });
-
-      setAiPrompt('');
-
-      const updatedMessages = await aiTutorService.listMessages(session.id);
-      setMessages((updatedMessages || []).slice(-40));
-    } catch (err: any) {
-      setAiError(err?.message || 'Failed to send prompt to collaborator.');
-    } finally {
-      setIsSending(false);
-    }
-  };
+    setSelectedStepIndex(currentStepIndex);
+  }, [plan.id, currentStepIndex]);
 
   return (
     <motion.div
-      className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start"
+      className="bg-white rounded-xl md:relative"
+      style={{
+        ['--student-plan-footer-left' as string]: `calc(${desktopContainerInset} + ${desktopSidebarWidthPx}px)`,
+        ['--student-plan-footer-right' as string]: desktopContainerInset,
+      }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5 }}
     >
-      <div className="lg:col-span-2 bg-white rounded-xl shadow-sm p-6 space-y-6">
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between gap-3">
-            <h2 className="text-xl font-bold text-gray-800">{plan.plan.name}</h2>
-          </div>
-          <p className="text-gray-500 text-sm">{plan.plan.description}</p>
-          <div className="w-full bg-gray-200 rounded-full h-2.5">
-            <div
-              className={`${getProgressColor(plan.currentProgress)} h-2.5 rounded-full`}
-              style={{ width: `${plan.currentProgress}%` }}
-            />
-          </div>
-        </div>
-
-        <div className="relative pl-6">
-          <div className="absolute left-6 top-0 bottom-0 w-0.5 bg-gray-200" aria-hidden="true" />
-          <div className="space-y-6">
-            {sortedSteps.map((step, index) => {
-              const isCompleted = index < completedStepsCount;
-              const isSelected = index === selectedStepIndex;
-
-              return (
-                <div key={`${step.title}-${index}`} className="relative flex items-start">
-                  <div
-                    className={`absolute left-0 top-1 w-5 h-5 rounded-full flex items-center justify-center transform -translate-x-1/2 ${
-                      isCompleted ? 'bg-green-500' : 'bg-gray-300'
-                    }`}
-                  >
-                    {isCompleted && <CheckCircle className="w-5 h-5 text-white" />}
-                  </div>
-
-                  <div
-                    className={`w-full p-4 rounded-lg ml-8 transition-colors border ${
-                      isSelected
-                        ? 'bg-blue-50 border-blue-200 ring-1 ring-blue-200'
-                        : isCompleted
-                          ? 'bg-green-50 border-green-100'
-                          : 'bg-gray-50 border-gray-100'
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <h3 className={`font-semibold ${isCompleted ? 'text-green-800' : 'text-gray-700'}`}>{step.title}</h3>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedStepIndex(index)}
-                        className="text-[11px] font-semibold text-blue-600 hover:text-blue-700"
-                      >
-                        Focus step
-                      </button>
-                    </div>
-
-                    <div className={`flex items-center mt-2 text-xs font-medium px-2 py-0.5 rounded-full w-fit ${getStepTagColor(step.type)}`}>
-                      {getStepIcon(step.type)}
-                      <span className="ml-1.5 capitalize">{step.type}</span>
-                    </div>
-
-                    {step.link && (
-                      <a
-                        href={step.link}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-3 inline-flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-700"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                        Open activity content
-                      </a>
-                    )}
-
-                    {step.additionalResources && step.additionalResources.length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {step.additionalResources.map((resource, resourceIndex) => (
-                          <span key={`${resource}-${resourceIndex}`} className="text-[11px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
-                            {resource}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-
-                    <p className="mt-3 text-xs text-gray-500">
-                      Use the collaborator to clarify the step, practice, and check your own reasoning before final answers.
-                    </p>
-
-                    <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedStepIndex(index);
-                          setAiPrompt(buildStepPrompt(step, 'explain'));
-                          setTimeout(() => promptRef.current?.focus(), 0);
-                        }}
-                        className="px-2.5 py-1 rounded-full bg-white border border-gray-200 text-gray-600 hover:border-blue-300 hover:text-blue-700"
-                      >
-                        Explain concept
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedStepIndex(index);
-                          setAiPrompt(buildStepPrompt(step, 'practice'));
-                          setTimeout(() => promptRef.current?.focus(), 0);
-                        }}
-                        className="px-2.5 py-1 rounded-full bg-white border border-gray-200 text-gray-600 hover:border-blue-300 hover:text-blue-700"
-                      >
-                        Practice question
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedStepIndex(index);
-                          setAiPrompt(buildStepPrompt(step, 'reasoning'));
-                          setTimeout(() => promptRef.current?.focus(), 0);
-                        }}
-                        className="px-2.5 py-1 rounded-full bg-white border border-gray-200 text-gray-600 hover:border-blue-300 hover:text-blue-700"
-                      >
-                        Check reasoning
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {selectedStep && (
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 space-y-3">
-            <div className="flex items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold text-slate-800">Step Workspace: {selectedStep.title}</h3>
-              <span className="text-[11px] text-slate-500">Draft your thinking before asking the coach</span>
-            </div>
-            <textarea
-              value={stepWorkspaceNotes[selectedStepIndex] || ''}
-              onChange={(event) => setStepWorkspaceNotes((prev) => ({ ...prev, [selectedStepIndex]: event.target.value }))}
-              placeholder="Write your attempt, assumptions, and questions for this step..."
-              className="w-full min-h-[130px] rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => handleSendPrompt(buildStepPrompt(selectedStep, 'hint'))}
-                disabled={isSending || !session}
-                className="px-3 py-1.5 rounded-full bg-white border border-slate-200 text-xs text-slate-700 hover:border-blue-300 hover:text-blue-700 disabled:opacity-60"
-              >
-                Ask for next hint
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSendPrompt(buildStepPrompt(selectedStep, 'reasoning'))}
-                disabled={isSending || !session}
-                className="px-3 py-1.5 rounded-full bg-white border border-slate-200 text-xs text-slate-700 hover:border-blue-300 hover:text-blue-700 disabled:opacity-60"
-              >
-                Review my reasoning
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSendPrompt(buildStepPrompt(selectedStep, 'practice'))}
-                disabled={isSending || !session}
-                className="px-3 py-1.5 rounded-full bg-white border border-slate-200 text-xs text-slate-700 hover:border-blue-300 hover:text-blue-700 disabled:opacity-60"
-              >
-                New practice variation
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <aside className="space-y-4 flex flex-col min-h-[780px]">
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex-1 min-h-0 flex flex-col overflow-hidden">
-          <div className="px-4 py-4 border-b border-slate-200 bg-slate-50">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
-                  <Sparkles className="w-4 h-4 text-blue-600" />
-                  AI Plan Collaborator
-                </div>
-                <p className="text-xs text-slate-500 mt-1">
-                  Coaching mode: hints, probing questions, and reflection. No direct full solutions.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => onOpenTutor?.(`Continue coaching me on ${plan.plan.name}.`)}
-                className="text-xs font-semibold text-blue-600 hover:text-blue-700"
-              >
-                Full Tutor
-              </button>
-            </div>
-          </div>
-
-          {aiError && (
-            <div className="mx-4 mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
-              {aiError}
-            </div>
+      <aside className={`border-r border-slate-200 bg-slate-50 flex flex-col min-h-[760px] md:fixed md:top-[var(--student-header-offset)] md:left-[max(1rem,calc((100vw-1400px)/2+1rem))] md:h-auto md:max-h-[calc(100vh-var(--student-header-offset)-0.75rem)] md:min-h-0 md:z-20 md:overflow-visible md:will-change-[width] md:transition-[width] md:duration-300 md:ease-in-out ${sidebarDesktopWidth}`}>
+        <button
+          type="button"
+          onClick={() => setIsSidebarCollapsed((prev) => !prev)}
+          className="hidden md:inline-flex absolute top-1/2 -translate-y-1/2 -right-4 z-30 h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50"
+          aria-label={isSidebarCollapsed ? 'Expand steps panel' : 'Collapse steps panel'}
+        >
+          {isSidebarCollapsed ? (
+            <ChevronsRight className="w-4 h-4 transition-transform duration-200 ease-out" />
+          ) : (
+            <ChevronsLeft className="w-4 h-4 transition-transform duration-200 ease-out" />
           )}
+        </button>
 
-          <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-3 bg-slate-50">
-            {isAiLoading ? (
-              <div className="h-full flex items-center justify-center text-slate-500 text-sm">
-                <Loader2 className="w-4 h-4 animate-spin mr-2" />
-                Loading collaborator...
-              </div>
-            ) : messages.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-center text-slate-500 text-sm px-4">
-                Start with a step prompt. The collaborator will guide your plan progression.
-              </div>
-            ) : (
-              messages.map((message) => {
-                const isStudent = message.senderRole === 'student';
-                return (
-                  <div key={message.id} className={`flex ${isStudent ? 'justify-end' : 'justify-start'}`}>
-                    <div
-                      className={`max-w-[90%] rounded-xl px-3 py-2 text-sm ${
-                        isStudent
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-white border border-slate-200 text-slate-700'
-                      }`}
-                    >
-                      {!isStudent && (
-                        <div className="mb-1 text-[11px] uppercase tracking-wide font-semibold text-slate-500 inline-flex items-center gap-1">
-                          <MessageCircle className="w-3 h-3" />
-                          Coach
-                        </div>
-                      )}
-                      <p className="whitespace-pre-wrap">{message.content || message.transcript || 'Message saved.'}</p>
-                      <p className={`text-[10px] mt-1 ${isStudent ? 'text-blue-100' : 'text-slate-400'}`}>
-                        {new Date(message.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-
-            {isSending && (
-              <div className="flex justify-start">
-                <div className="inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2">
-                  <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:-0.2s]" />
-                  <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:-0.1s]" />
-                  <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce" />
-                </div>
-              </div>
-            )}
-
-            <div ref={messagesEndRef} />
-          </div>
-
-          <div className="border-t border-slate-200 p-4 bg-white space-y-3">
-            <textarea
-              ref={promptRef}
-              value={aiPrompt}
-              onChange={(event) => setAiPrompt(event.target.value)}
-              placeholder="Ask for guidance on the current step..."
-              className="w-full min-h-[90px] rounded-lg border border-slate-200 px-3 py-2 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex flex-wrap gap-2">
-                {selectedStep && (
-                  <button
-                    type="button"
-                    onClick={() => setAiPrompt(buildStepPrompt(selectedStep, 'hint'))}
-                    className="px-2.5 py-1 rounded-full border border-slate-200 text-xs text-slate-600 hover:border-blue-300 hover:text-blue-700"
-                  >
-                    Hint prompt
-                  </button>
-                )}
-                {selectedStep && (
-                  <button
-                    type="button"
-                    onClick={() => setAiPrompt(buildStepPrompt(selectedStep, 'reasoning'))}
-                    className="px-2.5 py-1 rounded-full border border-slate-200 text-xs text-slate-600 hover:border-blue-300 hover:text-blue-700"
-                  >
-                    Reasoning prompt
-                  </button>
-                )}
-              </div>
-              <button
-                type="button"
-                onClick={() => handleSendPrompt()}
-                disabled={isSending || !aiPrompt.trim() || !session}
-                className="inline-flex h-9 min-w-9 items-center justify-center rounded-full bg-blue-600 px-3 text-white hover:bg-blue-700 disabled:opacity-60"
-                aria-label="Send prompt"
-              >
-                {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-              </button>
+        <div className="border-b border-slate-200 px-5 py-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center">
+              <BookOpen className="w-5 h-5" />
+            </div>
+            <div
+              className={`min-w-0 overflow-hidden transition-[max-width,max-height,opacity,transform] duration-200 ease-out ${
+                isSidebarCollapsed
+                  ? 'max-w-0 max-h-0 opacity-0 -translate-x-1'
+                  : 'max-w-[240px] max-h-16 opacity-100 translate-x-0'
+              }`}
+            >
+              <h2 className="text-lg font-bold text-slate-900 truncate">{plan.plan.name}</h2>
+              <p className="text-xs text-slate-500 mt-0.5">{totalSteps} steps</p>
             </div>
           </div>
+          <div
+            className={`mt-3 h-1.5 rounded-full bg-slate-200 overflow-hidden transition-opacity duration-200 ease-out ${
+              isSidebarCollapsed ? 'opacity-0' : 'opacity-100'
+            }`}
+          >
+            <div className={`${getProgressColor(safeProgress)} h-1.5`} style={{ width: `${safeProgress}%` }} />
+          </div>
+        </div>
+
+        <div className="md:overflow-y-auto">
+          {sortedSteps.map((step, index) => {
+            const isCompleted = index < completedStepsCount;
+            const isCurrent = index === currentStepIndex;
+            const isSelected = index === selectedStepIndex;
+
+            return (
+              <button
+                key={`${step.title}-${index}`}
+                type="button"
+                onClick={() => setSelectedStepIndex(index)}
+                title={`Step ${index + 1}: ${step.title}`}
+                className={`relative w-full min-h-[72px] transition border-b border-slate-200 ${
+                  isSelected
+                    ? 'bg-blue-50 border-l-4 border-l-blue-600 pl-3'
+                    : 'bg-transparent hover:bg-slate-100'
+                } ${isSidebarCollapsed ? 'px-2 py-3 flex justify-center' : 'text-left px-4 py-3'}`}
+              >
+                <div className={`flex items-start transition-all duration-200 ease-out ${isSidebarCollapsed ? 'justify-center gap-0' : 'gap-3'}`}>
+                  <div
+                    className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold ${
+                      isCompleted
+                        ? 'bg-emerald-100 text-emerald-700'
+                        : isCurrent
+                          ? 'bg-blue-100 text-blue-700'
+                          : 'bg-slate-100 text-slate-600'
+                    }`}
+                  >
+                    {isCompleted ? <CheckCircle className="w-4 h-4" /> : index + 1}
+                  </div>
+                  <div
+                    className={`min-w-0 overflow-hidden transition-[max-width,max-height,opacity,transform] duration-200 ease-out ${
+                      isSidebarCollapsed
+                        ? 'max-w-0 max-h-0 opacity-0 -translate-x-1'
+                        : 'max-w-[240px] max-h-16 opacity-100 translate-x-0'
+                    }`}
+                  >
+                    <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">Step {index + 1}</p>
+                    <p className="text-sm font-semibold text-slate-800 truncate">{step.title}</p>
+                    <p className="text-xs text-slate-500 capitalize">
+                      {isCompleted ? 'Completed' : isCurrent ? 'In progress' : 'Not started'} • {step.type}
+                    </p>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
         </div>
       </aside>
+
+      <div className={`min-w-0 flex flex-col min-h-[760px] md:will-change-[margin] md:transition-[margin] md:duration-300 md:ease-in-out ${contentDesktopOffset}`}>
+        <header className="px-6 py-5 border-b border-slate-200 bg-white">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mt-1">{selectedStep?.title || plan.plan.name}</h1>
+            </div>
+          </div>
+        </header>
+
+        <div className="p-6 pb-28 space-y-6 bg-white">
+          {selectedStep && selectedStepLesson && (
+            <section className="space-y-6">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-md ${getStepTagColor(selectedStep.type)}`}>
+                  {getStepIcon(selectedStep.type)}
+                  <span className="capitalize">{selectedStep.type}</span>
+                </span>
+                <span className="text-xs text-slate-500">
+                  {selectedStepIndex < completedStepsCount
+                    ? 'Completed'
+                    : selectedStepIndex === currentStepIndex
+                      ? 'In progress'
+                      : 'Not started'}
+                </span>
+              </div>
+
+              <div className="space-y-5">
+                <p className="text-base text-slate-700">{selectedStepLesson.intro}</p>
+
+                {selectedStep.type === 'document' && (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-5 flex items-center justify-center">
+                    <svg width="200" height="170" viewBox="0 0 200 170" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M100 18V152" stroke="#A855F7" strokeWidth="2" strokeDasharray="5 4" />
+                      <path d="M100 18L90 28M100 18L110 28" stroke="#A855F7" strokeWidth="2" />
+                      <path d="M100 152L90 142M100 152L110 142" stroke="#A855F7" strokeWidth="2" />
+                      <path d="M65 63L100 28L135 63L122 140H78L65 63Z" stroke="#22C55E" strokeWidth="2.5" />
+                    </svg>
+                  </div>
+                )}
+
+                {selectedStepLesson.sections.map((section) => (
+                  <div key={section.heading} className="space-y-2">
+                    <h3 className="text-xl font-semibold text-slate-900">{section.heading}</h3>
+                    {section.paragraphs.map((paragraph) => (
+                      <p key={paragraph} className="text-base leading-relaxed text-slate-800">
+                        {paragraph}
+                      </p>
+                    ))}
+                  </div>
+                ))}
+              </div>
+
+              {selectedStep.link && (
+                <a
+                  href={selectedStep.link}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  Open activity content
+                </a>
+              )}
+
+              {selectedStep.additionalResources && selectedStep.additionalResources.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {selectedStep.additionalResources.map((resource, resourceIndex) => (
+                    <span key={`${resource}-${resourceIndex}`} className="text-[11px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                      {resource}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </section>
+          )}
+
+          {selectedStep && isPracticeStep(selectedStep.type) && (
+            <section className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-base font-semibold text-slate-800">Step Workspace</h3>
+                <span className="text-xs text-slate-500">Draft your attempt and notes for this step</span>
+              </div>
+              <textarea
+                value={stepWorkspaceNotes[selectedStepIndex] || ''}
+                onChange={(event) => setStepWorkspaceNotes((prev) => ({ ...prev, [selectedStepIndex]: event.target.value }))}
+                placeholder="Write your attempt, assumptions, and questions for this step..."
+                className="w-full min-h-[150px] rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </section>
+          )}
+        </div>
+
+      </div>
+
+      <div
+        className="hidden md:block fixed bottom-0 z-30"
+        style={{
+          left: 'var(--student-plan-footer-left)',
+          right: 'var(--student-plan-footer-right)',
+        }}
+      >
+        <footer className="border-t border-slate-200 bg-white px-6 py-4">
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => {
+                if (nextStep) setSelectedStepIndex((prev) => Math.min(prev + 1, totalSteps - 1));
+              }}
+              disabled={!nextStep}
+              className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
+            >
+              {nextStep ? `Up next: ${getNextStepLabel(nextStep.type)}` : 'Plan complete'}
+            </button>
+          </div>
+        </footer>
+      </div>
+
+      <div className="md:hidden border-t border-slate-200 bg-white px-6 py-4">
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => {
+              if (nextStep) setSelectedStepIndex((prev) => Math.min(prev + 1, totalSteps - 1));
+            }}
+            disabled={!nextStep}
+            className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
+          >
+            {nextStep ? `Up next: ${getNextStepLabel(nextStep.type)}` : 'Plan complete'}
+          </button>
+        </div>
+      </div>
     </motion.div>
   );
 };
