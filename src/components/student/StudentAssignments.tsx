@@ -540,10 +540,12 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                   <div className="mt-3">
                     <button
                       type="button"
-                      onClick={() => onOpenTutor(`Help me plan and reason through "${assignment.name}".`)}
+                      onClick={() => onOpenTutor(
+                        `I am preparing for "${assignment.name}". Coach me with hints, planning steps, and reasoning checks only. Do not provide final answers.`
+                      )}
                       className="text-xs text-blue-600 hover:text-blue-700"
                     >
-                      Ask AI Tutor for guidance before you start
+                      Open AI Study Coach
                     </button>
                   </div>
                 )}
@@ -562,11 +564,11 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                   <button
                     type="button"
                     onClick={() => onOpenTutor(
-                      `Help me improve on "${assignment.name}". My feedback: ${assignment.result?.feedback || 'No feedback yet.'}`
+                      `Review my performance on "${assignment.name}". My feedback: ${assignment.result?.feedback || 'No feedback yet.'}. Help me identify reasoning gaps and next practice steps.`
                     )}
                     className="px-3 py-1.5 rounded-full bg-blue-50 text-blue-700 hover:bg-blue-100"
                   >
-                    Ask AI Tutor
+                    Review with AI Coach
                   </button>
                 )}
               </div>
@@ -598,6 +600,17 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                     >
                       Text Submission
                     </button>
+                    {onOpenTutor && (
+                      <button
+                        type="button"
+                        onClick={() => onOpenTutor(
+                          `I am working on "${assignment.name}". Ask me probing questions to strengthen my reasoning before I submit.`
+                        )}
+                        className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
+                      >
+                        Ask AI Coach
+                      </button>
+                    )}
                   </div>
 
                   {submissionType === 'file' && activeAssignment === assignment.id && (

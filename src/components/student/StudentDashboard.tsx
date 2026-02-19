@@ -164,7 +164,7 @@ const StudentDashboard: React.FC = () => {
       case 'messages':
         return { title: 'Messages', subtitle: 'Collaborate with teachers and classmates.' };
       case 'tutor':
-        return { title: 'AI Tutor', subtitle: 'Ask for clarity, practice, and reasoning checks.' };
+        return { title: 'AI Study Coach', subtitle: 'Collaborate in a guided workspace: plan, reason, and reflect.' };
       case 'peer-study':
         return { title: 'Peer Study', subtitle: 'Collaborate with classmates on weak topics.' };
       case 'mastery-gaps':
