@@ -14,16 +14,13 @@ import {
   CheckCircle2,
   Play,
   RotateCcw,
-  Video,
-  Edit,
   ChevronDown,
   Flame,
   Settings,
   Menu,
   X,
-  Mail,
 } from 'lucide-react';
-import { Student, DevelopmentPlan, Subject, StepType } from '../../types';
+import { Student, DevelopmentPlan, Subject } from '../../types';
 import { studentService, developmentService, subjectService } from '../../services/api';
 import { StudentTeacher } from '../../services/studentService';
 import StudentPlanView from './StudentPlanView';
@@ -36,154 +33,17 @@ import StudentPeerStudy from './StudentPeerStudy';
 import StudentMasteryGaps from './StudentMasteryGaps';
 import StudentProfileSettings from './StudentProfileSettings';
 import StudentSubjectsView from './StudentSubjectsView';
-
-type NavItemKey =
-  | 'overview'
-  | 'plan'
-  | 'subjects'
-  | 'messages'
-  | 'assessments'
-  | 'results'
-  | 'tutor'
-  | 'peer-study'
-  | 'mastery-gaps'
-  | 'profile';
-
-type HomePanelKey = 'subjects' | 'progress' | 'profile' | 'teachers';
-
-interface HomeProgressRow {
-  id: string;
-  title: string;
-  subjectName: string;
-  type: StepType;
-  progressPercent: number;
-  date: Date;
-  correctTotal: string;
-  timeMinutes: number;
-}
-
-const STEP_TYPE_SEQUENCE: StepType[] = ['document', 'assignment', 'quiz', 'discussion', 'video'];
-
-const getStepIcon = (type: StepType) => {
-  switch (type) {
-    case 'document':
-      return <FileText className="w-4 h-4" />;
-    case 'assignment':
-      return <Edit className="w-4 h-4" />;
-    case 'video':
-      return <Video className="w-4 h-4" />;
-    default:
-      return <BookOpen className="w-4 h-4" />;
-  }
-};
-
-const getMockStepTitles = (subjectName: string): string[] => {
-  const name = subjectName.toLowerCase();
-  if (name.includes('english')) {
-    return [
-      'Read short story',
-      'Write a paragraph response',
-      'Vocabulary reinforcement quiz',
-      'Peer discussion reflection',
-      'Weekly tutor feedback',
-    ];
-  }
-  if (name.includes('math')) {
-    return [
-      'Review concept notes',
-      'Solve guided examples',
-      'Timed practice set',
-      'Reasoning checkpoint',
-      'Mastery quiz',
-    ];
-  }
-  if (name.includes('physics')) {
-    return [
-      'Read topic overview',
-      'Explain formulas in words',
-      'Problem solving set',
-      'Experiment reflection',
-      'Topic checkpoint quiz',
-    ];
-  }
-  return [
-    'Read concept overview',
-    'Write understanding summary',
-    'Practice exercises',
-    'Reasoning dialogue',
-    'Mastery checkpoint',
-  ];
-};
-
-const buildMockPlan = (subject: Subject, index: number): DevelopmentPlan => {
-  const stepTitles = getMockStepTitles(subject.name);
-  const progress = 22 + ((index * 17) % 53);
-  const steps = stepTitles.map((title, stepIndex) => ({
-    title,
-    type: STEP_TYPE_SEQUENCE[stepIndex % STEP_TYPE_SEQUENCE.length],
-    order: stepIndex + 1,
-    link: '',
-    additionalResources: [],
-  }));
-
-  return {
-    id: `mock-plan-${subject.id}`,
-    student: 'mock-student',
-    plan: {
-      id: `mock-plan-template-${subject.id}`,
-      name: `${subject.name} Mastery Plan`,
-      description: `Structured weekly plan for ${subject.name} with guided practice and coaching.`,
-      progress,
-      potentialOverall: 85,
-      eta: 28,
-      performance: 'Good',
-      skills: [],
-      steps,
-      subjectId: subject.id,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      link: '',
-      additionalResources: [],
-    },
-    startDate: new Date(),
-    currentProgress: progress,
-    status: 'Active',
-    skillProgress: [],
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
-};
-
-const MOCK_SUBJECTS: Subject[] = [
-  {
-    id: 'mock-subject-math',
-    code: 'MTH-01',
-    name: 'Mathematics',
-    description: 'Numeracy, algebra, and problem solving.',
-    teacher: 'mock-teacher',
-  },
-  {
-    id: 'mock-subject-english',
-    code: 'ENG-01',
-    name: 'English Language',
-    description: 'Reading, writing, and communication skills.',
-    teacher: 'mock-teacher',
-  },
-  {
-    id: 'mock-subject-physics',
-    code: 'PHY-01',
-    name: 'Physics',
-    description: 'Mechanics, waves, and scientific reasoning.',
-    teacher: 'mock-teacher',
-  },
-  {
-    id: 'mock-subject-biology',
-    code: 'BIO-01',
-    name: 'Biology',
-    description: 'Life sciences, systems, and data interpretation.',
-    teacher: 'mock-teacher',
-  },
-];
+import { HomePanelKey, HomeProgressRow, NavItemKey } from './dashboard/types';
+import { getStepIcon } from './dashboard/icons';
+import { buildMockPlan, MOCK_SUBJECTS } from './dashboard/mockPlans';
+import {
+  buildHomeProgressRows,
+  filterHomeProgressRows,
+  formatProgressDate,
+  getProgressExerciseMinutes,
+  getProgressTotalLearningMinutes,
+} from './dashboard/progress';
+import HomeTeachersPanel from './dashboard/HomeTeachersPanel';
 
 const DashboardSkeleton = () => (
   <div className="min-h-screen bg-slate-100">
@@ -389,76 +249,20 @@ const StudentDashboard: React.FC = () => {
 
   const streakWeeks = useMemo(() => Math.max(1, Math.ceil((averageProgress || 10) / 12)), [averageProgress]);
 
-  const homeProgressRows = useMemo<HomeProgressRow[]>(() => {
-    const rows: HomeProgressRow[] = [];
+  const homeProgressRows = useMemo<HomeProgressRow[]>(() => buildHomeProgressRows(overviewSubjects), [overviewSubjects]);
 
-    overviewSubjects.forEach(({ subject, plan }, subjectIndex) => {
-      if (!plan?.plan?.steps?.length) return;
-
-      const sortedSteps = [...plan.plan.steps].sort((a, b) => (a.order || 0) - (b.order || 0)).slice(0, 5);
-      const progressUnits = (Math.max(0, Math.min(100, plan.currentProgress || 0)) / 100) * Math.max(sortedSteps.length, 1);
-
-      sortedSteps.forEach((step, stepIndex) => {
-        const date = new Date();
-        date.setMinutes(date.getMinutes() - (subjectIndex * 145 + stepIndex * 38 + 12));
-
-        const progressPercent = Math.max(0, Math.min(100, Math.round((progressUnits - stepIndex) * 100)));
-        const isScored = step.type === 'quiz' || step.type === 'assignment';
-        const scoredCorrect = Math.max(0, Math.min(4, Math.round((progressPercent / 100) * 4)));
-        const baseTime = step.type === 'video' ? 0 : step.type === 'document' ? 1 : step.type === 'discussion' ? 2 : 3;
-
-        rows.push({
-          id: `${subject.id}-${step.title}-${stepIndex}`,
-          title: step.title,
-          subjectName: subject.name,
-          type: step.type,
-          progressPercent,
-          date,
-          correctTotal: isScored ? `${scoredCorrect}/4` : '–',
-          timeMinutes: Math.max(0, baseTime + Math.round(progressPercent / 50)),
-        });
-      });
-    });
-
-    return rows.sort((a, b) => b.date.getTime() - a.date.getTime()).slice(0, 12);
-  }, [overviewSubjects]);
-
-  const filteredHomeProgressRows = useMemo(() => {
-    const now = new Date();
-    return homeProgressRows.filter((row) => {
-      if (progressWindow === 'week') {
-        const weekAgo = new Date(now);
-        weekAgo.setDate(now.getDate() - 7);
-        if (row.date < weekAgo) return false;
-      } else if (progressWindow === 'month') {
-        const monthAgo = new Date(now);
-        monthAgo.setDate(now.getDate() - 30);
-        if (row.date < monthAgo) return false;
-      }
-
-      if (progressContentFilter !== 'all' && row.subjectName !== progressContentFilter) {
-        return false;
-      }
-
-      if (progressActivityFilter === 'learn' && (row.type === 'quiz' || row.type === 'assignment')) {
-        return false;
-      }
-
-      if (progressActivityFilter === 'practice' && (row.type === 'document' || row.type === 'video' || row.type === 'discussion')) {
-        return false;
-      }
-
-      return true;
-    });
-  }, [homeProgressRows, progressWindow, progressContentFilter, progressActivityFilter]);
+  const filteredHomeProgressRows = useMemo(
+    () => filterHomeProgressRows(homeProgressRows, progressWindow, progressContentFilter, progressActivityFilter),
+    [homeProgressRows, progressWindow, progressContentFilter, progressActivityFilter]
+  );
 
   const progressExerciseMinutes = useMemo(
-    () => Math.max(12, filteredHomeProgressRows.reduce((total, row) => total + row.timeMinutes, 0)),
+    () => getProgressExerciseMinutes(filteredHomeProgressRows),
     [filteredHomeProgressRows]
   );
 
   const progressTotalLearningMinutes = useMemo(
-    () => Math.max(38, filteredHomeProgressRows.reduce((total, row) => total + Math.max(1, row.timeMinutes + (row.progressPercent > 0 ? 1 : 0)), 0)),
+    () => getProgressTotalLearningMinutes(filteredHomeProgressRows),
     [filteredHomeProgressRows]
   );
 
@@ -470,13 +274,8 @@ const StudentDashboard: React.FC = () => {
     safeHomeProgressPage * homeProgressPageSize
   );
 
-  const formatProgressDate = (date: Date) => {
-    const datePart = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-    const timePart = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-    return `${datePart} at ${timePart}`;
-  };
-
   useEffect(() => {
+    // Primary bootstrap load for student identity, subjects, and active plans.
     const fetchStudentData = async () => {
       try {
         setLoading(true);
@@ -522,6 +321,7 @@ const StudentDashboard: React.FC = () => {
       return;
     }
 
+    // Keep teachers synced with the authenticated student context.
     let cancelled = false;
     const fetchTeachers = async () => {
       try {
@@ -655,6 +455,7 @@ const StudentDashboard: React.FC = () => {
       window.clearTimeout(viewSwitchTimerRef.current);
     }
 
+    // Short skeleton transition avoids abrupt content swaps between major tabs.
     setLoadingTargetView(nextView);
     setViewLoading(true);
     viewSwitchTimerRef.current = window.setTimeout(() => {
@@ -1020,78 +821,8 @@ const StudentDashboard: React.FC = () => {
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -8 }}
                   transition={{ duration: 0.22, ease: 'easeInOut' }}
-                  className="space-y-4"
                 >
-                  <div className="space-y-1">
-                    <h2 className="text-2xl font-bold text-slate-900">My teachers</h2>
-                    <p className="text-sm text-slate-500">Teachers currently assigned to your classes and subjects.</p>
-                  </div>
-
-                  {teachersLoading ? (
-                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 animate-pulse">
-                      {Array.from({ length: 3 }).map((_, index) => (
-                        <div key={index} className="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
-                          <div className="h-5 w-40 rounded bg-slate-200" />
-                          <div className="h-4 w-56 rounded bg-slate-100" />
-                          <div className="h-3 w-28 rounded bg-slate-100" />
-                          <div className="h-3 w-32 rounded bg-slate-100" />
-                        </div>
-                      ))}
-                    </div>
-                  ) : teachersError ? (
-                    <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{teachersError}</div>
-                  ) : teachers.length === 0 ? (
-                    <div className="rounded-lg border border-slate-200 bg-white px-5 py-4 text-sm text-slate-600">
-                      No teachers assigned yet.
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                      {teachers.map((teacher) => {
-                        const initials = `${teacher.firstName?.[0] || ''}${teacher.lastName?.[0] || ''}`.toUpperCase() || 'T';
-                        return (
-                          <article key={teacher.id} className="rounded-xl border border-slate-200 bg-white p-5 space-y-4">
-                            <div className="flex items-start gap-3">
-                              <div className="h-10 w-10 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-sm font-semibold">
-                                {initials}
-                              </div>
-                              <div className="min-w-0">
-                                <h3 className="text-base font-semibold text-slate-900 truncate">
-                                  {teacher.firstName} {teacher.lastName}
-                                </h3>
-                                <div className="inline-flex items-center gap-1.5 text-sm text-slate-600 mt-1 min-w-0">
-                                  <Mail className="w-3.5 h-3.5 shrink-0 text-slate-400" />
-                                  <span className="truncate">{teacher.email}</span>
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="space-y-3">
-                              <div className="space-y-1">
-                                <p className="text-[11px] uppercase tracking-wide font-semibold text-slate-400">Subjects</p>
-                                <p className="text-sm text-slate-700">
-                                  {teacher.subjectNames.length > 0 ? teacher.subjectNames.join(', ') : 'No subject allocations yet'}
-                                </p>
-                              </div>
-
-                              <div className="space-y-1">
-                                <p className="text-[11px] uppercase tracking-wide font-semibold text-slate-400">Classes</p>
-                                <p className="text-sm text-slate-700">
-                                  {teacher.classNames.length > 0 ? teacher.classNames.join(', ') : 'No class allocations yet'}
-                                </p>
-                              </div>
-
-                              {teacher.homeroomClassNames.length > 0 && (
-                                <div className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 text-xs font-semibold">
-                                  <Users className="w-3.5 h-3.5" />
-                                  Homeroom: {teacher.homeroomClassNames.join(', ')}
-                                </div>
-                              )}
-                            </div>
-                          </article>
-                        );
-                      })}
-                    </div>
-                  )}
+                  <HomeTeachersPanel teachers={teachers} loading={teachersLoading} error={teachersError} />
                 </motion.div>
               )}
             </AnimatePresence>
