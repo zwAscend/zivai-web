@@ -32,7 +32,7 @@ const StudentLogin: React.FC<StudentLoginProps> = ({ onLogin }) => {
       }
 
       onLogin();
-      navigate('/student/dashboard');
+      navigate('/student/home');
     } catch (err: any) {
       setError(err.message || 'Login failed');
     } finally {

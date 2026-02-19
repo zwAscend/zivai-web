@@ -84,7 +84,7 @@ function App() {
               ) : isTeacher ? (
                 <Navigate to="/dashboard" replace />
               ) : isStudent ? (
-                <Navigate to="/student/dashboard" replace />
+                <Navigate to="/student/home" replace />
               ) : (
                 <Navigate to="/dashboard" replace />
               )
@@ -103,7 +103,7 @@ function App() {
                   } else if (currentIsTeacher) {
                     navigate('/dashboard', { replace: true });
                   } else if (currentIsStudent) {
-                    navigate('/student/dashboard', { replace: true });
+                    navigate('/student/home', { replace: true });
                   } else {
                     navigate('/dashboard', { replace: true });
                   }
@@ -114,9 +114,10 @@ function App() {
         />
 
         <Route
-          path="/student/dashboard"
+          path="/student/home"
           element={isAuthenticated && isStudent ? <StudentDashboard /> : <Navigate to="/login" replace />}
         />
+        <Route path="/student/dashboard" element={<Navigate to="/student/home" replace />} />
 
         {isAuthenticated && !isAdmin && (
           <Route path="/" element={<MainLayout activeTab={activeTab} setActiveTab={setActiveTab} portalType="teacher" />}>
