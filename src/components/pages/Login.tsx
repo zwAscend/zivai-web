@@ -50,7 +50,7 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
       if (isAdmin || isTeacher) {
         navigate('/dashboard', { replace: true });
       } else if (isStudent) {
-        navigate('/student/dashboard', { replace: true });
+        navigate('/student/home', { replace: true });
       } else {
         navigate('/dashboard', { replace: true });
       }

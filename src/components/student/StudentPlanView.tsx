@@ -15,6 +15,7 @@ import StudentPracticeRunner, { buildMockPracticeQuestions } from './StudentPrac
 
 interface StudentPlanViewProps {
   plan: DevelopmentPlan;
+  initialStepIndex?: number;
 }
 
 const getStepIcon = (type: string) => {
@@ -180,7 +181,7 @@ const getStepLessonContent = (step: Step) => {
   };
 };
 
-const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan }) => {
+const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepIndex }) => {
   const sortedSteps = useMemo(
     () => plan.plan.steps?.slice().sort((a, b) => (a.order || 0) - (b.order || 0)) || [],
     [plan.plan.steps]
@@ -213,8 +214,12 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan }) => {
   }, [selectedStepIndex, sortedSteps.length]);
 
   useEffect(() => {
+    if (typeof initialStepIndex === 'number') {
+      setSelectedStepIndex(Math.max(0, Math.min(initialStepIndex, Math.max(sortedSteps.length - 1, 0))));
+      return;
+    }
     setSelectedStepIndex(currentStepIndex);
-  }, [plan.id, currentStepIndex]);
+  }, [plan.id, currentStepIndex, initialStepIndex, sortedSteps.length]);
 
   useEffect(() => {
     setCompletedPracticeSteps({});
@@ -325,15 +330,13 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan }) => {
 
       <div className={`min-w-0 flex flex-col min-h-[760px] md:will-change-[margin] md:transition-[margin] md:duration-300 md:ease-in-out ${contentDesktopOffset}`}>
         <header className="px-6 py-5 border-b border-slate-200 bg-white">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mt-1">{selectedStep?.title || plan.plan.name}</h1>
-            </div>
+          <div className="flex justify-center text-center">
+            <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mt-1">{selectedStep?.title || plan.plan.name}</h1>
           </div>
         </header>
 
         <div className="p-6 pb-28 space-y-6 bg-white">
-          {selectedStep && selectedStepLesson && (
+          {selectedStep && selectedStepLesson && !isPracticeStep(selectedStep.type) && (
             <section className="space-y-6">
               <div className="flex flex-wrap items-center gap-2">
                 <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-md ${getStepTagColor(selectedStep.type)}`}>
@@ -405,6 +408,10 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan }) => {
               title={selectedStep.title}
               subtitle="Practice questions are delivered one at a time. Check each answer before moving on."
               questions={buildMockPracticeQuestions(selectedStep.title, selectedStep.type === 'assignment' ? 'assignment' : 'quiz')}
+              fixedFooterStyle={{
+                left: 'var(--student-plan-footer-left)',
+                right: 'var(--student-plan-footer-right)',
+              }}
               onComplete={() =>
                 setCompletedPracticeSteps((previous) => ({
                   ...previous,

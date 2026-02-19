@@ -532,6 +532,10 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
                     title={selectedDetailItem.practice.title}
                     subtitle="Practice questions run on a dedicated screen and are answered one by one."
                     questions={buildMockPracticeQuestions(`${activeSubject.name} ${selectedDetailItem.practice.title}`, 'quiz')}
+                    fixedFooterStyle={{
+                      left: 'var(--subjects-footer-left)',
+                      right: 'var(--subjects-footer-right)',
+                    }}
                     onComplete={() =>
                       setPracticeStatusOverrides((previous) => ({
                         ...previous,

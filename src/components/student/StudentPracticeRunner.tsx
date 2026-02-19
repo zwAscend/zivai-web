@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { AlertCircle, CheckCircle2, Circle, CircleDot, RotateCcw, XCircle } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Circle, CircleDot, XCircle } from 'lucide-react';
 
 export type PracticeQuestionType = 'input' | 'single' | 'multiple';
 
@@ -43,6 +43,7 @@ interface StudentPracticeRunnerProps {
   subtitle?: string;
   questions: PracticeQuestion[];
   onComplete?: (summary: PracticeRunSummary) => void;
+  fixedFooterStyle?: React.CSSProperties;
 }
 
 const normalize = (value: string) => value.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -196,10 +197,9 @@ export const buildMockPracticeQuestions = (seedText: string, mode: 'assignment' 
 };
 
 const StudentPracticeRunner: React.FC<StudentPracticeRunnerProps> = ({
-  title,
-  subtitle,
   questions,
   onComplete,
+  fixedFooterStyle,
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [textAnswers, setTextAnswers] = useState<Record<string, string>>({});
@@ -323,15 +323,14 @@ const StudentPracticeRunner: React.FC<StudentPracticeRunnerProps> = ({
         : 'Check';
 
   const showFeedbackToast = feedback !== null;
+  const desktopFeedbackStyle: React.CSSProperties = {
+    bottom: '5.5rem',
+    right: fixedFooterStyle?.right ? `calc(${String(fixedFooterStyle.right)} + 1.5rem)` : '1.5rem',
+  };
 
   return (
-    <div className="relative border border-slate-200 rounded-lg bg-white overflow-hidden">
-      <div className="px-6 py-5 border-b border-slate-200">
-        <h3 className="text-2xl font-bold text-slate-900">{title}</h3>
-        {subtitle && <p className="text-sm text-slate-500 mt-1">{subtitle}</p>}
-      </div>
-
-      <div className="px-6 py-6 space-y-6 pb-24">
+    <div className="relative bg-white overflow-hidden">
+      <div className="px-6 py-6 pb-24 space-y-6">
         {sessionCompleted ? (
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-5">
             <p className="text-lg font-semibold text-emerald-800">Practice complete</p>
@@ -344,7 +343,6 @@ const StudentPracticeRunner: React.FC<StudentPracticeRunnerProps> = ({
             <div className="space-y-2">
               <p className="text-2xl font-bold text-slate-900">Question {currentIndex + 1}</p>
               <p className="text-lg text-slate-800">{currentQuestion.prompt}</p>
-              {currentQuestion.helpText && <p className="text-sm text-slate-500">{currentQuestion.helpText}</p>}
             </div>
 
             {currentQuestion.type === 'input' && (
@@ -361,6 +359,7 @@ const StudentPracticeRunner: React.FC<StudentPracticeRunnerProps> = ({
                 {currentQuestion.options.map((option, optionIndex) => {
                   const selected = currentSelectedIndexes.includes(optionIndex);
                   const optionPrefix = String.fromCharCode(65 + optionIndex);
+                  const isMultipleChoice = currentQuestion.type === 'multiple';
 
                   return (
                     <button
@@ -371,7 +370,9 @@ const StudentPracticeRunner: React.FC<StudentPracticeRunnerProps> = ({
                         selected ? 'bg-blue-50 text-blue-700' : 'hover:bg-slate-50 text-slate-800'
                       }`}
                     >
-                      <span className={`inline-flex items-center justify-center h-8 w-8 rounded-full border text-sm font-semibold ${
+                      <span className={`inline-flex items-center justify-center h-8 w-8 border text-sm font-semibold ${
+                        isMultipleChoice ? 'rounded-md' : 'rounded-full'
+                      } ${
                         selected ? 'border-blue-500 bg-blue-600 text-white' : 'border-slate-300 text-slate-600'
                       }`}>
                         {optionPrefix}
@@ -388,39 +389,111 @@ const StudentPracticeRunner: React.FC<StudentPracticeRunnerProps> = ({
       </div>
 
       {showFeedbackToast && !sessionCompleted && (
-        <div
-          className={`absolute right-4 bottom-24 z-20 w-[280px] rounded-lg border p-4 shadow-lg bg-white ${
-            feedback === 'correct' ? 'border-emerald-200' : feedback === 'missing' ? 'border-amber-200' : 'border-slate-200'
-          }`}
-        >
-          <div className="flex items-start gap-3">
-            {feedback === 'correct' ? (
-              <CheckCircle2 className="w-6 h-6 text-emerald-600 mt-0.5" />
-            ) : feedback === 'missing' ? (
-              <AlertCircle className="w-6 h-6 text-amber-600 mt-0.5" />
-            ) : (
-              <XCircle className="w-6 h-6 text-slate-500 mt-0.5" />
-            )}
-            <div>
-              <p className="text-lg font-semibold text-slate-900">
-                {feedback === 'correct' ? 'Great work!' : feedback === 'missing' ? 'Select an answer first' : 'Not quite yet...'}
-              </p>
-              <p className="text-sm text-slate-600 mt-1">
-                {feedback === 'correct'
-                  ? 'You got it. Onward!'
-                  : feedback === 'missing'
-                    ? 'Choose an option or type your answer, then check again.'
-                    : 'Give it another try.'}
-              </p>
+        <>
+          <div
+            className={`md:hidden absolute right-4 bottom-24 z-20 w-[260px] rounded-lg border p-3 shadow-sm bg-white ${
+              feedback === 'correct' ? 'border-emerald-200' : feedback === 'missing' ? 'border-amber-200' : 'border-slate-200'
+            }`}
+          >
+            <div className="flex items-start gap-3">
+              {feedback === 'correct' ? (
+                <CheckCircle2 className="w-6 h-6 text-emerald-600 mt-0.5" />
+              ) : feedback === 'missing' ? (
+                <AlertCircle className="w-6 h-6 text-amber-600 mt-0.5" />
+              ) : (
+                <XCircle className="w-6 h-6 text-slate-500 mt-0.5" />
+              )}
+              <div>
+                <p className="text-base font-semibold text-slate-900">
+                  {feedback === 'correct' ? 'Great work!' : feedback === 'missing' ? 'Select an answer first' : 'Not quite yet...'}
+                </p>
+                <p className="text-xs text-slate-600 mt-1">
+                  {feedback === 'correct'
+                    ? 'You got it. Onward!'
+                    : feedback === 'missing'
+                      ? 'Choose an option or type your answer, then check again.'
+                      : 'Give it another try.'}
+                </p>
+              </div>
             </div>
           </div>
-        </div>
+
+          <div
+            className={`hidden md:block fixed z-40 w-[260px] rounded-lg border p-3 shadow-sm bg-white ${
+              feedback === 'correct' ? 'border-emerald-200' : feedback === 'missing' ? 'border-amber-200' : 'border-slate-200'
+            }`}
+            style={desktopFeedbackStyle}
+          >
+            <div className="flex items-start gap-3">
+              {feedback === 'correct' ? (
+                <CheckCircle2 className="w-6 h-6 text-emerald-600 mt-0.5" />
+              ) : feedback === 'missing' ? (
+                <AlertCircle className="w-6 h-6 text-amber-600 mt-0.5" />
+              ) : (
+                <XCircle className="w-6 h-6 text-slate-500 mt-0.5" />
+              )}
+              <div>
+                <p className="text-base font-semibold text-slate-900">
+                  {feedback === 'correct' ? 'Great work!' : feedback === 'missing' ? 'Select an answer first' : 'Not quite yet...'}
+                </p>
+                <p className="text-xs text-slate-600 mt-1">
+                  {feedback === 'correct'
+                    ? 'You got it. Onward!'
+                    : feedback === 'missing'
+                      ? 'Choose an option or type your answer, then check again.'
+                      : 'Give it another try.'}
+                </p>
+              </div>
+            </div>
+          </div>
+        </>
       )}
 
-      <div className="sticky bottom-0 z-10 border-t border-slate-200 bg-white/95 backdrop-blur px-6 py-4">
+      <div
+        className="hidden md:block fixed bottom-0 z-30"
+        style={fixedFooterStyle}
+      >
+        <footer className="border-t border-slate-200 bg-white px-6 py-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3 text-sm text-slate-700">
+              <span className="font-semibold">
+                {sessionCompleted ? `${progressSummary.total} of ${progressSummary.total}` : `${currentIndex + 1} of ${questions.length}`}
+              </span>
+              <div className="flex items-center gap-1.5">
+                {questions.map((question, index) => {
+                  const result = results[question.id];
+                  if (result === 'correct') return <CheckCircle2 key={question.id} className="w-3.5 h-3.5 text-emerald-600" />;
+                  if (index === currentIndex && !sessionCompleted) return <CircleDot key={question.id} className="w-3.5 h-3.5 text-blue-600" />;
+                  return <Circle key={question.id} className="w-3.5 h-3.5 text-slate-400" />;
+                })}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleSkip}
+                disabled={sessionCompleted}
+                className="inline-flex items-center rounded-md px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Skip
+              </button>
+              <button
+                type="button"
+                onClick={handlePrimaryAction}
+                disabled={sessionCompleted}
+                className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
+              >
+                {footerPrimaryLabel}
+              </button>
+            </div>
+          </div>
+        </footer>
+      </div>
+
+      <div className="md:hidden border-t border-slate-200 bg-white px-6 py-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3 text-sm text-slate-700">
-            <RotateCcw className="w-4 h-4 text-blue-600" />
             <span className="font-semibold">
               {sessionCompleted ? `${progressSummary.total} of ${progressSummary.total}` : `${currentIndex + 1} of ${questions.length}`}
             </span>
