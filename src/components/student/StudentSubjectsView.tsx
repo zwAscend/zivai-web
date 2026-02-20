@@ -13,7 +13,7 @@ import {
   Target,
 } from 'lucide-react';
 import { Subject } from '../../types';
-import StudentPracticeRunner, { buildMockPracticeQuestions } from './StudentPracticeRunner';
+import StudentPracticeRunner, { buildMockPracticeQuestions, PracticeQuestion, PracticeRunSummary } from './StudentPracticeRunner';
 
 type PracticeStatus = 'not-started' | 'in-progress' | 'mastered';
 type ResourceType = 'video' | 'notes' | 'article';
@@ -62,6 +62,8 @@ interface StudentSubjectsViewProps {
   selectedSubjectId: string;
   subjects: Subject[];
 }
+
+type UnitChallengeStage = 'intro' | 'running' | 'completed';
 
 const getPracticeActionLabel = (status: PracticeStatus) => {
   if (status === 'mastered') return 'Review';
@@ -329,11 +331,101 @@ const getUnitsBySubject = (subjectName: string): CurriculumUnit[] => {
   return buildGenericUnits(subjectName);
 };
 
+const buildUnitChallengeQuestions = (unit: CurriculumUnit): PracticeQuestion[] => {
+  const topicSeedPool = unit.topics.flatMap((topic, topicIndex) =>
+    buildMockPracticeQuestions(`${unit.title} ${topic.title}`, 'quiz').map((question, questionIndex) => ({
+      ...question,
+      id: `${unit.id}-topic-${topicIndex + 1}-q-${questionIndex + 1}`,
+    }))
+  );
+
+  const fallbackPool = buildMockPracticeQuestions(`${unit.title} unit challenge`, 'mixed').map((question, index) => ({
+    ...question,
+    id: `${unit.id}-fallback-q-${index + 1}`,
+  }));
+
+  const dedupedByPrompt: PracticeQuestion[] = [];
+  const seenPrompts = new Set<string>();
+
+  [...topicSeedPool, ...fallbackPool].forEach((question) => {
+    const key = `${question.type}:${question.prompt.toLowerCase()}`;
+    if (seenPrompts.has(key)) return;
+    seenPrompts.add(key);
+    dedupedByPrompt.push(question);
+  });
+
+  const targetCount = 10;
+  const finalizedQuestions = [...dedupedByPrompt];
+  let fallbackIndex = 0;
+
+  while (finalizedQuestions.length < targetCount) {
+    const fallbackQuestion = fallbackPool[fallbackIndex % fallbackPool.length];
+    finalizedQuestions.push({
+      ...fallbackQuestion,
+      id: `${unit.id}-extra-q-${fallbackIndex + 1}`,
+    });
+    fallbackIndex += 1;
+  }
+
+  return finalizedQuestions.slice(0, targetCount).map((question, index) => ({
+    ...question,
+    id: `${unit.id}-challenge-q-${index + 1}`,
+  }));
+};
+
+const buildSubjectChallengeQuestions = (units: CurriculumUnit[]): PracticeQuestion[] => {
+  const pooledQuestions = units.flatMap((unit, unitIndex) =>
+    buildUnitChallengeQuestions(unit).map((question, questionIndex) => ({
+      ...question,
+      id: `subject-${unitIndex + 1}-q-${questionIndex + 1}`,
+    }))
+  );
+
+  const dedupedByPrompt: PracticeQuestion[] = [];
+  const seenPrompts = new Set<string>();
+
+  pooledQuestions.forEach((question) => {
+    const key = `${question.type}:${question.prompt.toLowerCase()}`;
+    if (seenPrompts.has(key)) return;
+    seenPrompts.add(key);
+    dedupedByPrompt.push(question);
+  });
+
+  const targetCount = 12;
+  const fallbackPool = dedupedByPrompt.length > 0 ? dedupedByPrompt : buildMockPracticeQuestions('subject challenge', 'mixed');
+  const finalizedQuestions = [...dedupedByPrompt];
+  let fallbackIndex = 0;
+
+  while (finalizedQuestions.length < targetCount) {
+    const fallbackQuestion = fallbackPool[fallbackIndex % fallbackPool.length];
+    finalizedQuestions.push({
+      ...fallbackQuestion,
+      id: `subject-extra-q-${fallbackIndex + 1}`,
+    });
+    fallbackIndex += 1;
+  }
+
+  return finalizedQuestions.slice(0, targetCount).map((question, index) => ({
+    ...question,
+    id: `subject-challenge-q-${index + 1}`,
+  }));
+};
+
 const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubjectId, subjects }) => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isSubjectOverviewActive, setIsSubjectOverviewActive] = useState(false);
   const [selectedUnitIndex, setSelectedUnitIndex] = useState(0);
   const [practiceStatusOverrides, setPracticeStatusOverrides] = useState<Record<string, PracticeStatus>>({});
   const [detailState, setDetailState] = useState<{ unitId: string; topicId: string; contentItemId: string } | null>(null);
+  const [unitChallengeState, setUnitChallengeState] = useState<{
+    unitId: string;
+    stage: UnitChallengeStage;
+    summary?: PracticeRunSummary | null;
+  } | null>(null);
+  const [subjectChallengeState, setSubjectChallengeState] = useState<{
+    stage: UnitChallengeStage;
+    summary?: PracticeRunSummary | null;
+  } | null>(null);
 
   const activeSubject = useMemo(() => {
     if (subjects.length === 0) return null;
@@ -347,13 +439,27 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
 
   const selectedUnit = units[selectedUnitIndex] || units[0];
   const nextUnit = selectedUnitIndex < units.length - 1 ? units[selectedUnitIndex + 1] : null;
-  const desktopSidebarWidthPx = isSidebarCollapsed ? 88 : 320;
+  const sidebarDesktopWidth = isSidebarCollapsed ? 'xl:w-[88px]' : 'xl:w-[320px]';
+  const contentDesktopOffset = isSidebarCollapsed ? 'xl:ml-[89px]' : 'xl:ml-[321px]';
+  const desktopSidebarWidthPx = isSidebarCollapsed ? 89 : 321;
   const desktopContainerInset = 'max(1rem, calc((100vw - 1400px)/2 + 1rem))';
+  const unitChallengeQuestions = useMemo(() => (selectedUnit ? buildUnitChallengeQuestions(selectedUnit) : []), [selectedUnit]);
+  const subjectChallengeQuestions = useMemo(() => buildSubjectChallengeQuestions(units), [units]);
+  const activeUnitChallenge = unitChallengeState && unitChallengeState.unitId === selectedUnit?.id ? unitChallengeState : null;
+  const isUnitChallengeActive = Boolean(activeUnitChallenge);
+  const isUnitChallengeRunning = activeUnitChallenge?.stage === 'running';
+  const isSubjectChallengeActive = Boolean(subjectChallengeState);
+  const isSubjectChallengeRunning = subjectChallengeState?.stage === 'running';
+  const unitChallengeEstimatedMinutes = Math.max(15, unitChallengeQuestions.length * 2);
+  const subjectChallengeEstimatedMinutes = Math.max(20, subjectChallengeQuestions.length * 2);
 
   useEffect(() => {
     setSelectedUnitIndex(0);
     setDetailState(null);
     setPracticeStatusOverrides({});
+    setUnitChallengeState(null);
+    setSubjectChallengeState(null);
+    setIsSubjectOverviewActive(false);
   }, [activeSubject?.id]);
 
   useEffect(() => {
@@ -362,6 +468,13 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
       setDetailState(null);
     }
   }, [selectedUnit?.id]);
+
+  useEffect(() => {
+    if (!unitChallengeState || !selectedUnit?.id) return;
+    if (unitChallengeState.unitId !== selectedUnit.id) {
+      setUnitChallengeState(null);
+    }
+  }, [selectedUnit?.id, unitChallengeState]);
 
   const allTopics = useMemo(
     () => units.flatMap((unit) => unit.topics),
@@ -379,6 +492,22 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
     practiceStatusOverrides[practice.id] || practice.status
   );
 
+  const openSubjectOverview = () => {
+    setDetailState(null);
+    setUnitChallengeState(null);
+    setSubjectChallengeState(null);
+    setIsSubjectOverviewActive(true);
+  };
+
+  const openUnitPage = (unit: CurriculumUnit) => {
+    const unitIndex = units.findIndex((currentUnit) => currentUnit.id === unit.id);
+    if (unitIndex >= 0) setSelectedUnitIndex(unitIndex);
+    setDetailState(null);
+    setUnitChallengeState(null);
+    setSubjectChallengeState(null);
+    setIsSubjectOverviewActive(false);
+  };
+
   const openPractice = (unit: CurriculumUnit, topic: CurriculumTopic, practice: CurriculumPractice) => {
     const effectiveStatus = getPracticeStatus(practice);
     if (effectiveStatus !== 'mastered') {
@@ -387,6 +516,9 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
     const items = getTopicContentItems(topic);
     const practiceItem = items.find((item) => item.kind === 'practice' && item.practice?.id === practice.id);
     if (practiceItem) {
+      setUnitChallengeState(null);
+      setSubjectChallengeState(null);
+      setIsSubjectOverviewActive(false);
       setDetailState({
         unitId: unit.id,
         topicId: topic.id,
@@ -405,10 +537,74 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
     const unitIndex = units.findIndex((currentUnit) => currentUnit.id === unit.id);
     if (unitIndex >= 0) setSelectedUnitIndex(unitIndex);
 
+    setUnitChallengeState(null);
+    setSubjectChallengeState(null);
+    setIsSubjectOverviewActive(false);
     setDetailState({
       unitId: unit.id,
       topicId: topic.id,
       contentItemId: selectedContentItemId,
+    });
+  };
+
+  const openUnitChallenge = () => {
+    setIsSidebarCollapsed(false);
+    setIsSubjectOverviewActive(false);
+    setSubjectChallengeState(null);
+    setDetailState(null);
+    setUnitChallengeState({
+      unitId: selectedUnit.id,
+      stage: 'intro',
+      summary: null,
+    });
+  };
+
+  const startUnitChallenge = () => {
+    setUnitChallengeState({
+      unitId: selectedUnit.id,
+      stage: 'running',
+      summary: null,
+    });
+  };
+
+  const exitUnitChallenge = () => {
+    setUnitChallengeState(null);
+  };
+
+  const completeUnitChallenge = (summary: PracticeRunSummary) => {
+    setUnitChallengeState({
+      unitId: selectedUnit.id,
+      stage: 'completed',
+      summary,
+    });
+  };
+
+  const openSubjectChallenge = () => {
+    setIsSidebarCollapsed(false);
+    setDetailState(null);
+    setUnitChallengeState(null);
+    setIsSubjectOverviewActive(true);
+    setSubjectChallengeState({
+      stage: 'intro',
+      summary: null,
+    });
+  };
+
+  const startSubjectChallenge = () => {
+    setSubjectChallengeState({
+      stage: 'running',
+      summary: null,
+    });
+  };
+
+  const exitSubjectChallenge = () => {
+    setSubjectChallengeState(null);
+  };
+
+  const completeSubjectChallenge = (summary: PracticeRunSummary) => {
+    setSubjectChallengeState({
+      stage: 'completed',
+      summary,
     });
   };
 
@@ -437,9 +633,8 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
 
   return (
     <motion.div
-      className="bg-white rounded-xl border border-slate-200 overflow-visible"
+      className="bg-white rounded-xl overflow-visible"
       style={{
-        ['--subjects-cols' as string]: isSidebarCollapsed ? '88px minmax(0,1fr)' : '320px minmax(0,1fr)',
         ['--subjects-footer-left' as string]: `calc(${desktopContainerInset} + ${desktopSidebarWidthPx}px)`,
         ['--subjects-footer-right' as string]: desktopContainerInset,
       }}
@@ -449,12 +644,12 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
     >
       {detailUnit && detailTopic && selectedDetailItem ? (
         <>
-          <div className="grid grid-cols-1 xl:[grid-template-columns:var(--subjects-cols)]">
-            <aside className="relative border-r border-slate-200 bg-slate-50 flex flex-col min-h-[760px] xl:min-h-0 xl:sticky xl:top-[var(--student-header-offset)] xl:self-start xl:h-[calc(100vh-var(--student-header-offset)-0.75rem)] xl:z-20">
+          <div className="grid grid-cols-1">
+            <aside className={`relative border-r border-slate-200 bg-slate-50 flex flex-col min-h-[760px] xl:fixed xl:top-[calc(var(--student-header-offset)+0.75rem)] xl:left-[max(1rem,calc((100vw-1400px)/2+1rem))] xl:h-auto xl:max-h-[calc(100vh-var(--student-header-offset)-1.5rem)] xl:min-h-0 xl:z-20 xl:overflow-visible xl:will-change-[width] xl:transition-[width] xl:duration-300 xl:ease-in-out ${sidebarDesktopWidth}`}>
               <button
                 type="button"
                 onClick={() => setIsSidebarCollapsed((prev) => !prev)}
-                className="hidden xl:inline-flex absolute top-1/2 -translate-y-1/2 -right-4 z-10 h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50"
+                className="hidden xl:inline-flex absolute top-1/2 -translate-y-1/2 -right-4 z-30 h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50"
                 aria-label={isSidebarCollapsed ? 'Expand topics panel' : 'Collapse topics panel'}
               >
                 {isSidebarCollapsed ? <ChevronsRight className="w-4 h-4" /> : <ChevronsLeft className="w-4 h-4" />}
@@ -519,7 +714,9 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
               </div>
             </aside>
 
-            <section className="min-w-0 bg-white">
+            <section className={`min-w-0 rounded-none border border-slate-200 bg-white overflow-hidden xl:will-change-[margin] xl:transition-[margin] xl:duration-300 xl:ease-in-out ${contentDesktopOffset} ${
+              isUnitChallengeActive ? 'min-h-[calc(100vh-var(--student-header-offset)-1.5rem)]' : ''
+            }`}>
               <header className="px-6 py-5 border-b border-slate-200">
                 <h1 className="text-3xl font-bold text-slate-900">{selectedDetailItem.title}</h1>
                 <p className="text-sm text-slate-500 mt-1">{detailUnit.code}: {detailTopic.title}</p>
@@ -599,8 +796,8 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
               <div
                 className="hidden xl:block fixed bottom-0 z-30"
                 style={{
-                  left: 'var(--subjects-footer-left)',
-                  right: 'var(--subjects-footer-right)',
+                  left: 'calc(var(--subjects-footer-left) - 3px)',
+                  right: 'calc(var(--subjects-footer-right) - 3px)',
                 }}
               >
                 <footer className="border-t border-slate-200 bg-white px-6 py-4">
@@ -644,217 +841,603 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
         </>
       ) : (
         <>
-          <div className="grid grid-cols-1 xl:[grid-template-columns:var(--subjects-cols)]">
-            <aside className="relative border-r border-slate-200 bg-slate-50 flex flex-col min-h-[760px] xl:min-h-0 xl:sticky xl:top-[var(--student-header-offset)] xl:self-start xl:h-[calc(100vh-var(--student-header-offset)-0.75rem)] xl:z-20">
-              <button
-                type="button"
-                onClick={() => setIsSidebarCollapsed((prev) => !prev)}
-                className="hidden xl:inline-flex absolute top-1/2 -translate-y-1/2 -right-4 z-10 h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50"
-                aria-label={isSidebarCollapsed ? 'Expand topics panel' : 'Collapse topics panel'}
-              >
-                {isSidebarCollapsed ? <ChevronsRight className="w-4 h-4" /> : <ChevronsLeft className="w-4 h-4" />}
-              </button>
+          <div className="grid grid-cols-1">
+            <aside className={`relative border-r border-slate-200 bg-slate-50 flex flex-col min-h-[760px] xl:fixed xl:top-[calc(var(--student-header-offset)+0.75rem)] xl:left-[max(1rem,calc((100vw-1400px)/2+1rem))] xl:h-auto xl:max-h-[calc(100vh-var(--student-header-offset)-1.5rem)] xl:min-h-0 xl:z-20 xl:overflow-visible xl:will-change-[width] xl:transition-[width] xl:duration-300 xl:ease-in-out ${sidebarDesktopWidth}`}>
+              {!isUnitChallengeActive && !isSubjectChallengeActive && (
+                <button
+                  type="button"
+                  onClick={() => setIsSidebarCollapsed((prev) => !prev)}
+                  className="hidden xl:inline-flex absolute top-1/2 -translate-y-1/2 -right-4 z-30 h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50"
+                  aria-label={isSidebarCollapsed ? 'Expand topics panel' : 'Collapse topics panel'}
+                >
+                  {isSidebarCollapsed ? <ChevronsRight className="w-4 h-4" /> : <ChevronsLeft className="w-4 h-4" />}
+                </button>
+              )}
 
-              <div className="border-b border-slate-200 px-5 py-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center">
-                    <BookOpen className="w-5 h-5" />
-                  </div>
-                  <div
-                    className={`min-w-0 overflow-hidden transition-[max-width,max-height,opacity,transform] duration-200 ease-out ${
-                      isSidebarCollapsed ? 'max-w-0 max-h-0 opacity-0 -translate-x-1' : 'max-w-[240px] max-h-16 opacity-100 translate-x-0'
-                    }`}
-                  >
-                    <h2 className="text-xl font-bold text-slate-900 truncate">{activeSubject.name}</h2>
-                    <p className="text-xs text-slate-500 mt-0.5">{units.length} topics in curriculum</p>
-                  </div>
-                </div>
-                <div className={`mt-3 h-1.5 rounded-full bg-slate-200 overflow-hidden transition-opacity duration-200 ${isSidebarCollapsed ? 'opacity-0' : 'opacity-100'}`}>
-                  <div className="h-1.5 rounded-full bg-blue-500" style={{ width: `${Math.max(0, Math.min(100, overallCoverage))}%` }} />
-                </div>
-              </div>
-
-              <div className="flex-1 overflow-y-auto">
-                {units.map((unit, index) => {
-                  const isSelected = selectedUnit.id === unit.id;
-                  return (
+              {isUnitChallengeActive ? (
+                <>
+                  <div className="border-b border-slate-200 px-5 py-4 space-y-3">
                     <button
-                      key={unit.id}
                       type="button"
-                      onClick={() => setSelectedUnitIndex(index)}
-                      title={`${unit.code}: ${unit.title}`}
-                      className={`w-full border-b border-slate-200 transition ${
-                        isSelected ? 'bg-blue-50 border-l-4 border-l-blue-600 pl-3' : 'hover:bg-slate-100'
-                      } ${isSidebarCollapsed ? 'px-2 py-3 min-h-[72px] flex items-center justify-center' : 'px-4 py-3 text-left min-h-[84px]'}`}
+                      onClick={exitUnitChallenge}
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-blue-700"
                     >
-                      {isSidebarCollapsed ? (
-                        <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold">
-                          {index + 1}
-                        </span>
-                      ) : (
-                        <div>
-                          <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">{unit.code}</p>
-                          <p className="text-sm font-semibold text-slate-800 truncate">{unit.title}</p>
-                          <p className="text-xs text-slate-500 mt-0.5">{unit.masteryPercent}% mastery</p>
-                        </div>
-                      )}
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                      Back to unit page
                     </button>
-                  );
-                })}
-              </div>
+
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                        <Sparkles className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <h2 className="text-xl font-bold text-slate-900 truncate">Unit test</h2>
+                        <p className="text-xs text-slate-500 mt-0.5 truncate">{selectedUnit.code}: {selectedUnit.title}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                    <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
+                      <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">Format</p>
+                      <p className="text-sm font-semibold text-slate-800">{unitChallengeQuestions.length} questions</p>
+                      <p className="text-xs text-slate-500">{unitChallengeEstimatedMinutes}-{unitChallengeEstimatedMinutes + 5} min</p>
+                    </div>
+
+                    <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
+                      <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">Status</p>
+                      <p className="text-sm font-semibold text-slate-800">
+                        {activeUnitChallenge?.stage === 'running'
+                          ? 'In progress'
+                          : activeUnitChallenge?.stage === 'completed'
+                            ? 'Completed'
+                            : 'Ready to start'}
+                      </p>
+                      {activeUnitChallenge?.summary ? (
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {activeUnitChallenge.summary.correct}/{activeUnitChallenge.summary.total} correct
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                </>
+              ) : isSubjectChallengeActive ? (
+                <>
+                  <div className="border-b border-slate-200 px-5 py-4 space-y-3">
+                    <button
+                      type="button"
+                      onClick={exitSubjectChallenge}
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-blue-700"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                      Back to subject overview
+                    </button>
+
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                        <Sparkles className="w-5 h-5" />
+                      </div>
+                      <div className="min-w-0">
+                        <h2 className="text-xl font-bold text-slate-900 truncate">Subject challenge</h2>
+                        <p className="text-xs text-slate-500 mt-0.5 truncate">{activeSubject.name}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                    <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
+                      <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">Format</p>
+                      <p className="text-sm font-semibold text-slate-800">{subjectChallengeQuestions.length} questions</p>
+                      <p className="text-xs text-slate-500">{subjectChallengeEstimatedMinutes}-{subjectChallengeEstimatedMinutes + 5} min</p>
+                    </div>
+
+                    <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
+                      <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">Status</p>
+                      <p className="text-sm font-semibold text-slate-800">
+                        {subjectChallengeState?.stage === 'running'
+                          ? 'In progress'
+                          : subjectChallengeState?.stage === 'completed'
+                            ? 'Completed'
+                            : 'Ready to start'}
+                      </p>
+                      {subjectChallengeState?.summary ? (
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {subjectChallengeState.summary.correct}/{subjectChallengeState.summary.total} correct
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className={`border-b border-slate-200 px-5 py-4 ${
+                    isSubjectOverviewActive ? 'bg-blue-50 border-l-4 border-l-blue-600 pl-3' : ''
+                  }`}>
+                    <button
+                      type="button"
+                      onClick={openSubjectOverview}
+                      className="w-full text-left"
+                      title={`Open ${activeSubject.name} overview`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center">
+                          <BookOpen className="w-5 h-5" />
+                        </div>
+                        <div
+                          className={`min-w-0 overflow-hidden transition-[max-width,max-height,opacity,transform] duration-200 ease-out ${
+                            isSidebarCollapsed ? 'max-w-0 max-h-0 opacity-0 -translate-x-1' : 'max-w-[240px] max-h-16 opacity-100 translate-x-0'
+                          }`}
+                        >
+                          <h2 className="text-xl font-bold text-slate-900 truncate">{activeSubject.name}</h2>
+                          <p className="text-xs text-slate-500 mt-0.5">{units.length} topics in curriculum</p>
+                        </div>
+                      </div>
+                    </button>
+                    <div className={`mt-3 h-1.5 rounded-full bg-slate-200 overflow-hidden transition-opacity duration-200 ${isSidebarCollapsed ? 'opacity-0' : 'opacity-100'}`}>
+                      <div className="h-1.5 rounded-full bg-blue-500" style={{ width: `${Math.max(0, Math.min(100, overallCoverage))}%` }} />
+                    </div>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto">
+                    {units.map((unit, index) => {
+                      const isSelected = !isSubjectOverviewActive && selectedUnit.id === unit.id;
+                      return (
+                        <button
+                          key={unit.id}
+                          type="button"
+                          onClick={() => openUnitPage(unit)}
+                          title={`${unit.code}: ${unit.title}`}
+                          className={`w-full border-b border-slate-200 transition ${
+                            isSelected ? 'bg-blue-50 border-l-4 border-l-blue-600 pl-3' : 'hover:bg-slate-100'
+                          } ${isSidebarCollapsed ? 'px-2 py-3 min-h-[72px] flex items-center justify-center' : 'px-4 py-3 text-left min-h-[84px]'}`}
+                        >
+                          {isSidebarCollapsed ? (
+                            <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold">
+                              {index + 1}
+                            </span>
+                          ) : (
+                            <div>
+                              <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">{unit.code}</p>
+                              <p className="text-sm font-semibold text-slate-800 truncate">{unit.title}</p>
+                              <p className="text-xs text-slate-500 mt-0.5">{unit.masteryPercent}% mastery</p>
+                            </div>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
 
             </aside>
 
-            <section className="min-w-0 bg-white">
-              <header className="px-6 py-5 border-b border-slate-200">
-                <h1 className="text-3xl font-bold text-slate-900">{selectedUnit.code}: {selectedUnit.title}</h1>
-                <p className="text-sm text-slate-500 mt-2">{selectedUnit.summary}</p>
+            <section className={`min-w-0 rounded-none border border-slate-200 bg-white overflow-hidden xl:will-change-[margin] xl:transition-[margin] xl:duration-300 xl:ease-in-out ${contentDesktopOffset} ${
+              isUnitChallengeActive || isSubjectChallengeActive ? 'min-h-[calc(100vh-var(--student-header-offset)-1.5rem)]' : ''
+            }`}>
+              {!isUnitChallengeActive && !isSubjectChallengeActive && !isSubjectOverviewActive && (
+                <header className="px-6 py-5 border-b border-slate-200">
+                  <h1 className="text-3xl font-bold text-slate-900">{selectedUnit.code}: {selectedUnit.title}</h1>
+                  <p className="text-sm text-slate-500 mt-2">{selectedUnit.summary}</p>
 
-                <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
-                    <p className="text-[11px] uppercase font-semibold tracking-wide text-emerald-700">Mastered</p>
-                    <p className="text-lg font-semibold text-emerald-800">{masteredTopics} topics</p>
-                  </div>
-                  <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2">
-                    <p className="text-[11px] uppercase font-semibold tracking-wide text-blue-700">In Progress</p>
-                    <p className="text-lg font-semibold text-blue-800">{inProgressTopics} topics</p>
-                  </div>
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
-                    <p className="text-[11px] uppercase font-semibold tracking-wide text-amber-700">Needs Support</p>
-                    <p className="text-sm font-semibold text-amber-800 truncate">
-                      {focusTopics.length > 0 ? focusTopics.map((topic) => topic.title).join(', ') : 'No immediate gaps'}
-                    </p>
-                  </div>
-                </div>
-              </header>
-
-              <div className="p-6 pb-28 space-y-4">
-                {selectedUnit.topics.map((topic) => (
-                  <section key={topic.id} className="border border-slate-200 rounded-lg p-5 space-y-4">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <h3 className="text-2xl font-semibold text-slate-900">{topic.title}</h3>
-                      <div className="flex items-center gap-2">
-                        <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-md bg-slate-100 text-slate-700">
-                          <Target className="w-3.5 h-3.5" />
-                          {topic.masteryPercent}% mastery
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => openTopicDetail(selectedUnit, topic)}
-                          className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                        >
-                          Open topic
-                          <ChevronRight className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
+                      <p className="text-[11px] uppercase font-semibold tracking-wide text-emerald-700">Mastered</p>
+                      <p className="text-lg font-semibold text-emerald-800">{masteredTopics} topics</p>
                     </div>
+                    <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2">
+                      <p className="text-[11px] uppercase font-semibold tracking-wide text-blue-700">In Progress</p>
+                      <p className="text-lg font-semibold text-blue-800">{inProgressTopics} topics</p>
+                    </div>
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                      <p className="text-[11px] uppercase font-semibold tracking-wide text-amber-700">Needs Support</p>
+                      <p className="text-sm font-semibold text-amber-800 truncate">
+                        {focusTopics.length > 0 ? focusTopics.map((topic) => topic.title).join(', ') : 'No immediate gaps'}
+                      </p>
+                    </div>
+                  </div>
+                </header>
+              )}
 
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                      <div>
-                        <p className="text-sm font-semibold text-slate-700 mb-2">Learn</p>
-                        <div className="space-y-2">
-                          {topic.learn.map((resource) => (
+              {isSubjectChallengeActive ? (
+                <div className={isSubjectChallengeRunning ? '' : 'p-6 pb-24'}>
+                  {subjectChallengeState?.stage === 'running' ? (
+                    <StudentPracticeRunner
+                      title={`${activeSubject.name} subject challenge`}
+                      subtitle="Subject challenge"
+                      questions={subjectChallengeQuestions}
+                      contentWrapperClassName="px-6 py-6 pb-8 space-y-6 md:pb-12"
+                      fixedFooterStyle={{
+                        left: 'calc(var(--subjects-footer-left) - 3px)',
+                        right: 'calc(var(--subjects-footer-right) - 3px)',
+                      }}
+                      onComplete={completeSubjectChallenge}
+                    />
+                  ) : (
+                    <section className="overflow-hidden rounded-lg border border-slate-200">
+                      <div className="bg-slate-900 px-6 py-10 text-center text-white">
+                        <p className="text-xs uppercase tracking-[0.2em] text-blue-200">Subject challenge</p>
+                        <h3 className="mt-3 text-4xl font-bold">Ready for the full subject challenge?</h3>
+                        <p className="mt-3 text-lg text-blue-100">Test your skills across all units and topics in {activeSubject.name}.</p>
+                        <p className="mt-4 text-xl font-semibold">
+                          {subjectChallengeQuestions.length} questions • {subjectChallengeEstimatedMinutes}-{subjectChallengeEstimatedMinutes + 5} minutes
+                        </p>
+                      </div>
+                    </section>
+                  )}
+                </div>
+              ) : isSubjectOverviewActive && !isUnitChallengeActive ? (
+                <div className="p-6 pb-10 space-y-4">
+                  <section className="rounded-lg border border-slate-200 bg-slate-50 px-5 py-4">
+                    <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Subject overview</p>
+                    <h1 className="mt-2 text-3xl font-bold text-slate-900">{activeSubject.name}</h1>
+                    <p className="mt-2 text-sm text-slate-600">
+                      Browse all units and topics. Click a unit for the in-depth unit page or click a topic to jump directly into it.
+                    </p>
+                  </section>
+
+                  {units.map((unit) => {
+                    const isCurrentUnit = selectedUnit.id === unit.id;
+                    return (
+                      <section
+                        key={unit.id}
+                        className={`rounded-lg border p-5 ${
+                          isCurrentUnit ? 'border-blue-200 bg-blue-50/40' : 'border-slate-200 bg-white'
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
+                          <button
+                            type="button"
+                            onClick={() => openUnitPage(unit)}
+                            className="text-left text-2xl font-semibold text-slate-900 hover:text-blue-700"
+                          >
+                            {unit.code}: {unit.title}
+                          </button>
+                          <span className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-700">
+                            <Target className="h-3.5 w-3.5" />
+                            Unit mastery: {unit.masteryPercent}%
+                          </span>
+                        </div>
+
+                        <div className="mt-4 grid grid-cols-1 gap-x-10 gap-y-2 lg:grid-cols-2">
+                          {unit.topics.map((topic) => (
                             <button
-                              key={resource.id}
+                              key={topic.id}
                               type="button"
-                              onClick={() => openTopicDetail(selectedUnit, topic, `learn-${resource.id}`)}
-                              className="w-full flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                              onClick={() => openTopicDetail(unit, topic)}
+                              className="inline-flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-base text-slate-700 hover:bg-slate-100 hover:text-slate-900"
                             >
-                              <span className="flex items-center gap-2 min-w-0">
-                                <PlayCircle className="w-4 h-4 text-slate-500 shrink-0" />
-                                <span className="truncate">{resource.title}</span>
-                              </span>
-                              <span className="text-xs text-slate-400 capitalize shrink-0">{resource.type}</span>
+                              <span className="truncate">{topic.title}</span>
+                              <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
                             </button>
                           ))}
                         </div>
-                      </div>
+                      </section>
+                    );
+                  })}
 
-                      <div>
-                        <p className="text-sm font-semibold text-slate-700 mb-2">Practice</p>
-                        <div className="space-y-2">
-                          {topic.practice.map((practice) => (
-                            <div key={practice.id} className="rounded-md border border-slate-200 bg-slate-50 p-3 flex items-start justify-between gap-3">
-                              <div>
-                                <p className="text-sm font-semibold text-slate-800">{practice.title}</p>
-                                <p className="text-xs text-slate-500 mt-0.5">{practice.target}</p>
-                              </div>
+                  <section className="rounded-lg border border-slate-200 bg-slate-50 p-5">
+                    <div className="flex items-center gap-2 text-slate-700 font-semibold">
+                      <Sparkles className="w-4 h-4" />
+                      Subject challenge
+                    </div>
+                    <p className="text-sm text-slate-600 mt-2">Take one challenge that spans all units in this subject.</p>
+                    <button
+                      type="button"
+                      onClick={openSubjectChallenge}
+                      className="mt-3 inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white text-slate-700 px-4 py-2 text-sm font-semibold hover:bg-slate-100"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                      Start subject challenge
+                    </button>
+                  </section>
+                </div>
+              ) : (
+                <div className={isUnitChallengeActive ? (isUnitChallengeRunning ? '' : 'p-6 pb-24') : 'p-6 pb-28 space-y-4'}>
+                  {isUnitChallengeActive ? (
+                    activeUnitChallenge?.stage === 'running' ? (
+                      <StudentPracticeRunner
+                        title={`${selectedUnit.code}: ${selectedUnit.title}`}
+                        subtitle="Unit challenge"
+                        questions={unitChallengeQuestions}
+                        contentWrapperClassName="px-6 py-6 pb-8 space-y-6 md:pb-12"
+                        fixedFooterStyle={{
+                          left: 'calc(var(--subjects-footer-left) - 3px)',
+                          right: 'calc(var(--subjects-footer-right) - 3px)',
+                        }}
+                        onComplete={completeUnitChallenge}
+                      />
+                    ) : (
+                      <section className="overflow-hidden rounded-lg border border-slate-200">
+                        <div className="bg-slate-900 px-6 py-10 text-center text-white">
+                          <p className="text-xs uppercase tracking-[0.2em] text-blue-200">{selectedUnit.code} Unit challenge</p>
+                          <h3 className="mt-3 text-4xl font-bold">All set for the unit challenge?</h3>
+                          <p className="mt-3 text-lg text-blue-100">Test your skills across all topics in this unit.</p>
+                          <p className="mt-4 text-xl font-semibold">
+                            {unitChallengeQuestions.length} questions • {unitChallengeEstimatedMinutes}-{unitChallengeEstimatedMinutes + 5} minutes
+                          </p>
+                        </div>
+                      </section>
+                    )
+                  ) : (
+                    <>
+                      {selectedUnit.topics.map((topic) => (
+                        <section key={topic.id} className="border border-slate-200 rounded-lg p-5 space-y-4">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <button
+                              type="button"
+                              onClick={() => openTopicDetail(selectedUnit, topic)}
+                              className="text-left text-2xl font-semibold text-slate-900 hover:text-blue-700"
+                            >
+                              {topic.title}
+                            </button>
+                            <div className="flex items-center gap-2">
+                              <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-md bg-slate-100 text-slate-700">
+                                <Target className="w-3.5 h-3.5" />
+                                {topic.masteryPercent}% mastery
+                              </span>
                               <button
                                 type="button"
-                                onClick={() => openPractice(selectedUnit, topic, practice)}
-                                className={`text-xs font-semibold px-3 py-1.5 rounded-md ${
-                                  getPracticeStatus(practice) === 'mastered'
-                                    ? 'bg-emerald-100 text-emerald-700'
-                                    : getPracticeStatus(practice) === 'in-progress'
-                                      ? 'bg-blue-600 text-white hover:bg-blue-700'
-                                      : 'border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
-                                }`}
+                                onClick={() => openTopicDetail(selectedUnit, topic)}
+                                className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                               >
-                                {getPracticeActionLabel(getPracticeStatus(practice))}
+                                Open topic
+                                <ChevronRight className="w-3.5 h-3.5" />
                               </button>
                             </div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </section>
-                ))}
+                          </div>
 
-                <div className="border border-slate-200 rounded-lg p-5 bg-slate-50">
-                  <div className="flex items-center gap-2 text-slate-700 font-semibold">
-                    <Sparkles className="w-4 h-4" />
-                    Course challenge
-                  </div>
-                  <p className="text-sm text-slate-600 mt-2">Test your understanding across all topics in this unit.</p>
-                  <button
-                    type="button"
-                    className="mt-3 inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white text-slate-700 px-4 py-2 text-sm font-semibold hover:bg-slate-100"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                    Start unit challenge
-                  </button>
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                            <div>
+                              <p className="text-sm font-semibold text-slate-700 mb-2">Learn</p>
+                              <div className="space-y-2">
+                                {topic.learn.map((resource) => (
+                                  <button
+                                    key={resource.id}
+                                    type="button"
+                                    onClick={() => openTopicDetail(selectedUnit, topic, `learn-${resource.id}`)}
+                                    className="w-full flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                                  >
+                                    <span className="flex items-center gap-2 min-w-0">
+                                      <PlayCircle className="w-4 h-4 text-slate-500 shrink-0" />
+                                      <span className="truncate">{resource.title}</span>
+                                    </span>
+                                    <span className="text-xs text-slate-400 capitalize shrink-0">{resource.type}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div>
+                              <p className="text-sm font-semibold text-slate-700 mb-2">Practice</p>
+                              <div className="space-y-2">
+                                {topic.practice.map((practice) => (
+                                  <div key={practice.id} className="rounded-md border border-slate-200 bg-slate-50 p-3 flex items-start justify-between gap-3">
+                                    <div>
+                                      <button
+                                        type="button"
+                                        onClick={() => openPractice(selectedUnit, topic, practice)}
+                                        className="text-left text-sm font-semibold text-slate-800 hover:text-blue-700"
+                                      >
+                                        {practice.title}
+                                      </button>
+                                      <p className="text-xs text-slate-500 mt-0.5">{practice.target}</p>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => openPractice(selectedUnit, topic, practice)}
+                                      className={`text-xs font-semibold px-3 py-1.5 rounded-md ${
+                                        getPracticeStatus(practice) === 'mastered'
+                                          ? 'bg-emerald-100 text-emerald-700'
+                                          : getPracticeStatus(practice) === 'in-progress'
+                                            ? 'bg-blue-600 text-white hover:bg-blue-700'
+                                            : 'border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                                      }`}
+                                    >
+                                      {getPracticeActionLabel(getPracticeStatus(practice))}
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        </section>
+                      ))}
+
+                      <div className="border border-slate-200 rounded-lg p-5 bg-slate-50">
+                        <div className="flex items-center gap-2 text-slate-700 font-semibold">
+                          <Sparkles className="w-4 h-4" />
+                          Topic challenge
+                        </div>
+                        <p className="text-sm text-slate-600 mt-2">Test your understanding across all topics in this unit.</p>
+                        <button
+                          type="button"
+                          onClick={openUnitChallenge}
+                          className="mt-3 inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white text-slate-700 px-4 py-2 text-sm font-semibold hover:bg-slate-100"
+                        >
+                          <ChevronRight className="w-4 h-4" />
+                          Start unit challenge
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
-              </div>
+              )}
             </section>
           </div>
 
-          <div
-            className="hidden xl:block fixed bottom-0 z-30"
-            style={{
-              left: 'var(--subjects-footer-left)',
-              right: 'var(--subjects-footer-right)',
-            }}
-          >
-            <footer className="border-t border-slate-200 bg-white px-6 py-4">
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (nextUnit) setSelectedUnitIndex((previous) => Math.min(previous + 1, units.length - 1));
-                  }}
-                  disabled={!nextUnit}
-                  className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
-                >
-                  {nextUnit ? `Up next: ${nextUnit.title.toLowerCase()}` : 'Unit complete'}
-                </button>
-              </div>
-            </footer>
-          </div>
-
-          <div className="xl:hidden border-t border-slate-200 bg-white px-6 py-4">
-            <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={() => {
-                  if (nextUnit) setSelectedUnitIndex((previous) => Math.min(previous + 1, units.length - 1));
+          {!isUnitChallengeActive && !isSubjectChallengeActive && !isSubjectOverviewActive && (
+            <>
+              <div
+                className="hidden xl:block fixed bottom-0 z-30"
+                style={{
+                  left: 'calc(var(--subjects-footer-left) - 3px)',
+                  right: 'calc(var(--subjects-footer-right) - 3px)',
                 }}
-                disabled={!nextUnit}
-                className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
               >
-                {nextUnit ? `Up next: ${nextUnit.title.toLowerCase()}` : 'Unit complete'}
-              </button>
-            </div>
-          </div>
+                <footer className="border-t border-slate-200 bg-white px-6 py-4">
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (nextUnit) setSelectedUnitIndex((previous) => Math.min(previous + 1, units.length - 1));
+                      }}
+                      disabled={!nextUnit}
+                      className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
+                    >
+                      {nextUnit ? `Up next: ${nextUnit.title.toLowerCase()}` : 'Unit complete'}
+                    </button>
+                  </div>
+                </footer>
+              </div>
+
+              <div className="xl:hidden border-t border-slate-200 bg-white px-6 py-4">
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (nextUnit) setSelectedUnitIndex((previous) => Math.min(previous + 1, units.length - 1));
+                    }}
+                    disabled={!nextUnit}
+                    className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
+                  >
+                    {nextUnit ? `Up next: ${nextUnit.title.toLowerCase()}` : 'Unit complete'}
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+
+          {isUnitChallengeActive && !isUnitChallengeRunning && (
+            <>
+              <div
+                className="hidden xl:block fixed bottom-0 z-30"
+                style={{
+                  left: 'calc(var(--subjects-footer-left) - 3px)',
+                  right: 'calc(var(--subjects-footer-right) - 3px)',
+                }}
+              >
+                <footer className="border-t border-slate-200 bg-white px-6 py-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    {activeUnitChallenge?.stage === 'completed' && activeUnitChallenge.summary ? (
+                      <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
+                        Unit challenge complete: {activeUnitChallenge.summary.correct}/{activeUnitChallenge.summary.total} correct.
+                      </div>
+                    ) : (
+                      <div />
+                    )}
+
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={exitUnitChallenge}
+                        className="inline-flex items-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                      >
+                        Back to unit
+                      </button>
+                      <button
+                        type="button"
+                        onClick={startUnitChallenge}
+                        className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                      >
+                        {activeUnitChallenge?.stage === 'completed' ? 'Retake challenge' : "Let's go"}
+                      </button>
+                    </div>
+                  </div>
+                </footer>
+              </div>
+
+              <div className="xl:hidden border-t border-slate-200 bg-white px-6 py-4">
+                {activeUnitChallenge?.stage === 'completed' && activeUnitChallenge.summary ? (
+                  <div className="mb-3 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
+                    Unit challenge complete: {activeUnitChallenge.summary.correct}/{activeUnitChallenge.summary.total} correct.
+                  </div>
+                ) : null}
+
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={exitUnitChallenge}
+                    className="inline-flex items-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    Back to unit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={startUnitChallenge}
+                    className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                  >
+                    {activeUnitChallenge?.stage === 'completed' ? 'Retake challenge' : "Let's go"}
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+
+          {isSubjectChallengeActive && !isSubjectChallengeRunning && (
+            <>
+              <div
+                className="hidden xl:block fixed bottom-0 z-30"
+                style={{
+                  left: 'calc(var(--subjects-footer-left) - 3px)',
+                  right: 'calc(var(--subjects-footer-right) - 3px)',
+                }}
+              >
+                <footer className="border-t border-slate-200 bg-white px-6 py-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    {subjectChallengeState?.stage === 'completed' && subjectChallengeState.summary ? (
+                      <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
+                        Subject challenge complete: {subjectChallengeState.summary.correct}/{subjectChallengeState.summary.total} correct.
+                      </div>
+                    ) : (
+                      <div />
+                    )}
+
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={exitSubjectChallenge}
+                        className="inline-flex items-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                      >
+                        Back to overview
+                      </button>
+                      <button
+                        type="button"
+                        onClick={startSubjectChallenge}
+                        className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                      >
+                        {subjectChallengeState?.stage === 'completed' ? 'Retake challenge' : "Let's go"}
+                      </button>
+                    </div>
+                  </div>
+                </footer>
+              </div>
+
+              <div className="xl:hidden border-t border-slate-200 bg-white px-6 py-4">
+                {subjectChallengeState?.stage === 'completed' && subjectChallengeState.summary ? (
+                  <div className="mb-3 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
+                    Subject challenge complete: {subjectChallengeState.summary.correct}/{subjectChallengeState.summary.total} correct.
+                  </div>
+                ) : null}
+
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={exitSubjectChallenge}
+                    className="inline-flex items-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    Back to overview
+                  </button>
+                  <button
+                    type="button"
+                    onClick={startSubjectChallenge}
+                    className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                  >
+                    {subjectChallengeState?.stage === 'completed' ? 'Retake challenge' : "Let's go"}
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
         </>
       )}
     </motion.div>

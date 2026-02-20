@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { Dialog } from '@headlessui/react';
-import { Search, MessageCircle, Calendar, BookOpen } from 'lucide-react';
+import { Search, MessageCircle, Calendar, BookOpen, PlusCircle } from 'lucide-react';
 import { Subject } from '../../types';
 
 type PeerStudyRequest = {
@@ -17,6 +17,7 @@ type StudentPeerStudyProps = {
   selectedSubjectId: string;
   subjects: Subject[];
   isCreateOpen: boolean;
+  onOpenCreate: () => void;
   onCloseCreate: () => void;
 };
 
@@ -51,6 +52,7 @@ const StudentPeerStudy: React.FC<StudentPeerStudyProps> = ({
   selectedSubjectId,
   subjects,
   isCreateOpen,
+  onOpenCreate,
   onCloseCreate,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -105,28 +107,39 @@ const StudentPeerStudy: React.FC<StudentPeerStudyProps> = ({
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-lg shadow p-4">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+        <div className="flex flex-col lg:flex-row lg:items-center gap-3">
           <div className="flex items-center gap-2 text-sm text-slate-600">Filters</div>
-          <div className="flex flex-wrap gap-2">
-            <div className="relative">
-              <Search className="w-4 h-4 text-slate-400 absolute left-2 top-1/2 -translate-y-1/2" />
-              <input
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Search topic"
-                className="pl-8 pr-3 py-2 text-sm border border-slate-200 rounded-md"
-              />
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 lg:ml-auto">
+            <div className="flex flex-wrap gap-2">
+              <div className="relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-2 top-1/2 -translate-y-1/2" />
+                <input
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Search topic"
+                  className="pl-8 pr-3 py-2 text-sm border border-slate-200 rounded-md"
+                />
+              </div>
+              <select
+                value={requestType}
+                onChange={(event) => setRequestType(event.target.value as any)}
+                className="px-3 py-2 text-sm border border-slate-200 rounded-md"
+              >
+                <option value="all">All requests</option>
+                <option value="need-help">Need help</option>
+                <option value="offer-help">Offering help</option>
+                <option value="study-group">Study group</option>
+              </select>
             </div>
-            <select
-              value={requestType}
-              onChange={(event) => setRequestType(event.target.value as any)}
-              className="px-3 py-2 text-sm border border-slate-200 rounded-md"
+
+            <button
+              type="button"
+              onClick={onOpenCreate}
+              className="inline-flex items-center justify-center gap-2 bg-blue-600 text-white text-sm font-semibold px-4 py-2 rounded-md hover:bg-blue-700"
             >
-              <option value="all">All requests</option>
-              <option value="need-help">Need help</option>
-              <option value="offer-help">Offering help</option>
-              <option value="study-group">Study group</option>
-            </select>
+              <PlusCircle className="w-4 h-4" />
+              Create collaboration request
+            </button>
           </div>
         </div>
       </div>

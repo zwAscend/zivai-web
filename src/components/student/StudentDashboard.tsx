@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard,
   BookOpen,
-  PlusCircle,
   Target,
   MessageCircle,
   LogOut,
@@ -429,7 +428,7 @@ const StudentDashboard: React.FC = () => {
 
   const navItems: Array<{ key: NavItemKey; label: string; icon: React.ComponentType<{ className?: string }> }> = [
     { key: 'overview', label: 'Home', icon: LayoutDashboard },
-    { key: 'plan', label: 'My Plan', icon: BookOpen },
+    { key: 'plan', label: 'My Plans', icon: BookOpen },
     { key: 'subjects', label: 'My Subjects', icon: BookOpen },
     { key: 'assessments', label: 'Assessments', icon: FileText },
     { key: 'results', label: 'Results', icon: BarChart2 },
@@ -1060,6 +1059,7 @@ const StudentDashboard: React.FC = () => {
             selectedSubjectId={selectedSubjectId}
             subjects={subjects}
             isCreateOpen={peerStudyModalOpen}
+            onOpenCreate={() => setPeerStudyModalOpen(true)}
             onCloseCreate={() => setPeerStudyModalOpen(false)}
           />
         );
@@ -1318,23 +1318,8 @@ const StudentDashboard: React.FC = () => {
         />
       )}
 
-      <main className="w-full bg-white py-6">
+      <main className={`w-full bg-white ${activeView === 'subjects' ? 'pt-6 pb-0' : 'py-6'}`}>
         <div className="max-w-[1400px] mx-auto px-4">
-          {activeView === 'peer-study' && (
-            <header className="mb-6">
-              <div className="flex flex-wrap items-center justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setPeerStudyModalOpen(true)}
-                  className="inline-flex items-center justify-center gap-2 bg-blue-600 text-white text-sm font-semibold px-4 py-2 rounded-md hover:bg-blue-700"
-                >
-                  <PlusCircle className="w-4 h-4" />
-                  Create collaboration request
-                </button>
-              </div>
-            </header>
-          )}
-
           <AnimatePresence mode="wait">
             <motion.div
               key={activeView}
