@@ -6,6 +6,7 @@ export interface CurriculumTopic {
   code: string;
   name: string;
   description?: string;
+  objectives?: string;
   sequenceIndex?: number | null;
 }
 
@@ -13,12 +14,13 @@ export interface CurriculumTopicPayload {
   code: string;
   name: string;
   description?: string;
+  objectives?: string;
   sequenceIndex?: number | null;
 }
 
 export const curriculumService = {
   listTopics: async (subjectId: string): Promise<CurriculumTopic[]> => {
-    return fetchData<CurriculumTopic[]>(`/admin/subjects/${subjectId}/topics`);
+    return fetchData<CurriculumTopic[]>(`/subjects/${subjectId}/topics`, { cacheTtlMs: 10 * 60 * 1000 });
   },
 
   createTopic: async (subjectId: string, payload: CurriculumTopicPayload): Promise<CurriculumTopic> => {

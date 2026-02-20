@@ -38,15 +38,16 @@ import AdminClassesPage from './components/admin/pages/AdminClassesPage';
 import AdminEdgeNodesPage from './components/admin/pages/AdminEdgeNodesPage';
 import AdminCurriculumPage from './components/admin/pages/AdminCurriculumPage';
 import AdminTermForecastsPage from './components/admin/pages/AdminTermForecastsPage';
+import { authService } from './services/authService';
+import { isSessionAuthenticated } from './services/authSession';
 
 function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [isAuthenticated, setIsAuthenticated] = useState(!!localStorage.getItem('token'));
+  const [isAuthenticated, setIsAuthenticated] = useState(isSessionAuthenticated());
   const navigate = useNavigate();
   const location = useLocation();
 
-  const userStr = localStorage.getItem('user');
-  const user = userStr ? JSON.parse(userStr) : null;
+  const user = authService.getCurrentUser();
   const isAdmin = !!user?.isAdmin || user?.role === 'admin';
   const isTeacher = !!user?.isTeacher || user?.role === 'teacher';
   const isStudent = user?.role === 'student' && !!user?.studentId;
@@ -54,11 +55,15 @@ function App() {
 
   useEffect(() => {
     const handleStorageChange = () => {
-      setIsAuthenticated(!!localStorage.getItem('token'));
+      setIsAuthenticated(isSessionAuthenticated());
     };
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
+
+  useEffect(() => {
+    setIsAuthenticated(isSessionAuthenticated());
+  }, [location.pathname]);
 
   useEffect(() => {
     if (!isAuthenticated && location.pathname !== '/login') {
@@ -90,11 +95,10 @@ function App() {
                 <Navigate to="/dashboard" replace />
               )
             ) : (
-              <Login
-                onLogin={() => {
-                  setIsAuthenticated(true);
-                  const latest = localStorage.getItem('user');
-                  const current = latest ? JSON.parse(latest) : null;
+                <Login
+                  onLogin={() => {
+                  setIsAuthenticated(isSessionAuthenticated());
+                  const current = authService.getCurrentUser();
                   const currentIsAdmin = !!current?.isAdmin || current?.role === 'admin';
                   const currentIsTeacher = !!current?.isTeacher || current?.role === 'teacher';
                   const currentIsStudent = current?.role === 'student' && !!current?.studentId;

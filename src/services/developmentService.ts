@@ -1,9 +1,28 @@
 import { fetchData } from './http';
 import { DevelopmentPlan, StudentAttributes, SubjectAttribute, Plan, PlanStatus, PageResponse } from '../types';
 
+export interface MasterySignalsSummary {
+  totalStudents: number;
+  excellent: number;
+  good: number;
+  average: number;
+  needsImprovement: number;
+  averageOverall: number;
+}
+
+export interface StudentStreakSummary {
+  studentId: string;
+  streakDays: number;
+  streakWeeks: number;
+  level: number;
+  progressToNextWeek: number;
+  activeToday: boolean;
+  lastActiveDate?: string | null;
+}
+
 export const developmentService = {
   getSubjectAttributes: async (subjectId: string): Promise<SubjectAttribute[]> => {
-    return fetchData<SubjectAttribute[]>(`/development/attributes/subject/${subjectId}`);
+    return fetchData<SubjectAttribute[]>(`/development/attributes/subject/${subjectId}`, { cacheTtlMs: 10 * 60 * 1000 });
   },
 
   createSubjectAttribute: async (attributeData: Omit<SubjectAttribute, 'id' | 'createdAt' | 'updatedAt'>): Promise<SubjectAttribute> => {
@@ -14,7 +33,7 @@ export const developmentService = {
   },
 
   getStudentAttributes: async (studentId: string, subjectId: string): Promise<StudentAttributes> => {
-    return fetchData<StudentAttributes>(`/development/attributes/student/${studentId}/subject/${subjectId}`);
+    return fetchData<StudentAttributes>(`/development/attributes/student/${studentId}/subject/${subjectId}`, { cacheTtlMs: 60 * 1000 });
   },
 
   updateStudentAttributes: async (studentId: string, attributes: Array<{ attributeId: string; current: number; potential: number }>): Promise<{ message: string }> => {
@@ -25,7 +44,7 @@ export const developmentService = {
   },
 
   getSubjectPlans: async (subjectId: string): Promise<Plan[]> => {
-    return fetchData<Plan[]>(`/development/plans/subject/${subjectId}`);
+    return fetchData<Plan[]>(`/development/plans/subject/${subjectId}`, { cacheTtlMs: 5 * 60 * 1000 });
   },
 
   createSubjectPlan: async (planData: Omit<Plan, 'id' | 'createdAt' | 'updatedAt'>): Promise<Plan> => {
@@ -39,7 +58,7 @@ export const developmentService = {
     if (!studentId || studentId === 'undefined') {
       throw new Error('Student id is required');
     }
-    return fetchData<DevelopmentPlan>(`/development/plans/student/${studentId}/subject/${subjectId}`);
+    return fetchData<DevelopmentPlan>(`/development/plans/student/${studentId}/subject/${subjectId}`, { cacheTtlMs: 60 * 1000 });
   },
 
   getAllPlansForStudent: async (studentId: string, status?: string): Promise<DevelopmentPlan[]> => {
@@ -47,7 +66,7 @@ export const developmentService = {
       return [];
     }
     const query = status ? `?status=${encodeURIComponent(status)}` : '';
-    return fetchData<DevelopmentPlan[]>(`/development/plans/student/${studentId}${query}`);
+    return fetchData<DevelopmentPlan[]>(`/development/plans/student/${studentId}${query}`, { cacheTtlMs: 60 * 1000 });
   },
 
   assignPlanToStudent: async (studentId: string, planId: string, subjectId?: string): Promise<DevelopmentPlan> => {
@@ -96,5 +115,41 @@ export const developmentService = {
 
     const query = searchParams.toString();
     return fetchData<PageResponse<DevelopmentPlan>>(`/development/plans${query ? `?${query}` : ''}`);
+  },
+
+  getMasterySignalsSummary: async (params?: {
+    subjectId?: string;
+    classId?: string;
+    classSubjectId?: string;
+  }): Promise<MasterySignalsSummary> => {
+    const searchParams = new URLSearchParams();
+    if (params?.subjectId) searchParams.set('subjectId', params.subjectId);
+    if (params?.classId) searchParams.set('classId', params.classId);
+    if (params?.classSubjectId) searchParams.set('classSubjectId', params.classSubjectId);
+    const query = searchParams.toString();
+    return fetchData<MasterySignalsSummary>(`/development/mastery-signals${query ? `?${query}` : ''}`, { cacheTtlMs: 60 * 1000 });
+  },
+
+  getStudentMasterySignalsSummary: async (studentId: string, subjectId?: string): Promise<MasterySignalsSummary> => {
+    const searchParams = new URLSearchParams();
+    if (subjectId) searchParams.set('subjectId', subjectId);
+    const query = searchParams.toString();
+    return fetchData<MasterySignalsSummary>(
+      `/development/mastery-signals/student/${studentId}${query ? `?${query}` : ''}`,
+      { cacheTtlMs: 60 * 1000 }
+    );
+  },
+
+  getStudentStreak: async (studentId: string): Promise<StudentStreakSummary> => {
+    return fetchData<StudentStreakSummary>(`/development/streaks/student/${studentId}`, {
+      cacheTtlMs: 60 * 1000,
+      forceRefresh: true,
+    });
+  },
+
+  touchStudentStreak: async (studentId: string): Promise<StudentStreakSummary> => {
+    return fetchData<StudentStreakSummary>(`/development/streaks/student/${studentId}/touch`, {
+      method: 'POST',
+    });
   },
 };

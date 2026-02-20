@@ -23,15 +23,15 @@ export interface UpdateSubjectPayload {
 
 export const subjectService = {
   getSubjects: async (): Promise<Subject[]> => {
-    return fetchData<Subject[]>('/subjects');
+    return fetchData<Subject[]>('/subjects', { cacheTtlMs: 10 * 60 * 1000 });
   },
 
   getSubjectById: async (id: string): Promise<Subject> => {
-    return fetchData<Subject>(`/subjects/${id}`);
+    return fetchData<Subject>(`/subjects/${id}`, { cacheTtlMs: 10 * 60 * 1000 });
   },
 
   getTeachingSubjects: async (): Promise<Subject[]> => {
-    return fetchData<Subject[]>('/subjects/teaching');
+    return fetchData<Subject[]>('/subjects/teaching', { cacheTtlMs: 5 * 60 * 1000 });
   },
 
   createSubject: async (payload: SubjectPayload): Promise<Subject> => {

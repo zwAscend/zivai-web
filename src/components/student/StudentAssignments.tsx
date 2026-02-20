@@ -1,515 +1,475 @@
-import React, { useState, useEffect } from 'react';
-import { AlertCircle, Calendar, CheckCircle, Clock, FileText, Loader2, Upload, X, Eye, Sparkles } from 'lucide-react';
-import { Assessment, Result, Submission, SubmissionPayload, Student } from '../../types';
-import { Dialog } from '@headlessui/react';
-import { assessmentService, studentService, submissionService } from '../../services/api';
-import { externalAssessmentService } from '../../services/externalAssessmentService';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  AlertCircle,
+  Calendar,
+  CheckCircle,
+  Clock,
+  Eye,
+  FileText,
+  Loader2,
+  Upload,
+} from 'lucide-react';
+import {
+  assessmentEnrollmentService,
+  assessmentService,
+  submissionService,
+} from '../../services/api';
 
 interface StudentAssignmentsProps {
   studentId: string;
-  selectedSubjectId?: string; // Add this prop to filter by subject
+  selectedSubjectId?: string;
   onOpenTutor?: (prompt?: string) => void;
 }
 
-interface SubmissionWithResult extends Submission {
-  result?: Result & {
-    externalAssessmentData?: any; // Adjust this type based on your actual external assessment data structure
-  };
-}
+type AssessmentTabKey = 'attempt' | 'list' | 'review';
+type StatusFilterKey = 'all' | 'pending' | 'submitted' | 'graded' | 'overdue';
+type AssignmentStatusKey = Exclude<StatusFilterKey, 'all'>;
+type SubmissionMode = 'questions' | 'text' | 'file';
 
-interface AssignmentWithResult extends Assessment {
-  result?: Result;
-  submission?: SubmissionWithResult;
-  isSubmitted: boolean;
-  isOverdue: boolean;
-}
-
-type MockAssessmentCard = {
+interface AssessmentQuestionItem {
   id: string;
-  title: string;
-  description: string;
-  questions: number;
-  duration: string;
-  format: string;
-  difficulty: 'Easy' | 'Medium' | 'Hard';
+  assessmentQuestionId?: string;
+  questionId?: string;
+  stem: string;
+  questionTypeCode?: string;
+  sequenceIndex?: number;
+  points?: number;
+  rubricJson?: {
+    options?: string[];
+  } | null;
+}
+
+interface AssessmentWithQuestionsItem {
+  id: string;
+  subjectId?: string;
+  name?: string;
+  description?: string;
+  assessmentType?: string;
+  maxScore?: number;
+  weightPct?: number;
+  questions?: AssessmentQuestionItem[];
+}
+
+interface SubmissionSummaryItem {
+  id: string;
+  assessment: string;
+  submissionType?: string;
+  submittedAt?: string;
+  status?: string;
+  originalFilename?: string;
+}
+
+interface ResultItem {
+  id: string;
+  expectedMark?: number;
+  actualMark?: number;
+  grade?: string;
+  feedback?: string;
+  submittedDate?: string;
+}
+
+interface AssignmentEntry {
+  id: string;
+  assignmentId: string;
+  assessmentId: string;
+  assessmentName: string;
+  dueTime: string | null;
+  published: boolean;
+  assessment: AssessmentWithQuestionsItem | null;
+  submission: SubmissionSummaryItem | null;
+  result: ResultItem | null;
+  status: AssignmentStatusKey;
+}
+
+const asDate = (value?: string | null): Date | null => {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
 };
 
-const mockAttemptCards: MockAssessmentCard[] = [
-  {
-    id: 'mock-quick-check',
-    title: 'Quick Mastery Check',
-    description: 'Short mixed set to refresh core concepts and identify small gaps.',
-    questions: 8,
-    duration: '12-15 min',
-    format: 'Mixed quiz',
-    difficulty: 'Easy',
-  },
-  {
-    id: 'mock-exam-readiness',
-    title: 'Exam Readiness Drill',
-    description: 'Exam-style questions with reasoning and structured working required.',
-    questions: 16,
-    duration: '25-30 min',
-    format: 'Structured assessment',
-    difficulty: 'Medium',
-  },
-  {
-    id: 'mock-challenge',
-    title: 'Challenge Mode',
-    description: 'Higher-order problems to strengthen confidence before finals.',
-    questions: 20,
-    duration: '35-40 min',
-    format: 'Extended paper',
-    difficulty: 'Hard',
-  },
-];
+const formatAssessmentType = (assessment?: AssessmentWithQuestionsItem | null) => {
+  const raw = String(assessment?.assessmentType || 'Assessment').trim();
+  if (!raw) return 'Assessment';
+  return raw
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+};
+
+const getEntryStatus = (entry: {
+  submission: SubmissionSummaryItem | null;
+  result: ResultItem | null;
+  dueTime: string | null;
+}): AssignmentStatusKey => {
+  if (entry.result && typeof entry.result.actualMark === 'number') return 'graded';
+  if (entry.submission) return 'submitted';
+  const dueDate = asDate(entry.dueTime);
+  if (dueDate && dueDate.getTime() < Date.now()) return 'overdue';
+  return 'pending';
+};
+
+const getStatusPillClass = (status: AssignmentStatusKey) => {
+  switch (status) {
+    case 'graded':
+      return 'text-emerald-700 bg-emerald-100';
+    case 'submitted':
+      return 'text-blue-700 bg-blue-100';
+    case 'overdue':
+      return 'text-rose-700 bg-rose-100';
+    default:
+      return 'text-amber-700 bg-amber-100';
+  }
+};
+
+const getStatusLabel = (status: AssignmentStatusKey) => {
+  switch (status) {
+    case 'graded':
+      return 'Graded';
+    case 'submitted':
+      return 'Submitted';
+    case 'overdue':
+      return 'Overdue';
+    default:
+      return 'Pending';
+  }
+};
+
+const getStatusIcon = (status: AssignmentStatusKey) => {
+  switch (status) {
+    case 'graded':
+      return <CheckCircle className="w-4 h-4" />;
+    case 'submitted':
+      return <Clock className="w-4 h-4" />;
+    case 'overdue':
+      return <AlertCircle className="w-4 h-4" />;
+    default:
+      return <Calendar className="w-4 h-4" />;
+  }
+};
+
+const resolveAssessmentQuestionId = (question: AssessmentQuestionItem) =>
+  question.assessmentQuestionId || question.id;
 
 const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, selectedSubjectId, onOpenTutor }) => {
-  const [assignments, setAssignments] = useState<AssignmentWithResult[]>([]);
+  const [entries, setEntries] = useState<AssignmentEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState<string | null>(null);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [isDetailsOpen, setIsDetailsOpen] = useState(false);
-  const [selectedFeedback, setSelectedFeedback] = useState<any>(null);
-  const [textSubmission, setTextSubmission] = useState('');
-  const [submissionType, setSubmissionType] = useState<'file' | 'text'>('file');
-  const [activeAssignment, setActiveAssignment] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const [assessmentTab, setAssessmentTab] = useState<AssessmentTabKey>('attempt');
+  const [selectedReviewEntryId, setSelectedReviewEntryId] = useState<string | null>(null);
+
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedStatus, setSelectedStatus] = useState<'all' | 'pending' | 'submitted' | 'graded' | 'overdue'>('all');
+  const [selectedStatus, setSelectedStatus] = useState<StatusFilterKey>('all');
   const [selectedType, setSelectedType] = useState<'all' | string>('all');
-  const [assessmentTab, setAssessmentTab] = useState<'attempt' | 'list' | 'review'>('attempt');
-  const [selectedReviewAssessmentId, setSelectedReviewAssessmentId] = useState<string | null>(null);
 
-  useEffect(() => {
-    console.log('--- Fetching Student Assignments ---');
-    console.log('Student ID:', studentId);
-    console.log('Selected Subject ID:', selectedSubjectId);
+  const [activeAttemptEntryId, setActiveAttemptEntryId] = useState<string | null>(null);
+  const [submissionMode, setSubmissionMode] = useState<SubmissionMode>('questions');
+  const [answerDrafts, setAnswerDrafts] = useState<Record<string, string>>({});
+  const [textSubmission, setTextSubmission] = useState('');
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [submittingEntryId, setSubmittingEntryId] = useState<string | null>(null);
 
-    const fetchStudentAssignments = async () => {
-      if (!studentId) {
-        console.log('DEBUG: No student ID provided. Skipping fetch.');
-        setAssignments([]);
-        setLoading(false);
-        return;
-      }
+  const [reviewSubmissionDetail, setReviewSubmissionDetail] = useState<any>(null);
+  const [loadingReviewDetail, setLoadingReviewDetail] = useState(false);
 
-      setLoading(true);
-      console.log('DEBUG: Starting to fetch assignments for student ID:', studentId);
-      
-      try {
-        // Fetch all required data in parallel
-        const [student, submissions] = await Promise.all([
-          studentService.getStudent(studentId).catch(error => {
-            console.error('Error fetching student:', error);
-            return null;
-          }),
-          submissionService.getStudentSubmissions(studentId).catch(error => {
-            console.error('Error fetching submissions:', error);
-            return [];
-          })
-        ]);
+  const fetchWorkspace = useCallback(async () => {
+    if (!studentId) {
+      setEntries([]);
+      setLoading(false);
+      return;
+    }
 
-        // Process subject IDs to fetch
-        const subjectIdsToFetch = (() => {
-          if (selectedSubjectId && selectedSubjectId !== 'all') {
-            return [selectedSubjectId];
+    setLoading(true);
+    setError(null);
+
+    try {
+      const [enrollmentsRaw, submissionsRaw] = await Promise.all([
+        assessmentEnrollmentService.getSummary({ studentId }).catch(() => []),
+        submissionService.getStudentSubmissions(studentId).catch(() => []),
+      ]);
+
+      const enrollments = enrollmentsRaw || [];
+      const submissions = (submissionsRaw || []) as SubmissionSummaryItem[];
+
+      const assessmentIds = Array.from(
+        new Set(enrollments.map((item) => item.assessmentId).filter(Boolean))
+      );
+
+      const assessmentEntries = await Promise.all(
+        assessmentIds.map(async (assessmentId) => {
+          try {
+            const assessment = await assessmentService.getAssessmentWithQuestions(assessmentId);
+            return [assessmentId, assessment as AssessmentWithQuestionsItem] as const;
+          } catch {
+            return [assessmentId, null] as const;
           }
-          return (student?.subjects || [])
-            .map(subject => typeof subject === 'string' ? subject : subject?.id)
-            .filter(Boolean) as string[];
-        })();
+        })
+      );
+      const assessmentsById = new Map<string, AssessmentWithQuestionsItem | null>(assessmentEntries);
 
-        if (subjectIdsToFetch.length === 0) {
-          console.log('DEBUG: No valid subject IDs found to fetch assignments for.');
-          setAssignments([]);
-          setLoading(false);
+      const filteredEnrollments =
+        selectedSubjectId && selectedSubjectId !== 'all'
+          ? enrollments.filter((item) => assessmentsById.get(item.assessmentId)?.subjectId === selectedSubjectId)
+          : enrollments;
+
+      const resultEntries = await Promise.all(
+        Array.from(new Set(filteredEnrollments.map((item) => item.assessmentId))).map(async (assessmentId) => {
+          try {
+            const results = (await assessmentService.getResults(assessmentId, studentId)) as ResultItem[];
+            return [assessmentId, results?.[0] || null] as const;
+          } catch {
+            return [assessmentId, null] as const;
+          }
+        })
+      );
+      const resultsByAssessmentId = new Map<string, ResultItem | null>(resultEntries);
+
+      const latestSubmissionByAssessmentId = new Map<string, SubmissionSummaryItem>();
+      submissions.forEach((submission) => {
+        const assessmentId = String(submission.assessment || '').trim();
+        if (!assessmentId) return;
+
+        const existing = latestSubmissionByAssessmentId.get(assessmentId);
+        if (!existing) {
+          latestSubmissionByAssessmentId.set(assessmentId, submission);
           return;
         }
 
-        // Fetch assessments for all subjects in parallel
-        const assessmentsBySubject = await Promise.all(
-          subjectIdsToFetch.map(subjectId => 
-            assessmentService.getAssessmentsBySubjectId(subjectId).catch(error => {
-              console.error(`ERROR fetching assessments for subject ${subjectId}:`, error);
-              return [];
-            })
-          )
-        );
+        const existingTime = asDate(existing.submittedAt)?.getTime() || 0;
+        const nextTime = asDate(submission.submittedAt)?.getTime() || 0;
+        if (nextTime >= existingTime) {
+          latestSubmissionByAssessmentId.set(assessmentId, submission);
+        }
+      });
 
-        const allAssessments = assessmentsBySubject.flat();
-        console.log(`DEBUG: Found ${allAssessments.length} assessments across ${subjectIdsToFetch.length} subjects`);
-
-        // *** IMPROVED RESULT CHECKING ***
-        // Fetch results for each assessment specifically for this student
-        const resultsPromises = allAssessments.map(assessment => 
-          assessment?.id 
-            ? assessmentService.getResults(assessment.id, studentId) // Pass studentId as query param
-                .then(results => ({ 
-                  assessmentId: assessment.id, 
-                  result: results && results.length > 0 ? results[0] : null 
-                }))
-                .catch(error => {
-                  console.error(`ERROR fetching result for assessment ${assessment.id}:`, error);
-                  return { assessmentId: assessment.id, result: null };
-                })
-            : Promise.resolve({ assessmentId: '', result: null })
-        );
-
-        const results = await Promise.all(resultsPromises);
-        const resultsMap = new Map(
-          results
-            .filter(r => r.assessmentId) // Include even null results for proper checking
-            .map(({ assessmentId, result }) => [assessmentId, result])
-        );
-
-        // Create a map of submission by assessment ID
-        const submissionMap = new Map(
-          submissions
-            .filter((s: any) => s.assessment || s.assessmentId)
-            .map((submission: any) => [
-              (submission.assessment || submission.assessmentId) as string, 
-              submission
-            ])
-        );
-
-        // Merge all data together with proper result existence checking
-        const now = new Date();
-        const processedAssignments = allAssessments.map(assessment => {
-          const submission = submissionMap.get(assessment.id);
-          const result = resultsMap.get(assessment.id); // This will be null if no result exists
-          const dueDate = new Date(assessment.dueDate);
-          
-          // *** IMPROVED STATUS LOGIC ***
-          const hasResult = result !== null && result !== undefined;
-          const hasSubmission = !!submission;
-          const isSubmitted = hasSubmission || hasResult; // Either submission OR result indicates submission
-          const isOverdue = dueDate < now && !isSubmitted;
-
-          console.log(`Assessment ${assessment.name}:`, {
-            hasSubmission,
-            hasResult,
-            isSubmitted,
-            resultExists: hasResult
-          });
+      const mappedEntries: AssignmentEntry[] = filteredEnrollments
+        .map((summary) => {
+          const assessment = assessmentsById.get(summary.assessmentId) || null;
+          const submission = latestSubmissionByAssessmentId.get(summary.assessmentId) || null;
+          const result = resultsByAssessmentId.get(summary.assessmentId) || null;
+          const status = getEntryStatus({ submission, result, dueTime: summary.dueTime || null });
 
           return {
-            ...assessment,
-            dueDate,
-            isSubmitted,
-            isOverdue,
-            result: result, // This will be null if no result exists
-            submission: submission 
-              ? {
-                  ...submission,
-                  result: result // Attach result to submission if it exists
-                }
-              : undefined
-          } as AssignmentWithResult;
+            id: summary.id,
+            assignmentId: summary.assignmentId,
+            assessmentId: summary.assessmentId,
+            assessmentName: summary.assessmentName,
+            dueTime: summary.dueTime || null,
+            published: summary.published,
+            assessment,
+            submission,
+            result,
+            status,
+          };
+        })
+        .sort((a, b) => {
+          const aDue = asDate(a.dueTime)?.getTime() || 0;
+          const bDue = asDate(b.dueTime)?.getTime() || 0;
+          return aDue - bDue;
         });
 
-        console.log('DEBUG: Processed assignments with results and submissions:', processedAssignments);
-        setAssignments(processedAssignments);
-      } catch (error) {
-        console.error('ERROR: Failed to fetch student assignments:', error);
-        setAssignments([]);
-      } finally {
-        setLoading(false);
-        console.log('DEBUG: Assignment fetching process complete.');
-      }
-    };
-
-    if (studentId) {
-      fetchStudentAssignments();
-    } else {
+      setEntries(mappedEntries);
+    } catch (err: any) {
+      setEntries([]);
+      setError(err?.message || 'Failed to load assessments');
+    } finally {
       setLoading(false);
-      setAssignments([]);
-      console.log('DEBUG: No student ID provided. Skipping fetch.');
     }
   }, [studentId, selectedSubjectId]);
 
   useEffect(() => {
-    if (assignments.length === 0) {
-      setSelectedReviewAssessmentId(null);
+    fetchWorkspace();
+  }, [fetchWorkspace]);
+
+  useEffect(() => {
+    if (entries.length === 0) {
+      setSelectedReviewEntryId(null);
       return;
     }
 
-    const selectedStillExists = selectedReviewAssessmentId
-      ? assignments.some((assignment) => assignment.id === selectedReviewAssessmentId)
+    const selectedStillExists = selectedReviewEntryId
+      ? entries.some((entry) => entry.id === selectedReviewEntryId)
       : false;
 
     if (selectedStillExists) return;
 
-    const bestDefault =
-      assignments.find((assignment) => assignment.isSubmitted || assignment.result || assignment.submission) ||
-      assignments[0];
+    const defaultEntry = entries.find((entry) => entry.status === 'graded' || entry.status === 'submitted') || entries[0];
+    setSelectedReviewEntryId(defaultEntry?.id || null);
+  }, [entries, selectedReviewEntryId]);
 
-    setSelectedReviewAssessmentId(bestDefault?.id || null);
-  }, [assignments, selectedReviewAssessmentId]);
+  const selectedReviewEntry = useMemo(
+    () => entries.find((entry) => entry.id === selectedReviewEntryId) || null,
+    [entries, selectedReviewEntryId]
+  );
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, assignmentId: string) => {
-    if (e.target.files && e.target.files[0]) {
-      setSelectedFile(e.target.files[0]);
+  useEffect(() => {
+    const submissionId = selectedReviewEntry?.submission?.id;
+    if (!submissionId) {
+      setReviewSubmissionDetail(null);
+      setLoadingReviewDetail(false);
+      return;
     }
-  };
 
-  const handleSubmitAssignment = async (assignmentId: string) => {
-    console.log(`DEBUG: Attempting to submit assignment ${assignmentId} with type: ${submissionType}`);
-    setSubmitting(assignmentId);
-  
-    try {
-      const assignment = assignments.find(a => a.id === assignmentId);
-      if (!assignment) {
-        throw new Error('Assignment not found');
+    let cancelled = false;
+
+    const fetchReviewSubmissionDetail = async () => {
+      setLoadingReviewDetail(true);
+      try {
+        const detail = await submissionService.getSubmissionDetails(submissionId);
+        if (!cancelled) {
+          setReviewSubmissionDetail(detail);
+        }
+      } catch {
+        if (!cancelled) {
+          setReviewSubmissionDetail(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingReviewDetail(false);
+        }
       }
-  
-      // The moduleName should be derived from the assignment's associated subject
-      const moduleName = 'Operating Systems'; 
-  
-      // Step 1: Trigger external assessment first
-      let assessmentResult;
-      if (submissionType === 'file' && selectedFile) {
-        console.log('DEBUG: Assessing file submission with external service');
-        assessmentResult = await externalAssessmentService.assessDocument(selectedFile, moduleName);
-      } else if (submissionType === 'text' && textSubmission.trim()) {
-        console.log('DEBUG: Assessing text submission with external service');
-        assessmentResult = await externalAssessmentService.assessText(textSubmission.trim(), moduleName);
-      } else {
-        throw new Error('No valid submission content found');
-      }
-  
-      // Check for success and data before proceeding
-      if (!assessmentResult.success || !assessmentResult.data) {
-        throw new Error(assessmentResult.error || 'Assessment failed to return data');
-      }
-  
-      const { assessment, module: assessedModule } = assessmentResult.data;
-      const totalPossibleMarks = assessment?.total_possible_marks || assignment.maxScore;
-      const marksAchieved = assessment?.marks_achieved || 0;
-      const percentage = assessment?.marks_percentage || 0;
-  
-      const calculateGrade = (percentage: number) => {
-        if (percentage >= 90) return 'A';
-        if (percentage >= 80) return 'B';
-        if (percentage >= 70) return 'C';
-        if (percentage >= 60) return 'D';
-        return 'F';
-      };
-  
-      // Step 2: Create the result data object
-      const resultData = {
-        student: studentId,
-        assessment: assignmentId,
-        expectedMark: Math.round(totalPossibleMarks * 0.7),
-        actualMark: marksAchieved,
-        grade: calculateGrade(percentage),
-        feedback: assessment?.overall_feedback || 'No feedback provided',
-        submittedDate: new Date(),
-        externalAssessmentData: assessmentResult.data
-      };
-  
-      // Step 3: Save the result using the API service
-      const resultResponse = await assessmentService.addResult(assignmentId, resultData);
-      console.log('DEBUG: Result created:', resultResponse);
-  
-      // Step 4: Prepare the submission payload with correct field names
-      const submissionPayload: SubmissionPayload = {
-        assessmentId: assignmentId,
-        studentId: studentId,  // Correct field name
-        submissionType,
-        result: resultResponse.id, // Link to the created result
-        externalAssessmentData: assessmentResult.data,
-        // Add file-specific fields if it's a file submission
-        ...(submissionType === 'file' && selectedFile ? { 
-          file: selectedFile,
-          originalFilename: selectedFile.name,
-          fileType: selectedFile.type
-        } : {}),
-        // Add text content if it's a text submission
-        ...(submissionType === 'text' ? { 
-          textContent: textSubmission 
-        } : {}),
-      };
-  
-      // Step 5: Submit the assignment
-      const submissionResponse = await submissionService.submitAssignment(submissionPayload);
-      console.log('DEBUG: Submission created:', submissionResponse);
-  
-      // Step 6: Update the local state
-      setAssignments(prev => prev.map(a => 
-        a.id === assignmentId 
-          ? { 
-            ...a, 
-            isSubmitted: true, 
-            result: {
-              ...resultResponse,
-              assessment: assignmentId,
-            }
-          }
-          : a
-      ));
-  
-      // Reset form state
-      setSelectedFile(null);
-      setTextSubmission('');
-      setActiveAssignment(null);
-      
-      alert(`Assignment submitted and graded successfully!\nScore: ${resultData.actualMark}/${assignment.maxScore}\nGrade: ${resultData.grade}`);
-  
-    } catch (error) {
-      console.error('ERROR: Failed to submit assignment:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      alert(`Failed to submit assignment: ${errorMessage}`);
-    } finally {
-      setSubmitting(null);
-    }
-  };
+    };
 
-  // Function to handle viewing detailed feedback
-  const handleViewDetailedFeedback = (assignment: AssignmentWithResult) => {
-    const feedbackData = assignment.submission?.result?.externalAssessmentData || assignment.result?.externalAssessmentData;
-    console.log('Opening detailed feedback modal with data:', feedbackData);
-    setSelectedFeedback(feedbackData);
-    setIsDetailsOpen(true);
-  };
+    fetchReviewSubmissionDetail();
 
-  // Updated status functions - now synchronous since we have all data
-  const getStatusColor = (assignment: AssignmentWithResult) => {
-    if (assignment.isSubmitted && assignment.result) return 'text-green-600 bg-green-100';
-    if (assignment.isSubmitted) return 'text-blue-600 bg-blue-100';
-    if (assignment.isOverdue) return 'text-red-600 bg-red-100';
-    return 'text-yellow-600 bg-yellow-100';
-  };
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedReviewEntry?.submission?.id]);
 
-  const getStatusText = (assignment: AssignmentWithResult) => {
-    if (assignment.isSubmitted && assignment.result) {
-      return 'Graded';
-    }
-    if (assignment.isSubmitted) {
-      return 'Submitted (awaiting review)';
-    }
-    if (assignment.isOverdue) return 'Overdue';
-    return 'Pending';
-  };
+  const assessmentTypes = useMemo(
+    () =>
+      Array.from(
+        new Set(entries.map((entry) => formatAssessmentType(entry.assessment)))
+      ).sort(),
+    [entries]
+  );
 
-  const getStatusIcon = (assignment: AssignmentWithResult) => {
-    if (assignment.isSubmitted && assignment.result) return <CheckCircle className="w-4 h-4" />;
-    if (assignment.isSubmitted) return <Clock className="w-4 h-4" />;
-    if (assignment.isOverdue) return <AlertCircle className="w-4 h-4" />;
-    return <Calendar className="w-4 h-4" />;
-  };
-
-  const getAssessmentTypeLabel = (assignment: AssignmentWithResult) => {
-    const rawType = (assignment as any).assessmentType || (assignment as any).type || 'Assessment';
-    return String(rawType)
-      .replace(/_/g, ' ')
-      .replace(/\b\w/g, (char) => char.toUpperCase());
-  };
-
-  const getStatusKey = (assignment: AssignmentWithResult) => {
-    if (assignment.isSubmitted && assignment.result) return 'graded';
-    if (assignment.isSubmitted) return 'submitted';
-    if (assignment.isOverdue) return 'overdue';
-    return 'pending';
-  };
-
-  const assessmentTypes = Array.from(
-    new Set(assignments.map((assignment) => getAssessmentTypeLabel(assignment)))
-  ).sort();
-
-  const filteredAssignments = assignments.filter((assignment) => {
-    const statusMatch = selectedStatus === 'all' || getStatusKey(assignment) === selectedStatus;
-    const typeMatch = selectedType === 'all' || getAssessmentTypeLabel(assignment) === selectedType;
+  const filteredEntries = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    const queryMatch = !query || assignment.name.toLowerCase().includes(query);
-    return statusMatch && typeMatch && queryMatch;
-  });
 
-  const attemptAssignments = filteredAssignments.filter((assignment) => !assignment.isSubmitted);
-  const selectedReviewAssignment = assignments.find(
-    (assignment) => assignment.id === selectedReviewAssessmentId
-  ) || null;
+    return entries.filter((entry) => {
+      const statusMatch = selectedStatus === 'all' || entry.status === selectedStatus;
+      const typeMatch = selectedType === 'all' || formatAssessmentType(entry.assessment) === selectedType;
+      const queryMatch =
+        !query ||
+        entry.assessmentName.toLowerCase().includes(query) ||
+        String(entry.assessment?.description || '').toLowerCase().includes(query);
 
-  const getSubmissionDetails = (assignment: AssignmentWithResult) => {
-    console.log('--- Getting Submission Details ---');
-    console.log('Assignment:', assignment.name);
-    console.log('Submission exists:', !!assignment.submission);
-    
-    if (!assignment.isSubmitted) {
-      console.log('No submission found for this assignment');
-      return null;
+      return statusMatch && typeMatch && queryMatch;
+    });
+  }, [entries, searchQuery, selectedStatus, selectedType]);
+
+  const attemptEntries = useMemo(
+    () => filteredEntries.filter((entry) => entry.status === 'pending' || entry.status === 'overdue'),
+    [filteredEntries]
+  );
+
+  const setAnswerDraft = (assessmentId: string, questionId: string, value: string) => {
+    const key = `${assessmentId}:${questionId}`;
+    setAnswerDrafts((previous) => ({ ...previous, [key]: value }));
+  };
+
+  const getAnswerDraft = (assessmentId: string, questionId: string) => {
+    const key = `${assessmentId}:${questionId}`;
+    return answerDrafts[key] || '';
+  };
+
+  const submitQuestionAnswers = async (entry: AssignmentEntry) => {
+    const questions = entry.assessment?.questions || [];
+    const answers = questions
+      .map((question) => {
+        const questionId = resolveAssessmentQuestionId(question);
+        return {
+          assessmentQuestionId: questionId,
+          studentAnswerText: getAnswerDraft(entry.assessmentId, questionId).trim(),
+        };
+      })
+      .filter((answer) => Boolean(answer.studentAnswerText));
+
+    if (answers.length === 0) {
+      alert('Please answer at least one question before submitting.');
+      return;
     }
-    
-    const submission = assignment.submission;
-    const result = assignment.result;
-    const submittedDate = submission?.submittedAt 
-      ? new Date(submission.submittedAt).toLocaleString() 
-      : 'Unknown';
-    
-    // Check if detailed feedback is available
-    const hasDetailedFeedback = submission?.result?.externalAssessmentData || result?.externalAssessmentData;
-    
-    return (
-      <div className="mt-4 p-4 bg-gray-50 rounded-lg">
-        <h4 className="font-medium text-gray-800 mb-2">Submission Details</h4>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <p className="text-sm text-gray-600">Submitted on:</p>
-            <p className="font-medium">{submittedDate}</p>
-          </div>
-          {submission?.submissionType === 'file' && submission.originalFilename && (
-            <div>
-              <p className="text-sm text-gray-600">Submitted file:</p>
-              <p className="font-medium">{submission.originalFilename}</p>
-            </div>
-          )}
-          {result && (
-            <>
-              <div>
-                <p className="text-sm text-gray-600">Score:</p>
-                <p className="font-medium">
-                  {result.actualMark} / {assignment.maxScore} 
-                  <span className="ml-2 text-sm text-gray-500">
-                    ({Math.round((result.actualMark / assignment.maxScore) * 100)}%)
-                  </span>
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Grade:</p>
-                <p className="font-medium">{result.grade}</p>
-              </div>
-            </>
-          )}
-        </div>
-        
-        {result?.feedback && (
-          <div className="mt-4 pt-4 border-t border-gray-200">
-            <div className="flex justify-between items-start mb-2">
-              <h5 className="text-sm font-medium text-gray-700">Feedback</h5>
-              {hasDetailedFeedback && (
-                <button
-                  onClick={() => handleViewDetailedFeedback(assignment)}
-                  className="flex items-center gap-1 px-3 py-1 text-xs bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 transition-colors"
-                >
-                  <Eye className="w-3 h-3" />
-                  View Details
-                </button>
-              )}
-            </div>
-            <div className="prose prose-sm max-w-none text-gray-600">
-              <p>{result.feedback}</p>
-              
-              {submission?.result?.externalAssessmentData?.assessment?.overall_feedback && (
-                <div className="mt-3 p-3 bg-blue-50 border-l-4 border-blue-400">
-                  <p className="text-blue-700">
-                    {submission.result.externalAssessmentData.assessment.overall_feedback}
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-    );
+
+    setSubmittingEntryId(entry.id);
+    try {
+      await submissionService.submitAnswers({
+        assessmentId: entry.assessmentId,
+        assessmentAssignmentId: entry.assignmentId,
+        studentId,
+        submissionType: 'manual',
+        answers,
+      });
+
+      setActiveAttemptEntryId(null);
+      await fetchWorkspace();
+    } catch (err: any) {
+      const message = String(err?.message || 'Failed to submit answers.');
+      const needsFallback =
+        message.includes('assessmentQuestionId') ||
+        message.includes('Question does not belong to this assessment');
+
+      if (!needsFallback) {
+        alert(message);
+      } else {
+        const fallbackText = questions
+          .map((question, index) => {
+            const questionId = resolveAssessmentQuestionId(question);
+            const response = getAnswerDraft(entry.assessmentId, questionId).trim();
+            return `Q${index + 1}: ${question.stem}\\nA: ${response || '[No response]'}`;
+          })
+          .join('\\n\\n');
+
+        try {
+          await submissionService.submitAssignment({
+            assessmentId: entry.assessmentId,
+            studentId,
+            submissionType: 'text',
+            textContent: fallbackText,
+          });
+          setActiveAttemptEntryId(null);
+          await fetchWorkspace();
+        } catch (fallbackError: any) {
+          alert(fallbackError?.message || message);
+        }
+      }
+    } finally {
+      setSubmittingEntryId(null);
+    }
+  };
+
+  const submitTextOrFile = async (entry: AssignmentEntry) => {
+    if (submissionMode === 'text' && !textSubmission.trim()) {
+      alert('Please provide your response text before submitting.');
+      return;
+    }
+
+    if (submissionMode === 'file' && !selectedFile) {
+      alert('Please select a file before submitting.');
+      return;
+    }
+
+    setSubmittingEntryId(entry.id);
+    try {
+      await submissionService.submitAssignment({
+        assessmentId: entry.assessmentId,
+        studentId,
+        submissionType: submissionMode === 'file' ? 'file' : 'text',
+        textContent: submissionMode === 'text' ? textSubmission.trim() : undefined,
+        file: submissionMode === 'file' ? selectedFile || undefined : undefined,
+        originalFilename: submissionMode === 'file' ? selectedFile?.name : undefined,
+        fileType: submissionMode === 'file' ? selectedFile?.type : undefined,
+      });
+
+      setTextSubmission('');
+      setSelectedFile(null);
+      setActiveAttemptEntryId(null);
+      await fetchWorkspace();
+    } catch (err: any) {
+      alert(err?.message || 'Failed to submit assessment.');
+    } finally {
+      setSubmittingEntryId(null);
+    }
   };
 
   if (loading) {
@@ -580,184 +540,221 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
           <div className="mt-5 space-y-2 rounded-md border border-slate-200 bg-white p-3 text-sm">
             <p className="flex items-center justify-between text-slate-600">
               <span>Total</span>
-              <span className="font-semibold text-slate-900">{assignments.length}</span>
+              <span className="font-semibold text-slate-900">{entries.length}</span>
             </p>
             <p className="flex items-center justify-between text-slate-600">
               <span>Pending</span>
-              <span className="font-semibold text-slate-900">{assignments.filter((item) => !item.isSubmitted).length}</span>
+              <span className="font-semibold text-slate-900">{entries.filter((item) => item.status === 'pending' || item.status === 'overdue').length}</span>
             </p>
             <p className="flex items-center justify-between text-slate-600">
               <span>Reviewed</span>
-              <span className="font-semibold text-slate-900">{assignments.filter((item) => !!item.result).length}</span>
+              <span className="font-semibold text-slate-900">{entries.filter((item) => item.status === 'graded').length}</span>
             </p>
           </div>
         </aside>
 
         <section className="p-4 sm:p-6 space-y-4">
+          {error && (
+            <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {error}
+            </div>
+          )}
+
           {assessmentTab === 'attempt' && (
             <>
-              {attemptAssignments.map((assignment) => (
-                <div key={assignment.id} className="rounded-lg border border-slate-200 bg-white p-5">
-                  <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-                    <div>
-                      <h3 className="text-lg font-semibold text-slate-900">{assignment.name}</h3>
-                      <p className="mt-1 text-sm text-slate-600">{assignment.description}</p>
-                    </div>
-                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700">
-                      {assignment.isOverdue ? 'Overdue' : 'Pending'}
-                    </span>
-                  </div>
+              {attemptEntries.map((entry) => {
+                const dueDate = asDate(entry.dueTime);
+                const questions = entry.assessment?.questions || [];
+                const hasQuestions = questions.length > 0;
+                const isActive = activeAttemptEntryId === entry.id;
 
-                  <div className="flex flex-wrap items-center gap-4 text-sm text-slate-500 mb-4">
-                    <div className="flex items-center gap-1">
-                      <Calendar className="w-4 h-4" />
-                      <span>Due: {assignment.dueDate.toLocaleDateString()}</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <FileText className="w-4 h-4" />
-                      <span>Max Score: {assignment.maxScore}</span>
-                    </div>
-                    <span className="px-2 py-0.5 rounded-full text-xs bg-slate-100 text-slate-600">
-                      {getAssessmentTypeLabel(assignment)}
-                    </span>
-                  </div>
-
-                  <div className="space-y-4 border-t border-slate-200 pt-4">
-                    <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => { setSubmissionType('file'); setActiveAssignment(assignment.id); }}
-                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                          submissionType === 'file' && activeAssignment === assignment.id
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                        }`}
-                      >
-                        File Upload
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => { setSubmissionType('text'); setActiveAssignment(assignment.id); }}
-                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                          submissionType === 'text' && activeAssignment === assignment.id
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                        }`}
-                      >
-                        Text Submission
-                      </button>
-                    </div>
-
-                    {submissionType === 'file' && activeAssignment === assignment.id && (
-                      <label className="block">
-                        <input
-                          type="file"
-                          onChange={(e) => handleFileSelect(e, assignment.id)}
-                          className="hidden"
-                          accept=".pdf,.doc,.docx,.txt,.zip"
-                        />
-                        <div className="flex items-center gap-2 px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-400 transition-colors">
-                          <Upload className="w-5 h-5 text-gray-400" />
-                          <span className="text-gray-600">
-                            {selectedFile ? selectedFile.name : 'Choose file to upload'}
-                          </span>
-                        </div>
-                      </label>
-                    )}
-
-                    {submissionType === 'text' && activeAssignment === assignment.id && (
-                      <textarea
-                        value={textSubmission}
-                        onChange={(e) => setTextSubmission(e.target.value)}
-                        placeholder="Enter your assignment submission here..."
-                        className="w-full p-4 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[180px]"
-                        rows={8}
-                      />
-                    )}
-
-                    <div className="flex justify-end">
-                      <button
-                        onClick={() => handleSubmitAssignment(assignment.id)}
-                        disabled={
-                          (submissionType === 'file' && (!selectedFile || activeAssignment !== assignment.id)) ||
-                          (submissionType === 'text' && !textSubmission.trim()) ||
-                          submitting === assignment.id
-                        }
-                        className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                      >
-                        {submitting === assignment.id ? (
-                          <>
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            Submitting & Grading...
-                          </>
-                        ) : (
-                          <>
-                            <Upload className="w-4 h-4" />
-                            Submit Assessment
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-
-              {attemptAssignments.length === 0 && (
-                <div className="space-y-4">
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-6">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <CheckCircle className="w-8 h-8 text-emerald-500" />
-                        <div>
-                          <p className="text-lg font-semibold text-slate-800">All formal assessments are submitted</p>
-                          <p className="text-sm text-slate-500 mt-0.5">
-                            Keep momentum with AI-generated mock assessments.
-                          </p>
-                        </div>
+                return (
+                  <article key={entry.id} className="rounded-lg border border-slate-200 bg-white p-5">
+                    <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+                      <div>
+                        <h3 className="text-lg font-semibold text-slate-900">{entry.assessmentName}</h3>
+                        <p className="mt-1 text-sm text-slate-600">{entry.assessment?.description || 'Open and complete the assessment attempt.'}</p>
                       </div>
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium inline-flex items-center gap-1 ${getStatusPillClass(entry.status)}`}>
+                        {getStatusIcon(entry.status)}
+                        {getStatusLabel(entry.status)}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-4 text-sm text-slate-500 mb-4">
+                      <div className="flex items-center gap-1">
+                        <Calendar className="w-4 h-4" />
+                        <span>Due: {dueDate ? dueDate.toLocaleDateString() : 'Not set'}</span>
+                      </div>
+                      <span>Max Score: {Math.round(Number(entry.assessment?.maxScore || 0)) || 'N/A'}</span>
+                      <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                        {formatAssessmentType(entry.assessment)}
+                      </span>
+                    </div>
+
+                    {!isActive ? (
                       <button
                         type="button"
-                        onClick={() => setAssessmentTab('list')}
-                        className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                        onClick={() => {
+                          setActiveAttemptEntryId(entry.id);
+                          setSubmissionMode(hasQuestions ? 'questions' : 'text');
+                        }}
+                        className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
                       >
-                        View assessment list
+                        Start attempt
                       </button>
-                    </div>
-                  </div>
+                    ) : (
+                      <div className="border-t border-slate-200 pt-4 space-y-4">
+                        <div className="flex flex-wrap gap-2">
+                          {hasQuestions && (
+                            <button
+                              type="button"
+                              onClick={() => setSubmissionMode('questions')}
+                              className={`px-3 py-1.5 rounded-md text-sm font-medium ${submissionMode === 'questions' ? 'bg-blue-600 text-white' : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
+                            >
+                              Question responses
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setSubmissionMode('text')}
+                            className={`px-3 py-1.5 rounded-md text-sm font-medium ${submissionMode === 'text' ? 'bg-blue-600 text-white' : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
+                          >
+                            Text submission
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSubmissionMode('file')}
+                            className={`px-3 py-1.5 rounded-md text-sm font-medium ${submissionMode === 'file' ? 'bg-blue-600 text-white' : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}`}
+                          >
+                            File upload
+                          </button>
+                        </div>
 
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-                    {mockAttemptCards.map((mock) => (
-                      <article key={mock.id} className="rounded-lg border border-slate-200 bg-white p-5">
-                        <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-                          <Sparkles className="w-3.5 h-3.5" />
-                          Mock assessment
-                        </div>
-                        <h4 className="mt-3 text-lg font-semibold text-slate-900">{mock.title}</h4>
-                        <p className="mt-2 text-sm text-slate-600">{mock.description}</p>
-                        <div className="mt-3 space-y-1.5 text-xs text-slate-500">
-                          <p>{mock.questions} questions</p>
-                          <p>{mock.duration}</p>
-                          <p>{mock.format} • {mock.difficulty}</p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!onOpenTutor) return;
-                            const scope = selectedSubjectId && selectedSubjectId !== 'all' ? 'the selected subject' : 'all active subjects';
-                            onOpenTutor(
-                              `Generate a ${mock.questions}-question ${mock.difficulty.toLowerCase()} ${mock.format.toLowerCase()} mock assessment for ${scope}. Title: "${mock.title}". Let me attempt first, then give feedback and mark scheme.`
-                            );
-                          }}
-                          className="mt-4 inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-                          disabled={!onOpenTutor}
-                        >
-                          <Sparkles className="w-4 h-4" />
-                          Generate in AI Coach
-                        </button>
-                      </article>
-                    ))}
+                        {submissionMode === 'questions' && hasQuestions && (
+                          <div className="space-y-4">
+                            {questions
+                              .slice()
+                              .sort((a, b) => (a.sequenceIndex || 0) - (b.sequenceIndex || 0))
+                              .map((question, index) => {
+                                const options = Array.isArray(question.rubricJson?.options)
+                                  ? question.rubricJson?.options || []
+                                  : [];
+                                const questionId = resolveAssessmentQuestionId(question);
+                                const currentAnswer = getAnswerDraft(entry.assessmentId, questionId);
+
+                                return (
+                                  <div key={questionId} className="rounded-md border border-slate-200 bg-slate-50 p-4 space-y-3">
+                                    <div>
+                                      <p className="text-sm font-semibold text-slate-900">Question {index + 1}</p>
+                                      <p className="mt-1 text-sm text-slate-700">{question.stem}</p>
+                                    </div>
+
+                                    {options.length > 0 ? (
+                                      <div className="space-y-2">
+                                        {options.map((option) => (
+                                          <label key={`${questionId}-${option}`} className="flex items-center gap-2 text-sm text-slate-700">
+                                            <input
+                                              type="radio"
+                                              name={`question-${questionId}`}
+                                              checked={currentAnswer === option}
+                                              onChange={() => setAnswerDraft(entry.assessmentId, questionId, option)}
+                                              className="h-4 w-4"
+                                            />
+                                            <span>{option}</span>
+                                          </label>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <textarea
+                                        rows={3}
+                                        value={currentAnswer}
+                                        onChange={(event) => setAnswerDraft(entry.assessmentId, questionId, event.target.value)}
+                                        placeholder="Type your answer"
+                                        className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                      />
+                                    )}
+                                  </div>
+                                );
+                              })}
+
+                            <div className="flex justify-end">
+                              <button
+                                type="button"
+                                onClick={() => submitQuestionAnswers(entry)}
+                                disabled={submittingEntryId === entry.id}
+                                className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                              >
+                                {submittingEntryId === entry.id ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                                Submit answers
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {submissionMode === 'text' && (
+                          <div className="space-y-3">
+                            <textarea
+                              rows={8}
+                              value={textSubmission}
+                              onChange={(event) => setTextSubmission(event.target.value)}
+                              placeholder="Type your full response"
+                              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                            <div className="flex justify-end">
+                              <button
+                                type="button"
+                                onClick={() => submitTextOrFile(entry)}
+                                disabled={submittingEntryId === entry.id || !textSubmission.trim()}
+                                className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                              >
+                                {submittingEntryId === entry.id ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                                Submit response
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {submissionMode === 'file' && (
+                          <div className="space-y-3">
+                            <label className="block">
+                              <input
+                                type="file"
+                                className="hidden"
+                                onChange={(event) => setSelectedFile(event.target.files?.[0] || null)}
+                              />
+                              <div className="flex items-center gap-2 rounded-md border-2 border-dashed border-slate-300 px-4 py-3 text-sm text-slate-600 hover:border-blue-400 cursor-pointer">
+                                <Upload className="w-4 h-4" />
+                                <span>{selectedFile ? selectedFile.name : 'Choose file to upload'}</span>
+                              </div>
+                            </label>
+                            <div className="flex justify-end">
+                              <button
+                                type="button"
+                                onClick={() => submitTextOrFile(entry)}
+                                disabled={submittingEntryId === entry.id || !selectedFile}
+                                className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                              >
+                                {submittingEntryId === entry.id ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                                Submit file
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+
+              {attemptEntries.length === 0 && (
+                <section className="p-4 sm:p-6 space-y-4">
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-8 text-center">
+                    <CheckCircle className="w-12 h-12 text-emerald-500 mx-auto mb-3" />
+                    <p className="text-lg font-semibold text-slate-800">No pending assessments</p>
+                    <p className="text-sm text-slate-500 mt-1">All assessments are already submitted.</p>
                   </div>
-                </div>
+                </section>
               )}
             </>
           )}
@@ -788,7 +785,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                     </select>
                     <select
                       value={selectedStatus}
-                      onChange={(event) => setSelectedStatus(event.target.value as any)}
+                      onChange={(event) => setSelectedStatus(event.target.value as StatusFilterKey)}
                       className="px-3 py-2 text-sm border border-slate-200 rounded-md"
                     >
                       <option value="all">All status</option>
@@ -802,44 +799,48 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
               </div>
 
               <div className="space-y-3">
-                {filteredAssignments.map((assignment) => (
-                  <button
-                    key={assignment.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedReviewAssessmentId(assignment.id);
-                      setAssessmentTab('review');
-                    }}
-                    className="w-full rounded-lg border border-slate-200 bg-white p-4 text-left hover:border-blue-300 hover:bg-blue-50/40 transition"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-lg font-semibold text-slate-900 truncate">{assignment.name}</p>
-                        <p className="mt-1 text-sm text-slate-600 line-clamp-2">{assignment.description}</p>
-                      </div>
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1 ${getStatusColor(assignment)}`}>
-                        {getStatusIcon(assignment)}
-                        {getStatusText(assignment)}
-                      </span>
-                    </div>
-                    <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-slate-500">
-                      <span>Due: {assignment.dueDate.toLocaleDateString()}</span>
-                      <span>Max Score: {assignment.maxScore}</span>
-                      <span>Weight: {assignment.weight}%</span>
-                      <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                        {getAssessmentTypeLabel(assignment)}
-                      </span>
-                      {assignment.result && (
-                        <span className="font-semibold text-emerald-700">
-                          Score: {Math.round((assignment.result.actualMark / assignment.maxScore) * 100)}%
+                {filteredEntries.map((entry) => {
+                  const dueDate = asDate(entry.dueTime);
+                  return (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedReviewEntryId(entry.id);
+                        setAssessmentTab('review');
+                      }}
+                      className="w-full rounded-lg border border-slate-200 bg-white p-4 text-left hover:border-blue-300 hover:bg-blue-50/40 transition"
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-lg font-semibold text-slate-900 truncate">{entry.assessmentName}</p>
+                          <p className="mt-1 text-sm text-slate-600 line-clamp-2">{entry.assessment?.description || 'Assessment available for review.'}</p>
+                        </div>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1 ${getStatusPillClass(entry.status)}`}>
+                          {getStatusIcon(entry.status)}
+                          {getStatusLabel(entry.status)}
                         </span>
-                      )}
-                    </div>
-                  </button>
-                ))}
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-slate-500">
+                        <span>Due: {dueDate ? dueDate.toLocaleDateString() : 'Not set'}</span>
+                        <span>Max Score: {Math.round(Number(entry.assessment?.maxScore || 0)) || 'N/A'}</span>
+                        <span>Weight: {Math.round(Number(entry.assessment?.weightPct || 0)) || 0}%</span>
+                        <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                          {formatAssessmentType(entry.assessment)}
+                        </span>
+                        {typeof entry.result?.actualMark === 'number' && typeof entry.assessment?.maxScore === 'number' && entry.assessment.maxScore > 0 && (
+                          <span className="font-semibold text-emerald-700">
+                            Score: {Math.round((entry.result.actualMark / entry.assessment.maxScore) * 100)}%
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
 
-              {filteredAssignments.length === 0 && !loading && (
+              {filteredEntries.length === 0 && !loading && (
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-8 text-center">
                   <FileText className="w-12 h-12 text-slate-400 mx-auto mb-3" />
                   <h3 className="text-lg font-semibold text-slate-700">No Assessments</h3>
@@ -851,7 +852,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
 
           {assessmentTab === 'review' && (
             <>
-              {!selectedReviewAssignment ? (
+              {!selectedReviewEntry ? (
                 <div className="rounded-lg border border-slate-200 bg-slate-50 p-8 text-center">
                   <Eye className="w-12 h-12 text-slate-400 mx-auto mb-3" />
                   <h3 className="text-lg font-semibold text-slate-700">Select an assessment to review</h3>
@@ -862,8 +863,8 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                   <div className="rounded-lg border border-slate-200 bg-white p-5">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
-                        <h3 className="text-2xl font-bold text-slate-900">{selectedReviewAssignment.name}</h3>
-                        <p className="mt-1 text-sm text-slate-600">{selectedReviewAssignment.description}</p>
+                        <h3 className="text-2xl font-bold text-slate-900">{selectedReviewEntry.assessmentName}</h3>
+                        <p className="mt-1 text-sm text-slate-600">{selectedReviewEntry.assessment?.description || 'Assessment review detail'}</p>
                       </div>
                       <button
                         type="button"
@@ -878,101 +879,105 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                       <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
                         <p className="text-xs text-slate-500">Outcome</p>
                         <p className="text-base font-semibold text-slate-800">
-                          {selectedReviewAssignment.result
-                            ? `${selectedReviewAssignment.result.actualMark}/${selectedReviewAssignment.maxScore}`
+                          {typeof selectedReviewEntry.result?.actualMark === 'number'
+                            ? `${selectedReviewEntry.result.actualMark}/${Math.round(Number(selectedReviewEntry.assessment?.maxScore || 0)) || 'N/A'}`
                             : 'Not graded'}
                         </p>
                       </div>
                       <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
                         <p className="text-xs text-slate-500">Grade</p>
                         <p className="text-base font-semibold text-slate-800">
-                          {selectedReviewAssignment.result?.grade || 'Pending'}
+                          {selectedReviewEntry.result?.grade || 'Pending'}
                         </p>
                       </div>
                       <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
                         <p className="text-xs text-slate-500">Status</p>
-                        <p className="text-base font-semibold text-slate-800">{getStatusText(selectedReviewAssignment)}</p>
+                        <p className="text-base font-semibold text-slate-800">{getStatusLabel(selectedReviewEntry.status)}</p>
                       </div>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                    <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-3">
+                    <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-4">
                       <h4 className="text-lg font-semibold text-slate-900">Student Attempt</h4>
-                      {!selectedReviewAssignment.submission ? (
+
+                      {!selectedReviewEntry.submission ? (
                         <p className="text-sm text-slate-500">No submission has been made for this assessment yet.</p>
                       ) : (
                         <>
                           <div className="text-sm text-slate-600 space-y-1">
-                            <p>
-                              Submitted: {new Date(selectedReviewAssignment.submission.submittedAt).toLocaleString()}
-                            </p>
-                            <p>
-                              Type: {selectedReviewAssignment.submission.submissionType === 'file' ? 'File upload' : 'Text submission'}
-                            </p>
+                            <p>Submitted: {asDate(selectedReviewEntry.submission.submittedAt)?.toLocaleString() || 'Unknown'}</p>
+                            <p>Type: {selectedReviewEntry.submission.submissionType || 'manual'}</p>
+                            {selectedReviewEntry.submission.originalFilename ? (
+                              <p>File: {selectedReviewEntry.submission.originalFilename}</p>
+                            ) : null}
                           </div>
-                          {selectedReviewAssignment.submission.submissionType === 'file' ? (
+
+                          {loadingReviewDetail ? (
+                            <p className="text-sm text-slate-500">Loading submission detail...</p>
+                          ) : reviewSubmissionDetail?.submissionContent ? (
                             <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                              <p className="font-semibold">Uploaded file</p>
-                              <p className="mt-1">
-                                {(selectedReviewAssignment.submission as any).originalFilename ||
-                                  selectedReviewAssignment.submission.originalFileName ||
-                                  (selectedReviewAssignment.submission as any).content ||
-                                  'File submitted'}
-                              </p>
+                              <p className="font-semibold mb-2">Submitted response</p>
+                              <pre className="whitespace-pre-wrap break-words">{String(reviewSubmissionDetail.submissionContent)}</pre>
                             </div>
                           ) : (
                             <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                              <p className="font-semibold mb-2">Submitted response</p>
-                              <pre className="whitespace-pre-wrap break-words text-sm text-slate-700">
-                                {(selectedReviewAssignment.submission as any).textContent ||
-                                  (selectedReviewAssignment.submission as any).content ||
-                                  'No text captured.'}
-                              </pre>
+                              Submission content is not available for this attempt.
                             </div>
                           )}
                         </>
+                      )}
+
+                      {!!selectedReviewEntry.assessment?.questions?.length && (
+                        <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
+                          <p className="text-sm font-semibold text-slate-800 mb-2">Assessment Questions</p>
+                          <ol className="space-y-2 list-decimal ml-5 text-sm text-slate-700">
+                            {selectedReviewEntry.assessment.questions
+                              ?.slice()
+                              .sort((a, b) => (a.sequenceIndex || 0) - (b.sequenceIndex || 0))
+                              .map((question) => (
+                                <li key={question.id}>{question.stem}</li>
+                              ))}
+                          </ol>
+                        </div>
                       )}
                     </div>
 
                     <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-3">
                       <h4 className="text-lg font-semibold text-slate-900">Feedback and Outcome</h4>
-                      {!selectedReviewAssignment.result ? (
+                      {!selectedReviewEntry.result ? (
                         <p className="text-sm text-slate-500">Feedback will appear once this assessment has been graded.</p>
                       ) : (
                         <>
                           <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 space-y-1">
                             <p>
-                              Expected mark: <span className="font-semibold">{selectedReviewAssignment.result.expectedMark}</span>
+                              Expected mark: <span className="font-semibold">{selectedReviewEntry.result.expectedMark ?? 'N/A'}</span>
                             </p>
                             <p>
-                              Actual mark: <span className="font-semibold">{selectedReviewAssignment.result.actualMark}</span>
+                              Actual mark: <span className="font-semibold">{selectedReviewEntry.result.actualMark ?? 'N/A'}</span>
                             </p>
                             <p>
-                              Grade: <span className="font-semibold">{selectedReviewAssignment.result.grade}</span>
+                              Grade: <span className="font-semibold">{selectedReviewEntry.result.grade || 'N/A'}</span>
                             </p>
                           </div>
                           <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
-                            <p className="font-semibold">Teacher/AI Feedback</p>
-                            <p className="mt-1">{selectedReviewAssignment.result.feedback || 'No feedback provided.'}</p>
+                            <p className="font-semibold">Feedback</p>
+                            <p className="mt-1">{selectedReviewEntry.result.feedback || 'No feedback provided.'}</p>
                           </div>
-                          {((selectedReviewAssignment.submission as any)?.result?.externalAssessmentData ||
-                            (selectedReviewAssignment.result as any)?.externalAssessmentData) && (
-                            <button
-                              type="button"
-                              onClick={() => handleViewDetailedFeedback(selectedReviewAssignment)}
-                              className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                            >
-                              <Eye className="w-4 h-4" />
-                              View detailed rubric
-                            </button>
+                          {reviewSubmissionDetail?.autoGrading?.result?.feedback && (
+                            <div className="rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-700">
+                              <p className="font-semibold">Auto-grading notes</p>
+                              <p className="mt-1">{reviewSubmissionDetail.autoGrading.result.feedback}</p>
+                            </div>
                           )}
                           {onOpenTutor && (
                             <button
                               type="button"
-                              onClick={() => onOpenTutor(
-                                `Review my performance on "${selectedReviewAssignment.name}". My feedback: ${selectedReviewAssignment.result?.feedback || 'No feedback yet.'}. Help me identify where I went wrong and how to improve.`
-                              )}
+                              onClick={() =>
+                                onOpenTutor(
+                                  `Review my performance on "${selectedReviewEntry.assessmentName}". Feedback: ${selectedReviewEntry.result?.feedback || 'No feedback provided'}. Help me fix the gaps.`
+                                )
+                              }
                               className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700"
                             >
                               Review with AI Coach
@@ -988,201 +993,6 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
           )}
         </section>
       </div>
-
-      {/* Feedback Details Modal */}
-      <Dialog
-        open={isDetailsOpen}
-        onClose={() => setIsDetailsOpen(false)}
-        className="relative z-50"
-      >
-        <div className="fixed inset-0 bg-black/30" aria-hidden="true" />
-        <div className="fixed inset-0 flex items-center justify-center p-4">
-          <Dialog.Panel className="w-full max-w-3xl rounded-lg bg-white p-6 shadow-xl">
-            <div className="flex justify-between items-center mb-4">
-              <Dialog.Title className="text-lg font-medium text-gray-900">
-                Detailed Feedback
-              </Dialog.Title>
-              <button
-                onClick={() => setIsDetailsOpen(false)}
-                className="text-gray-400 hover:text-gray-500"
-              >
-                <X className="h-6 w-6" />
-              </button>
-            </div>
-
-            {selectedFeedback?.assessment ? (
-              <div className="space-y-4 max-h-[70vh] overflow-y-auto">
-                {/* Assessment Summary */}
-                <div className="bg-gradient-to-r from-blue-50 to-blue-100 p-4 rounded-lg border border-blue-200">
-                  <h4 className="font-medium text-blue-800 mb-3">Assessment Summary</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                    <div className="text-center p-3 bg-white rounded-md shadow-sm">
-                      <p className="text-gray-600">Total Score</p>
-                      <p className="text-2xl font-bold text-blue-600">
-                        {selectedFeedback.assessment.marks_achieved || 'N/A'} {selectedFeedback.assessment.total_possible_marks || 'N/A'}
-                      </p>
-                    </div>
-                    <div className="text-center p-3 bg-white rounded-md shadow-sm">
-                      <p className="text-gray-600">Percentage</p>
-                      <p className="text-2xl font-bold text-green-600">
-                        {selectedFeedback.assessment.marks_percentage || 'N/A'}%
-                      </p>
-                    </div>
-                    <div className="text-center p-3 bg-white rounded-md shadow-sm">
-                      <p className="text-gray-600">Confidence Score</p>
-                      <p className="text-2xl font-bold text-purple-600">
-                        {selectedFeedback.assessment.confidence_assessment_score || 'N/A'}%
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Overall Feedback */}
-                {selectedFeedback.assessment.overall_feedback && (
-                  <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                    <h4 className="font-medium text-blue-800 mb-2">Overall Feedback</h4>
-                    <p className="text-blue-900 leading-relaxed">{selectedFeedback.assessment.overall_feedback}</p>
-                  </div>
-                )}
-
-                {/* Strengths */}
-                {selectedFeedback.assessment.strengths && (
-                  <div className="bg-green-50 p-4 rounded-lg border border-green-200">
-                    <h4 className="font-medium text-green-800 mb-2 flex items-center gap-2">
-                      <CheckCircle className="w-4 h-4" />
-                      Strengths
-                    </h4>
-                    <ul className="list-disc pl-5 space-y-1 text-green-800">
-                      {Array.isArray(selectedFeedback.assessment.strengths) ? (
-                        selectedFeedback.assessment.strengths.map((item: string, idx: number) => (
-                          <li key={idx} className="leading-relaxed">{item}</li>
-                        ))
-                      ) : (
-                        <li className="leading-relaxed">{selectedFeedback.assessment.strengths}</li>
-                      )}
-                    </ul>
-                  </div>
-                )}
-
-                {/* Areas for Improvement */}
-                {selectedFeedback.assessment.improvements && (
-                  <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
-                    <h4 className="font-medium text-yellow-800 mb-2 flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4" />
-                      Areas for Improvement
-                    </h4>
-                    <ul className="list-disc pl-5 space-y-1 text-yellow-800">
-                      {Array.isArray(selectedFeedback.assessment.improvements) ? (
-                        selectedFeedback.assessment.improvements.map((item: string, idx: number) => (
-                          <li key={idx} className="leading-relaxed">{item}</li>
-                        ))
-                      ) : (
-                        <li className="leading-relaxed">{selectedFeedback.assessment.improvements}</li>
-                      )}
-                    </ul>
-                  </div>
-                )}
-
-                {/* Assessment Criteria Breakdown */}
-                {selectedFeedback.assessment.criteria && (
-                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                    <h4 className="font-medium text-gray-800 mb-3">Detailed Assessment Criteria</h4>
-                    <div className="space-y-3">
-                      {selectedFeedback.assessment.criteria.map((criterion: any, idx: number) => (
-                        <div key={idx} className="bg-white p-3 rounded-md border border-gray-100">
-                          <div className="flex justify-between items-center mb-2">
-                            <span className="font-medium text-gray-800">{criterion.criterion}</span>
-                            <span className="text-sm font-semibold text-gray-700 bg-gray-100 px-2 py-1 rounded">
-                              {criterion.score} / {criterion.max_marks || '30'}
-                            </span>
-                          </div>
-                          {criterion.feedback && (
-                            <p className="text-sm text-gray-700 leading-relaxed">{criterion.feedback}</p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Question-by-Question Breakdown */}
-                {selectedFeedback.assessment.assessment_details && (
-                  <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-                    <h4 className="font-medium text-slate-800 mb-3">Question-by-Question Feedback</h4>
-                    <div className="space-y-3">
-                      {Object.entries(selectedFeedback.assessment.assessment_details).map(([questionKey, details]: [string, any]) => (
-                        <div key={questionKey} className="bg-white p-3 rounded-md border border-slate-100">
-                          <div className="flex justify-between items-center mb-2">
-                            <span className="font-medium text-slate-800 capitalize">
-                              {questionKey.replace('_', ' ')}
-                            </span>
-                            <span className="text-sm font-semibold text-slate-700 bg-slate-100 px-2 py-1 rounded">
-                              {details.awarded_marks} / {details.max_marks}
-                            </span>
-                          </div>
-                          {details.feedback && (
-                            <p className="text-sm text-slate-700 mb-2 leading-relaxed">{details.feedback}</p>
-                          )}
-                          {details.improvement && (
-                            <div className="bg-blue-50 p-2 rounded text-xs text-blue-800 border-l-2 border-blue-400">
-                              <strong>Improvement tip:</strong> {details.improvement}
-                            </div>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {/* Document Information */}
-                {(selectedFeedback.filename || selectedFeedback.module) && (
-                  <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                    <h4 className="font-medium text-blue-800 mb-2">Submission Information</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                      {selectedFeedback.filename && (
-                        <div>
-                          <span className="text-blue-600 font-medium">File:</span>
-                          <p className="text-blue-800">{selectedFeedback.filename}</p>
-                        </div>
-                      )}
-                      {selectedFeedback.module && (
-                        <div>
-                          <span className="text-blue-600 font-medium">Module:</span>
-                          <p className="text-blue-800">{selectedFeedback.module}</p>
-                        </div>
-                      )}
-                      {selectedFeedback.content_type && (
-                        <div>
-                          <span className="text-blue-600 font-medium">File Type:</span>
-                          <p className="text-blue-800">{selectedFeedback.content_type}</p>
-                        </div>
-                      )}
-                      {selectedFeedback.pages && (
-                        <div>
-                          <span className="text-blue-600 font-medium">Pages:</span>
-                          <p className="text-blue-800">{selectedFeedback.pages}</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <p className="text-gray-500">No detailed feedback available.</p>
-            )}
-
-            <div className="mt-6 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setIsDetailsOpen(false)}
-                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-              >
-                Close
-              </button>
-            </div>
-          </Dialog.Panel>
-        </div>
-      </Dialog>
     </div>
   );
 };

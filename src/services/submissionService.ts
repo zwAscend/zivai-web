@@ -2,6 +2,23 @@ import { API_URL, fetchData } from './http';
 import { SubmissionPayload } from '../types';
 
 export const submissionService = {
+  submitAnswers: async (payload: {
+    assessmentId: string;
+    assessmentAssignmentId?: string;
+    studentId: string;
+    submissionType?: string;
+    answers: Array<{
+      assessmentQuestionId: string;
+      studentAnswerText?: string;
+      studentAnswerBlob?: unknown;
+    }>;
+  }) => {
+    return fetchData('/submissions/answers', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
   submitAssignment: async (submissionData: SubmissionPayload): Promise<any> => {
     const formData = new FormData();
 

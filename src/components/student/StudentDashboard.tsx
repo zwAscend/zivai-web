@@ -20,9 +20,12 @@ import {
   Settings,
   Menu,
   X,
+  Bell,
+  CalendarClock,
+  AlertTriangle,
 } from 'lucide-react';
 import { Student, DevelopmentPlan, Subject } from '../../types';
-import { studentService, developmentService, subjectService } from '../../services/api';
+import { studentService, developmentService, subjectService, calendarService, notificationService, authService } from '../../services/api';
 import { StudentTeacher } from '../../services/studentService';
 import StudentPlanView from './StudentPlanView';
 import StudentStats from './StudentStats';
@@ -34,7 +37,6 @@ import StudentProfileSettings from './StudentProfileSettings';
 import StudentSubjectsView from './StudentSubjectsView';
 import { HomePanelKey, HomeProgressRow, NavItemKey } from './dashboard/types';
 import { getStepIcon } from './dashboard/icons';
-import { buildMockPlan, MOCK_SUBJECTS } from './dashboard/mockPlans';
 import {
   buildHomeProgressRows,
   filterHomeProgressRows,
@@ -43,6 +45,11 @@ import {
   getProgressTotalLearningMinutes,
 } from './dashboard/progress';
 import HomeTeachersPanel from './dashboard/HomeTeachersPanel';
+import { reportService, StudentReportResponse } from '../../services/reportService';
+import { NotificationItem } from '../../services/notificationService';
+import { CalendarEvent } from '../../types/calendar';
+import { MasterySignalsSummary, StudentStreakSummary } from '../../services/developmentService';
+import { getActiveAuthToken } from '../../services/authSession';
 
 type StudentRouteViewKey = Exclude<NavItemKey, 'messages'>;
 
@@ -164,6 +171,14 @@ const StudentDashboard: React.FC = () => {
   const [teachers, setTeachers] = useState<StudentTeacher[]>([]);
   const [teachersLoading, setTeachersLoading] = useState(false);
   const [teachersError, setTeachersError] = useState<string | null>(null);
+  const [subjectReportsBySubjectId, setSubjectReportsBySubjectId] = useState<Record<string, StudentReportResponse | null>>({});
+  const [homeNotifications, setHomeNotifications] = useState<NotificationItem[]>([]);
+  const [homeUnreadNotificationCount, setHomeUnreadNotificationCount] = useState(0);
+  const [homeUpcomingEvents, setHomeUpcomingEvents] = useState<CalendarEvent[]>([]);
+  const [homeSubjectEvents, setHomeSubjectEvents] = useState<CalendarEvent[]>([]);
+  const [homeMasterySignals, setHomeMasterySignals] = useState<MasterySignalsSummary | null>(null);
+  const [homeLiveLoading, setHomeLiveLoading] = useState(false);
+  const [homeLiveError, setHomeLiveError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<NavItemKey>(initialRouteView);
@@ -171,12 +186,16 @@ const StudentDashboard: React.FC = () => {
   const [resultsTab, setResultsTab] = useState<'analytics' | 'results' | 'report-card'>('analytics');
   const [isResultsSidebarCollapsed, setIsResultsSidebarCollapsed] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [notificationMenuOpen, setNotificationMenuOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [viewLoading, setViewLoading] = useState(false);
   const [loadingTargetView, setLoadingTargetView] = useState<NavItemKey>(initialRouteView);
   const [isHeaderCompact, setIsHeaderCompact] = useState(false);
   const [planEntryStepIndex, setPlanEntryStepIndex] = useState<number | null>(null);
+  const [homeMasterySubjectIndex, setHomeMasterySubjectIndex] = useState(0);
+  const [homeStreakSummary, setHomeStreakSummary] = useState<StudentStreakSummary | null>(null);
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
+  const notificationMenuRef = useRef<HTMLDivElement | null>(null);
   const viewSwitchTimerRef = useRef<number | null>(null);
   const hasInitializedDefaultSubjectRef = useRef(false);
 
@@ -205,6 +224,12 @@ const StudentDashboard: React.FC = () => {
     }
     return avatarGradients[hash % avatarGradients.length];
   }, [student]);
+
+  const notificationRecipientId = useMemo(() => {
+    const currentUser = authService.getCurrentUser() as any;
+    const candidate = currentUser?.id;
+    return candidate ? String(candidate) : undefined;
+  }, []);
 
   const viewMeta = useMemo(() => {
     switch (activeView) {
@@ -246,8 +271,7 @@ const StudentDashboard: React.FC = () => {
     return planMap;
   }, [subjectPlans]);
 
-  const displaySubjects = useMemo(() => (subjects.length > 0 ? subjects : MOCK_SUBJECTS), [subjects]);
-  const usingMockSubjects = subjects.length === 0;
+  const displaySubjects = useMemo(() => subjects, [subjects]);
 
   const defaultSubjectId = useMemo(() => {
     if (displaySubjects.length === 0) return 'all';
@@ -267,34 +291,18 @@ const StudentDashboard: React.FC = () => {
     return mathSubject?.id || displaySubjects[0]?.id || 'all';
   }, [displaySubjects]);
 
-  const mockPlanBySubjectId = useMemo(() => {
-    const mockMap = new Map<string, DevelopmentPlan>();
-    displaySubjects.forEach((subject, index) => {
-      mockMap.set(subject.id, buildMockPlan(subject, index));
-    });
-    return mockMap;
-  }, [displaySubjects]);
-
-  const displayPlanBySubjectId = useMemo(() => {
-    const merged = new Map<string, DevelopmentPlan>();
+  const displayPlanBySubjectId = useMemo<Map<string, DevelopmentPlan | null>>(() => {
+    const merged = new Map<string, DevelopmentPlan | null>();
     displaySubjects.forEach((subject) => {
-      merged.set(subject.id, realPlanBySubjectId.get(subject.id) || mockPlanBySubjectId.get(subject.id)!);
+      merged.set(subject.id, realPlanBySubjectId.get(subject.id) || null);
     });
     return merged;
-  }, [displaySubjects, realPlanBySubjectId, mockPlanBySubjectId]);
+  }, [displaySubjects, realPlanBySubjectId]);
 
   const overviewSubjects = useMemo(
     () => displaySubjects.map((subject) => ({ subject, plan: displayPlanBySubjectId.get(subject.id) || null })),
     [displaySubjects, displayPlanBySubjectId]
   );
-
-  const averageProgress = useMemo(() => {
-    if (overviewSubjects.length === 0) return 0;
-    const totalProgress = overviewSubjects.reduce((sum, item) => sum + (item.plan?.currentProgress || 0), 0);
-    return Math.round(totalProgress / overviewSubjects.length);
-  }, [overviewSubjects]);
-
-  const streakWeeks = useMemo(() => Math.max(1, Math.ceil((averageProgress || 10) / 12)), [averageProgress]);
 
   const getGradeFromPercent = (percent: number) => {
     if (percent >= 80) return 'A';
@@ -307,27 +315,48 @@ const StudentDashboard: React.FC = () => {
   const reportCardRows = useMemo(
     () =>
       displaySubjects.map((subject) => {
-        const masteryPercent = Math.max(
-          0,
-          Math.min(100, Math.round(displayPlanBySubjectId.get(subject.id)?.currentProgress || 0))
-        );
+        const report = subjectReportsBySubjectId[subject.id];
+        const reportAverage = typeof report?.averagePercent === 'number' ? report.averagePercent : null;
+        const baseMastery = reportAverage ?? displayPlanBySubjectId.get(subject.id)?.currentProgress ?? 0;
+        const masteryPercent = Math.max(0, Math.min(100, Math.round(baseMastery)));
         const predictedPercent = Math.max(
           0,
           Math.min(100, masteryPercent + (masteryPercent >= 70 ? 3 : masteryPercent >= 50 ? 6 : 8))
         );
+        const predictedGrade = String(report?.predictedGrade || '').trim();
         return {
           subjectId: subject.id,
           subjectCode: subject.code,
           subjectName: subject.name,
           masteryPercent,
           currentGrade: getGradeFromPercent(masteryPercent),
-          predictedZimsecGrade: getGradeFromPercent(predictedPercent),
+          predictedZimsecGrade: predictedGrade || getGradeFromPercent(predictedPercent),
         };
       }),
-    [displaySubjects, displayPlanBySubjectId]
+    [displaySubjects, displayPlanBySubjectId, subjectReportsBySubjectId]
   );
 
+  const homeMasteryBySubject = useMemo(
+    () =>
+      reportCardRows
+        .map((row) => ({
+          subjectId: row.subjectId,
+          subjectName: row.subjectName,
+          masteryPercent: Number.isFinite(row.masteryPercent) ? row.masteryPercent : 0,
+          currentGrade: row.currentGrade,
+        }))
+        .sort((a, b) => a.subjectName.localeCompare(b.subjectName)),
+    [reportCardRows]
+  );
+
+  const activeHomeMasterySubject =
+    homeMasteryBySubject.length > 0 ? homeMasteryBySubject[homeMasterySubjectIndex % homeMasteryBySubject.length] : null;
+
   const homeProgressRows = useMemo<HomeProgressRow[]>(() => buildHomeProgressRows(overviewSubjects), [overviewSubjects]);
+
+  const streakWeeks = homeStreakSummary?.streakWeeks ?? 0;
+  const streakLevel = homeStreakSummary?.level ?? 1;
+  const streakProgressPercent = homeStreakSummary?.progressToNextWeek ?? 0;
 
   const filteredHomeProgressRows = useMemo(
     () => filterHomeProgressRows(homeProgressRows, progressWindow, progressContentFilter, progressActivityFilter),
@@ -352,13 +381,55 @@ const StudentDashboard: React.FC = () => {
     safeHomeProgressPage * homeProgressPageSize
   );
 
+  const homeLiveEvents = useMemo(
+    () => (selectedSubjectId !== 'all' && homeSubjectEvents.length > 0 ? homeSubjectEvents : homeUpcomingEvents),
+    [selectedSubjectId, homeSubjectEvents, homeUpcomingEvents]
+  );
+
+  const nextLiveEvent = useMemo(() => {
+    if (homeLiveEvents.length === 0) return null;
+    const sorted = [...homeLiveEvents].sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+    return sorted[0];
+  }, [homeLiveEvents]);
+
+  const criticalNotifications = useMemo(
+    () =>
+      homeNotifications.filter((item) => {
+        const priority = String(item.priority || '').toLowerCase();
+        const combinedText = `${item.title || ''} ${item.message || ''}`.toLowerCase();
+        return (
+          priority === 'critical' ||
+          priority === 'urgent' ||
+          priority === 'high' ||
+          combinedText.includes('urgent') ||
+          combinedText.includes('overdue') ||
+          combinedText.includes('due today')
+        );
+      }),
+    [homeNotifications]
+  );
+
+  const nextCriticalDeadline = useMemo(() => {
+    if (homeLiveEvents.length === 0) return null;
+    const now = Date.now();
+    const in48Hours = now + 48 * 60 * 60 * 1000;
+    const candidates = homeLiveEvents.filter((event) => {
+      const startTime = new Date(event.start).getTime();
+      return Number.isFinite(startTime) && startTime >= now && startTime <= in48Hours;
+    });
+    if (candidates.length === 0) return null;
+    return candidates.sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())[0];
+  }, [homeLiveEvents]);
+
+  const criticalAlertsCount = criticalNotifications.length + (nextCriticalDeadline ? 1 : 0);
+
   useEffect(() => {
     // Primary bootstrap load for student identity, subjects, and active plans.
     const fetchStudentData = async () => {
       try {
         setLoading(true);
-        const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
-        const token = localStorage.getItem('token');
+        const currentUser = authService.getCurrentUser() as any;
+        const token = getActiveAuthToken();
 
         if (!currentUser?.studentId || !token) {
           throw new Error('User is not authorized or student ID is missing.');
@@ -367,12 +438,32 @@ const StudentDashboard: React.FC = () => {
         const studentData = await studentService.getStudent(currentUser.studentId);
         setStudent(studentData);
 
-        const fetchedSubjects = await Promise.all(
-          studentData?.subjects
-            ?.map((subject: any) => (typeof subject === 'string' ? subject : subject?.id))
-            .filter(Boolean)
-            .map((subjectId: string) => subjectService.getSubjectById(subjectId)) || []
-        );
+        const allSubjects = await subjectService.getSubjects().catch(() => []);
+        const studentSubjectIds = (studentData?.subjects || [])
+          .map((subject: any) => (typeof subject === 'string' ? subject : subject?.id))
+          .filter(Boolean) as string[];
+
+        let fetchedSubjects: Subject[] = [];
+        if (studentSubjectIds.length > 0) {
+          const subjectById = new Map(allSubjects.map((subject) => [subject.id, subject]));
+          const missingSubjectIds = studentSubjectIds.filter((subjectId) => !subjectById.has(subjectId));
+          const missingSubjects = await Promise.all(
+            missingSubjectIds.map((subjectId) =>
+              subjectService
+                .getSubjectById(subjectId)
+                .catch(() => null)
+            )
+          );
+          missingSubjects.filter(Boolean).forEach((subject) => {
+            subjectById.set((subject as Subject).id, subject as Subject);
+          });
+          fetchedSubjects = studentSubjectIds
+            .map((subjectId) => subjectById.get(subjectId))
+            .filter(Boolean) as Subject[];
+        } else {
+          fetchedSubjects = allSubjects;
+        }
+
         setSubjects(fetchedSubjects);
 
         if (studentData?.id) {
@@ -437,18 +528,168 @@ const StudentDashboard: React.FC = () => {
   }, [student?.id]);
 
   useEffect(() => {
+    if (!student?.id || displaySubjects.length === 0) {
+      setSubjectReportsBySubjectId({});
+      return;
+    }
+
+    let cancelled = false;
+
+    const fetchSubjectReports = async () => {
+      const entries = await Promise.all(
+        displaySubjects.map(async (subject) => {
+          try {
+            const report = await reportService.getStudentReport(student.id, subject.id);
+            return [subject.id, report] as const;
+          } catch {
+            return [subject.id, null] as const;
+          }
+        })
+      );
+
+      if (!cancelled) {
+        setSubjectReportsBySubjectId(Object.fromEntries(entries));
+      }
+    };
+
+    fetchSubjectReports();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [student?.id, displaySubjects]);
+
+  useEffect(() => {
+    if (!student?.id) {
+      setHomeStreakSummary(null);
+      return;
+    }
+
+    let cancelled = false;
+    const touchStreak = async () => {
+      const streak = await developmentService.touchStudentStreak(student.id).catch(() => null);
+      if (!cancelled && streak) {
+        setHomeStreakSummary(streak);
+      }
+    };
+
+    void touchStreak();
+    return () => {
+      cancelled = true;
+    };
+  }, [student?.id]);
+
+  useEffect(() => {
+    if (homeMasteryBySubject.length === 0) {
+      setHomeMasterySubjectIndex(0);
+      return;
+    }
+    setHomeMasterySubjectIndex((previous) => Math.min(previous, homeMasteryBySubject.length - 1));
+  }, [homeMasteryBySubject.length]);
+
+  useEffect(() => {
+    if (homeMasteryBySubject.length <= 1) return;
+    const intervalId = window.setInterval(() => {
+      setHomeMasterySubjectIndex((previous) => (previous + 1) % homeMasteryBySubject.length);
+    }, 4800);
+    return () => window.clearInterval(intervalId);
+  }, [homeMasteryBySubject.length]);
+
+  useEffect(() => {
+    if (!student?.id) {
+      setHomeNotifications([]);
+      setHomeUnreadNotificationCount(0);
+      setHomeUpcomingEvents([]);
+      setHomeSubjectEvents([]);
+      setHomeMasterySignals(null);
+      setHomeStreakSummary(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadHomeLiveData = async () => {
+      try {
+        setHomeLiveLoading(true);
+        setHomeLiveError(null);
+
+        const now = new Date();
+        const thirtyDaysAhead = new Date();
+        thirtyDaysAhead.setDate(now.getDate() + 30);
+
+        const [
+          notifications,
+          unreadCount,
+          upcomingEvents,
+          allCalendarEvents,
+          subjectEvents,
+          masterySignals,
+          streakSummary,
+        ] = await Promise.all([
+          notificationService.getNotifications(1, 20, false, notificationRecipientId).catch(() => []),
+          notificationService.getUnreadCount(notificationRecipientId).catch(() => 0),
+          calendarService.getUpcomingEvents(6, student.id).catch(() => []),
+          calendarService.getEvents(now, thirtyDaysAhead, student.id).catch(() => []),
+          selectedSubjectId !== 'all'
+            ? calendarService.getSubjectEvents(selectedSubjectId, student.id).catch(() => [])
+            : Promise.resolve([]),
+          developmentService
+            .getStudentMasterySignalsSummary(student.id, selectedSubjectId !== 'all' ? selectedSubjectId : undefined)
+            .catch(() => null),
+          developmentService.getStudentStreak(student.id).catch(() => null),
+        ]);
+
+        if (cancelled) return;
+
+        setHomeNotifications((notifications || []).slice(0, 5));
+        setHomeUnreadNotificationCount(Number(unreadCount || 0));
+        setHomeUpcomingEvents((upcomingEvents || []).slice(0, 6));
+        setHomeSubjectEvents((subjectEvents || []).slice(0, 6));
+        setHomeMasterySignals(masterySignals);
+        setHomeStreakSummary(streakSummary);
+
+        // Ensure /calendar/events data is consumed for the dashboard health checks.
+        void allCalendarEvents;
+      } catch (liveError: any) {
+        if (!cancelled) {
+          setHomeLiveError(liveError?.message || 'Failed to load live updates.');
+        }
+      } finally {
+        if (!cancelled) {
+          setHomeLiveLoading(false);
+        }
+      }
+    };
+
+    void loadHomeLiveData();
+    const intervalId = window.setInterval(() => {
+      void loadHomeLiveData();
+    }, 60 * 1000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [student?.id, selectedSubjectId, notificationRecipientId]);
+
+  useEffect(() => {
     if (activeView !== 'results') {
       setResultsTab('analytics');
       setIsResultsSidebarCollapsed(false);
     }
     setAccountMenuOpen(false);
+    setNotificationMenuOpen(false);
     setMobileNavOpen(false);
   }, [activeView]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (accountMenuRef.current && !accountMenuRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (accountMenuRef.current && !accountMenuRef.current.contains(target)) {
         setAccountMenuOpen(false);
+      }
+      if (notificationMenuRef.current && !notificationMenuRef.current.contains(target)) {
+        setNotificationMenuOpen(false);
       }
     };
 
@@ -586,22 +827,14 @@ const StudentDashboard: React.FC = () => {
   };
 
   const openPlan = (subjectId: string, plan: DevelopmentPlan, stepIndex?: number) => {
-    if (subjectId.startsWith('mock-subject-')) {
-      setSelectedSubjectId('all');
-    } else {
-      setSelectedSubjectId(subjectId);
-    }
+    setSelectedSubjectId(subjectId);
     setActivePlan(plan);
     setPlanEntryStepIndex(typeof stepIndex === 'number' ? stepIndex : null);
     setViewWithTransition('plan');
   };
 
   const openSubjectInMySubjects = (subjectId: string) => {
-    if (subjectId.startsWith('mock-subject-')) {
-      setSelectedSubjectId('all');
-    } else {
-      setSelectedSubjectId(subjectId);
-    }
+    setSelectedSubjectId(subjectId);
     setViewWithTransition('subjects');
   };
 
@@ -622,31 +855,195 @@ const StudentDashboard: React.FC = () => {
     setAccountMenuOpen(false);
   };
 
+  const handleMarkNotificationRead = async (notificationId: string) => {
+    const target = homeNotifications.find((item) => item.id === notificationId);
+    if (!target || target.read) return;
+
+    try {
+      await notificationService.markAsRead(notificationId, notificationRecipientId);
+      setHomeNotifications((previous) =>
+        previous.map((item) => (item.id === notificationId ? { ...item, read: true } : item))
+      );
+      setHomeUnreadNotificationCount((previous) => Math.max(0, previous - 1));
+    } catch {
+      // Non-blocking; the next refresh will reconcile state.
+    }
+  };
+
+  const handleMarkAllNotificationsRead = async () => {
+    if (homeUnreadNotificationCount <= 0) return;
+    try {
+      await notificationService.markAllAsRead(notificationRecipientId);
+      setHomeNotifications((previous) => previous.map((item) => ({ ...item, read: true })));
+      setHomeUnreadNotificationCount(0);
+    } catch {
+      // Ignore transient failures; list refresh will retry.
+    }
+  };
+
+  const handleOpenNotificationContext = (notification: NotificationItem) => {
+    const combinedText = `${notification.notifType || ''} ${notification.title || ''} ${notification.message || ''}`.toLowerCase();
+    if (combinedText.includes('assessment') || combinedText.includes('quiz') || combinedText.includes('submission')) {
+      setViewWithTransition('assessments');
+    } else if (combinedText.includes('plan') || combinedText.includes('development')) {
+      setViewWithTransition('plan');
+    } else if (combinedText.includes('subject') || combinedText.includes('topic')) {
+      setViewWithTransition('subjects');
+    } else {
+      setViewWithTransition('overview');
+    }
+    setNotificationMenuOpen(false);
+  };
+
+  const formatCalendarEventTime = (value: Date | string | undefined) => {
+    if (!value) return 'TBD';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'TBD';
+    return date.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  };
+
+  const formatNotificationTime = (value: string | undefined) => {
+    if (!value) return '';
+    const timestamp = new Date(value);
+    if (Number.isNaN(timestamp.getTime())) return '';
+    return timestamp.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  };
+
   const renderOverview = () => (
     <div className="space-y-4">
       <section className="relative left-1/2 w-screen -translate-x-1/2 border-y border-orange-100 bg-gradient-to-r from-amber-50 via-orange-50 to-yellow-50">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-            <p className="text-lg sm:text-xl font-semibold text-slate-900">You are on a {streakWeeks}-week streak. Keep going.</p>
+            <p className="text-lg sm:text-xl font-semibold text-slate-900">
+              {streakWeeks > 0
+                ? `You are on a ${streakWeeks}-week streak. Keep going.`
+                : 'Start your learning streak today.'}
+            </p>
             <div className="flex flex-wrap items-center gap-4">
               <div className="inline-flex items-center gap-2 text-slate-700">
                 <Flame className="w-5 h-5 text-orange-500" />
-                <span className="text-sm font-semibold">{streakWeeks} week streak</span>
+                <span className="text-sm font-semibold">
+                  {streakWeeks > 0 ? `${streakWeeks} week streak` : 'No active streak'}
+                </span>
               </div>
               <div className="h-8 w-px bg-orange-200" />
               <div className="w-full sm:w-auto sm:min-w-[220px]">
                 <div className="flex items-center justify-between text-xs text-slate-500 mb-1">
-                  <span className="font-semibold text-slate-700">Level {(Math.floor(averageProgress / 20) + 1).toString()}</span>
-                  <span>{averageProgress}% progress</span>
+                  <span className="font-semibold text-slate-700">Level {streakLevel}</span>
+                  <span>{streakProgressPercent}% to next week</span>
                 </div>
                 <div className="h-2 rounded-full bg-orange-100 overflow-hidden">
-                  <div className="h-2 rounded-full bg-violet-500" style={{ width: `${Math.max(0, Math.min(100, averageProgress))}%` }} />
+                  <div className="h-2 rounded-full bg-violet-500" style={{ width: `${Math.max(0, Math.min(100, streakProgressPercent))}%` }} />
                 </div>
               </div>
             </div>
           </div>
         </div>
       </section>
+
+      {homePanel === 'subjects' && (
+        <>
+          <section className="hidden md:grid grid-cols-3 gap-4">
+            <article className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+              <div className="flex items-center gap-2 text-slate-700">
+                <AlertTriangle className="h-4 w-4 text-red-600" />
+                <p className="text-sm font-semibold">Critical alerts</p>
+              </div>
+              <p className="mt-2 text-2xl font-bold text-slate-900">{criticalAlertsCount}</p>
+              <p className="text-xs text-slate-500">
+                {nextCriticalDeadline
+                  ? `${nextCriticalDeadline.title} • ${formatCalendarEventTime(nextCriticalDeadline.start)}`
+                  : criticalNotifications.length > 0
+                    ? `${criticalNotifications.length} urgent notification${criticalNotifications.length > 1 ? 's' : ''}`
+                    : 'No critical alerts.'}
+              </p>
+            </article>
+
+            <article className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+              <div className="flex items-center gap-2 text-slate-700">
+                <CalendarClock className="h-4 w-4 text-blue-600" />
+                <p className="text-sm font-semibold">Upcoming deadlines</p>
+              </div>
+              <p className="mt-2 text-2xl font-bold text-slate-900">{homeLiveEvents.length}</p>
+              <p className="text-xs text-slate-500">
+                {nextLiveEvent
+                  ? `${nextLiveEvent.title} • ${formatCalendarEventTime(nextLiveEvent.start)}`
+                  : 'No upcoming events.'}
+              </p>
+            </article>
+
+            <article className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+              <div className="flex items-center gap-2 text-slate-700">
+                <AlertTriangle className="h-4 w-4 text-amber-600" />
+                <p className="text-sm font-semibold">Mastery signals</p>
+              </div>
+              <p className="mt-2 text-2xl font-bold text-slate-900">
+                {activeHomeMasterySubject
+                  ? `${Math.round(activeHomeMasterySubject.masteryPercent)}%`
+                  : homeMasterySignals
+                    ? `${Math.round(homeMasterySignals.averageOverall || 0)}%`
+                    : '--'}
+              </p>
+              <div className="h-8 overflow-hidden">
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={activeHomeMasterySubject?.subjectId || 'mastery-fallback'}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    transition={{ duration: 0.35, ease: 'easeInOut' }}
+                  >
+                    <p className="text-xs text-slate-500">
+                      {activeHomeMasterySubject
+                        ? `${activeHomeMasterySubject.subjectName} • Grade ${activeHomeMasterySubject.currentGrade}`
+                        : 'Subject mastery unavailable.'}
+                    </p>
+                  </motion.div>
+                </AnimatePresence>
+              </div>
+            </article>
+          </section>
+
+          <section className="md:hidden">
+            <article className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+              <div className="flex items-center gap-2 text-slate-700">
+                <AlertTriangle className="h-4 w-4 text-amber-600" />
+                <p className="text-sm font-semibold">Mastery signals</p>
+              </div>
+              <p className="mt-2 text-2xl font-bold text-slate-900">
+                {activeHomeMasterySubject
+                  ? `${Math.round(activeHomeMasterySubject.masteryPercent)}%`
+                  : homeMasterySignals
+                    ? `${Math.round(homeMasterySignals.averageOverall || 0)}%`
+                    : '--'}
+              </p>
+              <div className="h-8 overflow-hidden">
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={`mobile-${activeHomeMasterySubject?.subjectId || 'mastery-fallback'}`}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    transition={{ duration: 0.35, ease: 'easeInOut' }}
+                  >
+                    <p className="text-xs text-slate-500">
+                      {activeHomeMasterySubject
+                        ? `${activeHomeMasterySubject.subjectName} • Grade ${activeHomeMasterySubject.currentGrade}`
+                        : 'Subject mastery unavailable.'}
+                    </p>
+                  </motion.div>
+                </AnimatePresence>
+              </div>
+            </article>
+          </section>
+        </>
+      )}
+
+      {homeLiveError && !homeLiveLoading && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          {homeLiveError}
+        </div>
+      )}
 
       <section className="bg-white overflow-hidden">
         <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] min-h-[640px]">
@@ -704,17 +1101,29 @@ const StudentDashboard: React.FC = () => {
                   transition={{ duration: 0.22, ease: 'easeInOut' }}
                   className="space-y-8"
                 >
-                {usingMockSubjects && (
-                  <div className="flex justify-end">
-                    <span className="inline-flex items-center rounded-md bg-amber-50 border border-amber-200 px-2.5 py-1 text-[11px] font-semibold text-amber-700">
-                      Mock plans
-                    </span>
-                  </div>
-                )}
-
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-8 xl:gap-x-10 gap-y-8 xl:gap-y-10">
                   {overviewSubjects.map(({ subject, plan }) => {
-                    if (!plan) return null;
+                    if (!plan) {
+                      return (
+                        <article key={subject.id} className="space-y-3 w-full">
+                          <div className="flex items-center">
+                            <button
+                              type="button"
+                              onClick={() => openSubjectInMySubjects(subject.id)}
+                              title={`Open ${subject.name} in My Subjects`}
+                              className="text-left text-xl sm:text-2xl font-semibold text-slate-900 hover:text-blue-700 transition"
+                            >
+                              {subject.name}
+                            </button>
+                          </div>
+                          <div className="border-t border-slate-200 pt-4">
+                            <p className="text-sm text-slate-500">
+                              No active plan assigned for this subject yet.
+                            </p>
+                          </div>
+                        </article>
+                      );
+                    }
 
                     const sortedSteps = (plan.plan.steps || []).slice().sort((a, b) => (a.order || 0) - (b.order || 0));
                     const totalSteps = sortedSteps.length;
@@ -1148,6 +1557,7 @@ const StudentDashboard: React.FC = () => {
       case 'subjects':
         return (
           <StudentSubjectsView
+            studentId={student.id}
             selectedSubjectId={selectedSubjectId}
             subjects={displaySubjects}
           />
@@ -1327,14 +1737,90 @@ const StudentDashboard: React.FC = () => {
               <span className="text-2xl font-bold text-blue-700">ZiVAI Learning</span>
             </div>
 
-            <div className="flex items-center justify-end">
+            <div className="flex items-center justify-end gap-2">
+              <div ref={notificationMenuRef} className="relative z-50">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNotificationMenuOpen((previous) => !previous);
+                    setAccountMenuOpen(false);
+                  }}
+                  className="relative inline-flex h-12 w-12 items-center justify-center rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50"
+                  aria-haspopup="menu"
+                  aria-expanded={notificationMenuOpen}
+                  aria-label="Open notifications"
+                  title="Notifications"
+                >
+                  <Bell className="h-4 w-4" />
+                  {homeUnreadNotificationCount > 0 && (
+                    <span className="absolute -right-1 -top-1 inline-flex min-w-[18px] items-center justify-center rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                      {homeUnreadNotificationCount > 99 ? '99+' : homeUnreadNotificationCount}
+                    </span>
+                  )}
+                </button>
+
+                {notificationMenuOpen && (
+                  <div
+                    role="menu"
+                    className="absolute top-full right-0 mt-2 w-[340px] max-w-[90vw] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg z-[70]"
+                  >
+                    <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2">
+                      <p className="text-sm font-semibold text-slate-800">Notifications</p>
+                      <button
+                        type="button"
+                        onClick={handleMarkAllNotificationsRead}
+                        disabled={homeUnreadNotificationCount <= 0}
+                        className="text-xs font-semibold text-blue-700 hover:text-blue-800 disabled:cursor-not-allowed disabled:text-slate-400"
+                      >
+                        Mark all read
+                      </button>
+                    </div>
+                    <div className="max-h-80 overflow-y-auto">
+                      {homeNotifications.length === 0 ? (
+                        <p className="px-3 py-4 text-xs text-slate-500">No notifications yet.</p>
+                      ) : (
+                        homeNotifications.map((item) => (
+                          <div key={item.id} className="border-b border-slate-100 last:border-b-0">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenNotificationContext(item)}
+                              className={`w-full px-3 py-2.5 text-left transition hover:bg-slate-50 ${
+                                item.read ? 'bg-white' : 'bg-blue-50/40'
+                              }`}
+                            >
+                              <p className="text-sm font-semibold text-slate-800">{item.title || 'Update'}</p>
+                              {item.message && <p className="mt-0.5 line-clamp-2 text-xs text-slate-600">{item.message}</p>}
+                              <p className="mt-1 text-[11px] text-slate-400">{formatNotificationTime(item.createdAt)}</p>
+                            </button>
+                            {item.read === false && (
+                              <div className="px-3 pb-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleMarkNotificationRead(item.id)}
+                                  className="text-[11px] font-semibold text-blue-700 hover:text-blue-800"
+                                >
+                                  Mark as read
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div
                 ref={accountMenuRef}
                 className="relative z-50"
               >
                 <button
                   type="button"
-                  onClick={() => setAccountMenuOpen((prev) => !prev)}
+                  onClick={() => {
+                    setAccountMenuOpen((prev) => !prev);
+                    setNotificationMenuOpen(false);
+                  }}
                   className="inline-flex items-center gap-2 rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
                   aria-haspopup="menu"
                   aria-expanded={accountMenuOpen}

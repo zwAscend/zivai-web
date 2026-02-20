@@ -1,5 +1,10 @@
 import { fetchData } from './http';
 import { User } from '../types';
+import {
+  clearAuthSessionStorage,
+  getActiveUserJson,
+  markBrowserSessionActive,
+} from './authSession';
 
 export const authService = {
   async login(email: string, password: string): Promise<{ token: string; user: User }> {
@@ -10,6 +15,7 @@ export const authService = {
 
     if (data?.token) {
       localStorage.setItem('token', data.token);
+      markBrowserSessionActive();
     }
     if (data?.user) {
       localStorage.setItem('user', JSON.stringify(data.user));
@@ -23,13 +29,12 @@ export const authService = {
   },
 
   logout(): void {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    clearAuthSessionStorage();
     window.location.href = '/login';
   },
 
   getCurrentUser(): User | null {
-    const userStr = localStorage.getItem('user');
+    const userStr = getActiveUserJson();
     return userStr ? JSON.parse(userStr) : null;
   }
 };

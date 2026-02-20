@@ -16,9 +16,7 @@ const Login = () => {
     setLoading(true);
 
     try {
-      const user = await authService.login(email, password);
-      // optionally store user info
-      localStorage.setItem('user', JSON.stringify(user));
+      await authService.login(email, password);
       navigate('/dashboard'); // or wherever after login
     } catch (err: any) {
       setError(err.message || 'Login failed');
