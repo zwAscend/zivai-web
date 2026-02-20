@@ -44,6 +44,7 @@ interface StudentPracticeRunnerProps {
   questions: PracticeQuestion[];
   onComplete?: (summary: PracticeRunSummary) => void;
   fixedFooterStyle?: React.CSSProperties;
+  contentWrapperClassName?: string;
 }
 
 const normalize = (value: string) => value.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -200,6 +201,7 @@ const StudentPracticeRunner: React.FC<StudentPracticeRunnerProps> = ({
   questions,
   onComplete,
   fixedFooterStyle,
+  contentWrapperClassName,
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [textAnswers, setTextAnswers] = useState<Record<string, string>>({});
@@ -327,10 +329,11 @@ const StudentPracticeRunner: React.FC<StudentPracticeRunnerProps> = ({
     bottom: '5.5rem',
     right: fixedFooterStyle?.right ? `calc(${String(fixedFooterStyle.right)} + 1.5rem)` : '1.5rem',
   };
+  const contentWrapperClasses = contentWrapperClassName || 'px-6 py-6 pb-24 space-y-6';
 
   return (
     <div className="relative bg-white overflow-hidden">
-      <div className="px-6 py-6 pb-24 space-y-6">
+      <div className={contentWrapperClasses}>
         {sessionCompleted ? (
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-5">
             <p className="text-lg font-semibold text-emerald-800">Practice complete</p>

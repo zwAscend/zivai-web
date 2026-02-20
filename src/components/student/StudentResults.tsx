@@ -1,6 +1,5 @@
 import React, { useMemo, useState, useEffect } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
-import { TrendingUp, TrendingDown, Award, Target, Calendar, FileText } from 'lucide-react';
+import { TrendingUp, TrendingDown, Award, Target, FileText } from 'lucide-react';
 import { Assessment, Result } from '../../types';
 import { assessmentService } from '../../services/api';
 
@@ -113,20 +112,6 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubj
   const improvementCount = filteredResults.filter(r => r.difference > 0).length;
   const improvementRate = totalAssessments > 0 ? Math.round((improvementCount / totalAssessments) * 100) : 0;
 
-  // Prepare chart data
-  const chartData = filteredResults.map((result, index) => ({
-    name: result.assessment.name.substring(0, 15) + (result.assessment.name.length > 15 ? '...' : ''),
-    expected: Math.round((result.result.expectedMark / result.assessment.maxScore) * 100),
-    actual: Math.round((result.result.actualMark / result.assessment.maxScore) * 100),
-    date: result.result.submittedDate.toLocaleDateString(),
-  }));
-
-  const trendData = filteredResults.map((result, index) => ({
-    assessment: index + 1,
-    score: Math.round((result.result.actualMark / result.assessment.maxScore) * 100),
-    name: result.assessment.name.substring(0, 10) + '...',
-  }));
-
   const focusAreas = useMemo(() => {
     return [...filteredResults]
       .sort((a, b) => (a.result.actualMark / a.assessment.maxScore) - (b.result.actualMark / b.assessment.maxScore))
@@ -162,11 +147,6 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubj
       {/* Header and Filters */}
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-semibold text-gray-800 mb-2">Assessment Results & Feedback</h2>
-            <p className="text-gray-600">See where you slipped, why, and what to fix next.</p>
-          </div>
-          
           <div className="flex flex-wrap gap-3">
             <input
               value={searchQuery}
@@ -203,10 +183,6 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubj
       {focusAreas.length > 0 && (
         <div className="bg-white rounded-lg shadow p-6">
           <h3 className="text-lg font-semibold text-gray-800 mb-3">Focus Areas</h3>
-          <p className="text-sm text-gray-500 mb-4">
-            These assessments show the biggest mastery gaps. Review, explain your reasoning,
-            then ask the tutor for targeted practice.
-          </p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {focusAreas.map((item) => (
               <div key={item.result.id} className="border border-slate-200 rounded-lg p-4">
@@ -276,38 +252,6 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubj
               <div className="text-sm text-gray-500">A Grades</div>
             </div>
           </div>
-        </div>
-      </div>
-
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Performance Comparison Chart */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold text-gray-800 mb-4">Expected vs Actual Performance</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={chartData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" angle={-45} textAnchor="end" height={80} />
-              <YAxis />
-              <Tooltip />
-              <Bar dataKey="expected" fill="#94a3b8" name="Expected %" />
-              <Bar dataKey="actual" fill="#3b82f6" name="Actual %" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-
-        {/* Trend Chart */}
-        <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="text-lg font-semibold text-gray-800 mb-4">Performance Trend</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={trendData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="assessment" />
-              <YAxis />
-              <Tooltip />
-              <Line type="monotone" dataKey="score" stroke="#10b981" strokeWidth={3} />
-            </LineChart>
-          </ResponsiveContainer>
         </div>
       </div>
 

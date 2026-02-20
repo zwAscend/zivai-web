@@ -73,46 +73,32 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         <div className="pointer-events-none absolute -top-24 -right-28 h-72 w-72 rounded-full bg-blue-200/40 blur-3xl" />
         <div className="pointer-events-none absolute -bottom-24 -left-24 h-72 w-72 rounded-full bg-emerald-200/40 blur-3xl" />
 
-        <div className="relative mx-auto flex min-h-screen w-full max-w-6xl items-center px-6 py-16">
+        <div className="relative mx-auto flex min-h-screen w-full max-w-6xl items-center px-6 py-12 lg:py-16">
           <div className="grid w-full gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
-            <div className="space-y-6">
-              <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-slate-700">
-                Zivai Platform
+            <div className="flex h-full flex-col justify-center text-center lg:text-left">
+              <div className="mb-8 flex justify-center lg:mb-0 lg:justify-start">
+                <div className="rounded-2xl px-7 py-4 text-center">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Learning Platform</p>
+                  <p className="mt-1 text-3xl font-black tracking-tight text-slate-900">
+                    ziv<span className="text-blue-600">AI</span>
+                  </p>
+                </div>
               </div>
               <div className="space-y-3">
                 <h1 className="text-4xl font-bold text-slate-900 lg:text-5xl">
-                  One portal for learners, teachers, and school leaders.
+                  A platform for learners and teachers.
                 </h1>
                 <p className="text-base text-slate-600 lg:text-lg">
-                  Build mastery with guided practice, AI-supported reasoning, and clear progress tracking—without
-                  shortcuts.
+                  Strengthen classroom learning with guided practice, clear insights, and AI support that builds real
+                  understanding.
                 </p>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
-                  <p className="text-sm font-semibold text-slate-800">Critical thinking</p>
-                  <p className="text-xs text-slate-500">Explain reasoning, not just answers.</p>
-                </div>
-                <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
-                  <p className="text-sm font-semibold text-slate-800">Guided practice</p>
-                  <p className="text-xs text-slate-500">Target gaps with retrieval work.</p>
-                </div>
-                <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
-                  <p className="text-sm font-semibold text-slate-800">AI tutor support</p>
-                  <p className="text-xs text-slate-500">Clarify, practice, reflect.</p>
-                </div>
-                <div className="rounded-2xl border border-slate-200 bg-white/90 p-4 shadow-sm">
-                  <p className="text-sm font-semibold text-slate-800">Collaboration</p>
-                  <p className="text-xs text-slate-500">Learn by teaching peers.</p>
-                </div>
               </div>
             </div>
 
             <div className="rounded-3xl border border-slate-200 bg-white p-10 shadow-xl">
               <div className="mb-8 space-y-2">
                 <h2 className="text-3xl font-bold text-slate-900">Welcome back</h2>
-                <p className="text-base text-slate-500">Sign in to continue your learning journey.</p>
+                <p className="text-base text-slate-500">Sign in to access your learner or teacher workspace.</p>
               </div>
 
               {error && (

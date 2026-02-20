@@ -9,7 +9,6 @@ export type NavItemKey =
   | 'results'
   | 'tutor'
   | 'peer-study'
-  | 'mastery-gaps'
   | 'profile';
 
 export type HomePanelKey = 'subjects' | 'progress' | 'profile' | 'teachers';

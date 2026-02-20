@@ -1,11 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
   BookOpen,
-  PlusCircle,
-  Target,
-  MessageCircle,
   LogOut,
   BarChart2,
   FileText,
@@ -15,6 +13,9 @@ import {
   Play,
   RotateCcw,
   ChevronDown,
+  ChevronsLeft,
+  ChevronsRight,
+  GraduationCap,
   Flame,
   Settings,
   Menu,
@@ -25,12 +26,10 @@ import { studentService, developmentService, subjectService } from '../../servic
 import { StudentTeacher } from '../../services/studentService';
 import StudentPlanView from './StudentPlanView';
 import StudentStats from './StudentStats';
-import StudentMessages from './StudentMessages';
 import StudentAssignments from './StudentAssignments';
 import StudentResults from './StudentResults';
-import StudentTutor from './StudentTutor';
+import StudentReportCard from './StudentReportCard';
 import StudentPeerStudy from './StudentPeerStudy';
-import StudentMasteryGaps from './StudentMasteryGaps';
 import StudentProfileSettings from './StudentProfileSettings';
 import StudentSubjectsView from './StudentSubjectsView';
 import { HomePanelKey, HomeProgressRow, NavItemKey } from './dashboard/types';
@@ -44,6 +43,35 @@ import {
   getProgressTotalLearningMinutes,
 } from './dashboard/progress';
 import HomeTeachersPanel from './dashboard/HomeTeachersPanel';
+
+type StudentRouteViewKey = Exclude<NavItemKey, 'messages'>;
+
+const STUDENT_VIEW_PATHS: Record<StudentRouteViewKey, string> = {
+  overview: '/student/home',
+  plan: '/student/my-plans',
+  subjects: '/student/my-subjects',
+  assessments: '/student/assessments',
+  results: '/student/my-report',
+  tutor: '/student/ai-coach',
+  'peer-study': '/student/peer-study',
+  profile: '/student/profile',
+};
+
+const STUDENT_PATH_VIEW_LOOKUP = Object.entries(STUDENT_VIEW_PATHS).reduce<Record<string, StudentRouteViewKey>>(
+  (accumulator, [view, path]) => {
+    accumulator[path] = view as StudentRouteViewKey;
+    return accumulator;
+  },
+  {}
+);
+
+const normalizeStudentPath = (pathname: string) => pathname.replace(/\/+$/, '') || '/';
+
+const getRouteViewFromPathname = (pathname: string): StudentRouteViewKey | null =>
+  STUDENT_PATH_VIEW_LOOKUP[normalizeStudentPath(pathname)] ?? null;
+
+const isRoutableStudentView = (view: NavItemKey): view is StudentRouteViewKey =>
+  Object.prototype.hasOwnProperty.call(STUDENT_VIEW_PATHS, view);
 
 const DashboardSkeleton = () => (
   <div className="min-h-screen bg-slate-100">
@@ -119,6 +147,10 @@ const DashboardSkeleton = () => (
 );
 
 const StudentDashboard: React.FC = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const initialRouteView = getRouteViewFromPathname(location.pathname) || 'overview';
+
   const [student, setStudent] = useState<Student | null>(null);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [subjectPlans, setSubjectPlans] = useState<DevelopmentPlan[]>([]);
@@ -134,18 +166,19 @@ const StudentDashboard: React.FC = () => {
   const [teachersError, setTeachersError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeView, setActiveView] = useState<NavItemKey>('overview');
+  const [activeView, setActiveView] = useState<NavItemKey>(initialRouteView);
   const [tutorPrefill, setTutorPrefill] = useState<string>('');
-  const [peerStudyModalOpen, setPeerStudyModalOpen] = useState(false);
-  const [resultsTab, setResultsTab] = useState<'analytics' | 'results'>('analytics');
+  const [resultsTab, setResultsTab] = useState<'analytics' | 'results' | 'report-card'>('analytics');
+  const [isResultsSidebarCollapsed, setIsResultsSidebarCollapsed] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [viewLoading, setViewLoading] = useState(false);
-  const [loadingTargetView, setLoadingTargetView] = useState<NavItemKey>('overview');
+  const [loadingTargetView, setLoadingTargetView] = useState<NavItemKey>(initialRouteView);
   const [isHeaderCompact, setIsHeaderCompact] = useState(false);
   const [planEntryStepIndex, setPlanEntryStepIndex] = useState<number | null>(null);
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
   const viewSwitchTimerRef = useRef<number | null>(null);
+  const hasInitializedDefaultSubjectRef = useRef(false);
 
   const avatarGradients = [
     'from-indigo-500 to-sky-500',
@@ -182,15 +215,11 @@ const StudentDashboard: React.FC = () => {
       case 'assessments':
         return { title: 'Assessments', subtitle: 'Complete tasks independently and reflect on feedback.' };
       case 'results':
-        return { title: 'Results & Analytics', subtitle: 'See performance trends, feedback, and next steps.' };
-      case 'messages':
-        return { title: 'Messages', subtitle: 'Collaborate with teachers and classmates.' };
+        return { title: 'My Report', subtitle: 'See performance trends, feedback, and next steps.' };
       case 'tutor':
         return { title: 'AI Study Coach', subtitle: 'Collaborate in a guided workspace: plan, reason, and reflect.' };
       case 'peer-study':
         return { title: 'Peer Study', subtitle: 'Collaborate with classmates on weak topics.' };
-      case 'mastery-gaps':
-        return { title: 'Mastery Gaps', subtitle: 'See what to fix next and practice retrieval.' };
       case 'profile':
         return { title: 'Profile & Settings', subtitle: 'Update your details, avatar, and preferences.' };
       default:
@@ -220,6 +249,24 @@ const StudentDashboard: React.FC = () => {
   const displaySubjects = useMemo(() => (subjects.length > 0 ? subjects : MOCK_SUBJECTS), [subjects]);
   const usingMockSubjects = subjects.length === 0;
 
+  const defaultSubjectId = useMemo(() => {
+    if (displaySubjects.length === 0) return 'all';
+
+    const mathSubject = displaySubjects.find((subject) => {
+      const name = String(subject.name || '').toLowerCase();
+      const code = String(subject.code || '').toLowerCase();
+      return (
+        name.includes('mathematics') ||
+        name === 'math' ||
+        name.includes('math') ||
+        code === 'math' ||
+        code.startsWith('math')
+      );
+    });
+
+    return mathSubject?.id || displaySubjects[0]?.id || 'all';
+  }, [displaySubjects]);
+
   const mockPlanBySubjectId = useMemo(() => {
     const mockMap = new Map<string, DevelopmentPlan>();
     displaySubjects.forEach((subject, index) => {
@@ -248,6 +295,37 @@ const StudentDashboard: React.FC = () => {
   }, [overviewSubjects]);
 
   const streakWeeks = useMemo(() => Math.max(1, Math.ceil((averageProgress || 10) / 12)), [averageProgress]);
+
+  const getGradeFromPercent = (percent: number) => {
+    if (percent >= 80) return 'A';
+    if (percent >= 70) return 'B';
+    if (percent >= 60) return 'C';
+    if (percent >= 50) return 'D';
+    return 'E';
+  };
+
+  const reportCardRows = useMemo(
+    () =>
+      displaySubjects.map((subject) => {
+        const masteryPercent = Math.max(
+          0,
+          Math.min(100, Math.round(displayPlanBySubjectId.get(subject.id)?.currentProgress || 0))
+        );
+        const predictedPercent = Math.max(
+          0,
+          Math.min(100, masteryPercent + (masteryPercent >= 70 ? 3 : masteryPercent >= 50 ? 6 : 8))
+        );
+        return {
+          subjectId: subject.id,
+          subjectCode: subject.code,
+          subjectName: subject.name,
+          masteryPercent,
+          currentGrade: getGradeFromPercent(masteryPercent),
+          predictedZimsecGrade: getGradeFromPercent(predictedPercent),
+        };
+      }),
+    [displaySubjects, displayPlanBySubjectId]
+  );
 
   const homeProgressRows = useMemo<HomeProgressRow[]>(() => buildHomeProgressRows(overviewSubjects), [overviewSubjects]);
 
@@ -359,11 +437,9 @@ const StudentDashboard: React.FC = () => {
   }, [student?.id]);
 
   useEffect(() => {
-    if (activeView !== 'peer-study') {
-      setPeerStudyModalOpen(false);
-    }
     if (activeView !== 'results') {
       setResultsTab('analytics');
+      setIsResultsSidebarCollapsed(false);
     }
     setAccountMenuOpen(false);
     setMobileNavOpen(false);
@@ -398,6 +474,41 @@ const StudentDashboard: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    const routeView = getRouteViewFromPathname(location.pathname);
+    if (!routeView || routeView === activeView) return;
+
+    if (viewSwitchTimerRef.current !== null) {
+      window.clearTimeout(viewSwitchTimerRef.current);
+    }
+
+    // Keep URL-driven navigation transitions visually consistent with tab clicks.
+    setLoadingTargetView(routeView);
+    setViewLoading(true);
+    viewSwitchTimerRef.current = window.setTimeout(() => {
+      setActiveView(routeView);
+      setViewLoading(false);
+      viewSwitchTimerRef.current = null;
+    }, 180);
+  }, [location.pathname, activeView]);
+
+  useEffect(() => {
+    if (displaySubjects.length === 0) return;
+
+    if (!hasInitializedDefaultSubjectRef.current) {
+      hasInitializedDefaultSubjectRef.current = true;
+      if (selectedSubjectId === 'all' && defaultSubjectId !== 'all') {
+        setSelectedSubjectId(defaultSubjectId);
+      }
+      return;
+    }
+
+    const selectedStillExists = selectedSubjectId !== 'all' && displaySubjects.some((subject) => subject.id === selectedSubjectId);
+    if (!selectedStillExists && defaultSubjectId !== 'all') {
+      setSelectedSubjectId(defaultSubjectId);
+    }
+  }, [displaySubjects, defaultSubjectId, selectedSubjectId]);
+
+  useEffect(() => {
     if (displaySubjects.length === 0) {
       setActivePlan(null);
       return;
@@ -429,13 +540,11 @@ const StudentDashboard: React.FC = () => {
 
   const navItems: Array<{ key: NavItemKey; label: string; icon: React.ComponentType<{ className?: string }> }> = [
     { key: 'overview', label: 'Home', icon: LayoutDashboard },
-    { key: 'plan', label: 'My Plan', icon: BookOpen },
+    { key: 'plan', label: 'My Plans', icon: BookOpen },
     { key: 'subjects', label: 'My Subjects', icon: BookOpen },
     { key: 'assessments', label: 'Assessments', icon: FileText },
-    { key: 'results', label: 'Results', icon: BarChart2 },
-    { key: 'mastery-gaps', label: 'Mastery Gaps', icon: Target },
+    { key: 'results', label: 'My Report', icon: BarChart2 },
     { key: 'peer-study', label: 'Peer Study', icon: Users },
-    { key: 'messages', label: 'Messages', icon: MessageCircle },
   ];
 
   const activeNavItemLabel = navItems.find((item) => item.key === activeView)?.label || 'Navigation';
@@ -447,9 +556,16 @@ const StudentDashboard: React.FC = () => {
 
     setMobileNavOpen(false);
 
-    if (nextView === activeView) {
-      return;
+    if (isRoutableStudentView(nextView)) {
+      const targetPath = STUDENT_VIEW_PATHS[nextView];
+      const currentPath = normalizeStudentPath(location.pathname);
+      if (currentPath !== targetPath) {
+        navigate(targetPath);
+        return;
+      }
     }
+
+    if (nextView === activeView) return;
 
     if (viewSwitchTimerRef.current !== null) {
       window.clearTimeout(viewSwitchTimerRef.current);
@@ -478,6 +594,15 @@ const StudentDashboard: React.FC = () => {
     setActivePlan(plan);
     setPlanEntryStepIndex(typeof stepIndex === 'number' ? stepIndex : null);
     setViewWithTransition('plan');
+  };
+
+  const openSubjectInMySubjects = (subjectId: string) => {
+    if (subjectId.startsWith('mock-subject-')) {
+      setSelectedSubjectId('all');
+    } else {
+      setSelectedSubjectId(subjectId);
+    }
+    setViewWithTransition('subjects');
   };
 
   const handleOpenTutor = (prompt?: string) => {
@@ -617,7 +742,14 @@ const StudentDashboard: React.FC = () => {
                       <article key={subject.id} className="space-y-3 w-full">
                         <div className="flex items-center">
                           <div>
-                            <h3 className="text-xl sm:text-2xl font-semibold text-slate-900">{subject.name}</h3>
+                            <button
+                              type="button"
+                              onClick={() => openSubjectInMySubjects(subject.id)}
+                              title={`Open ${subject.name} in My Subjects`}
+                              className="text-left text-xl sm:text-2xl font-semibold text-slate-900 hover:text-blue-700 transition"
+                            >
+                              {subject.name}
+                            </button>
                           </div>
                         </div>
 
@@ -912,53 +1044,78 @@ const StudentDashboard: React.FC = () => {
 
     if (view === 'assessments') {
       return (
-        <div className="space-y-4 animate-pulse">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
-              <div className="h-6 w-56 rounded bg-slate-200" />
-              <div className="h-4 w-3/4 rounded bg-slate-100" />
-              <div className="h-10 w-32 rounded bg-slate-200" />
+        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden animate-pulse">
+          <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] min-h-[680px]">
+            <aside className="border-b lg:border-b-0 lg:border-r border-slate-200 bg-slate-50 p-5 space-y-3">
+              <div className="h-3 w-24 rounded bg-slate-200" />
+              <div className="h-10 w-full rounded bg-slate-200" />
+              <div className="h-10 w-full rounded bg-slate-200" />
+              <div className="h-10 w-full rounded bg-slate-200" />
+              <div className="mt-5 space-y-2 rounded-md border border-slate-200 bg-white p-3">
+                <div className="h-3 w-full rounded bg-slate-200" />
+                <div className="h-3 w-full rounded bg-slate-200" />
+                <div className="h-3 w-full rounded bg-slate-200" />
+              </div>
+            </aside>
+            <div className="p-6 space-y-4">
+              <div className="h-16 rounded-lg border border-slate-200 bg-slate-50" />
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="h-36 rounded-lg border border-slate-200 bg-white" />
+              ))}
             </div>
-          ))}
+          </div>
         </div>
       );
     }
 
     if (view === 'results') {
       return (
-        <div className="space-y-6 animate-pulse">
-          <div className="flex gap-2">
-            <div className="h-10 w-44 rounded bg-slate-200" />
-            <div className="h-10 w-44 rounded bg-slate-200" />
+        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden animate-pulse">
+          <div className="grid grid-cols-1 lg:grid-cols-[250px_1fr] min-h-[640px]">
+            <aside className="border-b lg:border-b-0 lg:border-r border-slate-200 bg-slate-50 p-5 space-y-3">
+              <div className="h-3 w-20 rounded bg-slate-200" />
+              <div className="h-10 w-full rounded bg-slate-200" />
+              <div className="h-10 w-full rounded bg-slate-200" />
+              <div className="h-10 w-full rounded bg-slate-200" />
+            </aside>
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="h-28 rounded-xl border border-slate-200 bg-white" />
+                ))}
+              </div>
+              <div className="h-72 rounded-xl border border-slate-200 bg-white" />
+            </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="h-28 rounded-xl border border-slate-200 bg-white" />
-            ))}
-          </div>
-          <div className="h-72 rounded-xl border border-slate-200 bg-white" />
         </div>
       );
     }
 
-    if (view === 'messages') {
+    if (view === 'peer-study') {
       return (
-        <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-4 animate-pulse">
-          <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <div key={i} className="h-14 rounded bg-slate-100" />
-            ))}
-          </div>
-          <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="h-12 rounded bg-slate-100" />
-            ))}
+        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden animate-pulse">
+          <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] min-h-[640px]">
+            <aside className="border-b lg:border-b-0 lg:border-r border-slate-200 bg-slate-50 p-5 space-y-3">
+              <div className="h-3 w-20 rounded bg-slate-200" />
+              <div className="h-10 w-full rounded bg-slate-200" />
+              <div className="h-10 w-full rounded bg-slate-200" />
+            </aside>
+            <div className="p-6 space-y-4">
+              <div className="h-16 rounded-lg border border-slate-200 bg-slate-50" />
+              <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_1.9fr] gap-4">
+                <div className="h-72 rounded-xl border border-slate-200 bg-white" />
+                <div className="space-y-3">
+                  <div className="h-36 rounded-xl border border-slate-200 bg-white" />
+                  <div className="h-36 rounded-xl border border-slate-200 bg-white" />
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       );
     }
 
-    if (view === 'peer-study' || view === 'mastery-gaps' || view === 'tutor' || view === 'profile') {
+    if (view === 'tutor' || view === 'profile') {
       return (
         <div className="space-y-4 animate-pulse">
           <div className="h-8 w-56 rounded bg-slate-200" />
@@ -995,8 +1152,6 @@ const StudentDashboard: React.FC = () => {
             subjects={displaySubjects}
           />
         );
-      case 'messages':
-        return <StudentMessages studentId={student.id} />;
       case 'assessments':
         return (
           <StudentAssignments
@@ -1007,69 +1162,123 @@ const StudentDashboard: React.FC = () => {
         );
       case 'results':
         return (
-          <div className="space-y-6">
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setResultsTab('analytics')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition ${
-                  resultsTab === 'analytics'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                }`}
-              >
-                Performance Analytics
-              </button>
-              <button
-                type="button"
-                onClick={() => setResultsTab('results')}
-                className={`px-4 py-2 rounded-md text-sm font-medium transition ${
-                  resultsTab === 'results'
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                }`}
-              >
-                Assessment Results
-              </button>
+          <section className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+            <div className={`grid grid-cols-1 min-h-[640px] ${isResultsSidebarCollapsed ? 'lg:grid-cols-[88px_1fr]' : 'lg:grid-cols-[250px_1fr]'}`}>
+              <aside className="relative border-b lg:border-b-0 lg:border-r border-slate-200 bg-slate-50 p-4 sm:p-5">
+                <button
+                  type="button"
+                  onClick={() => setIsResultsSidebarCollapsed((prev) => !prev)}
+                  className="hidden lg:inline-flex absolute top-1/2 -translate-y-1/2 -right-4 z-10 h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50"
+                  aria-label={isResultsSidebarCollapsed ? 'Expand my report panel' : 'Collapse my report panel'}
+                >
+                  {isResultsSidebarCollapsed ? <ChevronsRight className="w-4 h-4" /> : <ChevronsLeft className="w-4 h-4" />}
+                </button>
+                <p
+                  className={`text-[11px] uppercase tracking-[0.18em] text-slate-500 font-semibold transition-[max-width,opacity,transform] duration-200 ${
+                    isResultsSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-1 overflow-hidden' : 'max-w-[180px] opacity-100 translate-x-0'
+                  }`}
+                >
+                  My Report
+                </p>
+                <nav className="mt-3 space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => setResultsTab('analytics')}
+                    aria-current={resultsTab === 'analytics' ? 'page' : undefined}
+                    title="Performance Analytics"
+                    className={`w-full inline-flex items-center rounded-md py-2 text-sm font-medium transition ${
+                      isResultsSidebarCollapsed ? 'justify-center px-2' : 'gap-2 px-3'
+                    } ${
+                      resultsTab === 'analytics'
+                        ? 'bg-blue-50 border border-blue-100 text-slate-900'
+                        : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    <BarChart2 className="w-4 h-4 shrink-0" />
+                    <span
+                      className={`truncate transition-[max-width,opacity,transform] duration-200 ${
+                        isResultsSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-1 overflow-hidden' : 'max-w-[180px] opacity-100 translate-x-0'
+                      }`}
+                    >
+                      Performance Analytics
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setResultsTab('results')}
+                    aria-current={resultsTab === 'results' ? 'page' : undefined}
+                    title="Assessment Results"
+                    className={`w-full inline-flex items-center rounded-md py-2 text-sm font-medium transition ${
+                      isResultsSidebarCollapsed ? 'justify-center px-2' : 'gap-2 px-3'
+                    } ${
+                      resultsTab === 'results'
+                        ? 'bg-blue-50 border border-blue-100 text-slate-900'
+                        : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    <FileText className="w-4 h-4 shrink-0" />
+                    <span
+                      className={`truncate transition-[max-width,opacity,transform] duration-200 ${
+                        isResultsSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-1 overflow-hidden' : 'max-w-[180px] opacity-100 translate-x-0'
+                      }`}
+                    >
+                      Assessment Results
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setResultsTab('report-card')}
+                    aria-current={resultsTab === 'report-card' ? 'page' : undefined}
+                    title="Report Card"
+                    className={`w-full inline-flex items-center rounded-md py-2 text-sm font-medium transition ${
+                      isResultsSidebarCollapsed ? 'justify-center px-2' : 'gap-2 px-3'
+                    } ${
+                      resultsTab === 'report-card'
+                        ? 'bg-blue-50 border border-blue-100 text-slate-900'
+                        : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-100'
+                    }`}
+                  >
+                    <GraduationCap className="w-4 h-4 shrink-0" />
+                    <span
+                      className={`truncate transition-[max-width,opacity,transform] duration-200 ${
+                        isResultsSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-1 overflow-hidden' : 'max-w-[180px] opacity-100 translate-x-0'
+                      }`}
+                    >
+                      Report Card
+                    </span>
+                  </button>
+                </nav>
+              </aside>
+              <div className="p-4 sm:p-6">
+                {resultsTab === 'analytics' ? (
+                  <StudentStats student={student} selectedSubjectId={selectedSubjectId} />
+                ) : resultsTab === 'results' ? (
+                  <StudentResults
+                    studentId={student.id}
+                    selectedSubjectId={selectedSubjectId}
+                    onOpenTutor={handleOpenTutor}
+                  />
+                ) : (
+                  <StudentReportCard rows={reportCardRows} />
+                )}
+              </div>
             </div>
-            {resultsTab === 'analytics' ? (
-              <StudentStats student={student} selectedSubjectId={selectedSubjectId} />
-            ) : (
-              <StudentResults
-                studentId={student.id}
-                selectedSubjectId={selectedSubjectId}
-                onOpenTutor={handleOpenTutor}
-              />
-            )}
-          </div>
+          </section>
         );
       case 'tutor':
         return (
-          <StudentTutor
-            studentId={student.id}
-            selectedSubjectId={selectedSubjectId}
-            subjects={subjects}
-            activePlan={activePlan}
-            prefillMessage={tutorPrefill}
-            onPrefillApplied={() => setTutorPrefill('')}
-          />
+          <section className="rounded-xl border border-slate-200 bg-white p-8 text-center">
+            <h3 className="text-xl font-semibold text-slate-800">AI Study Coach Removed</h3>
+            <p className="mt-2 text-sm text-slate-500">
+              The previous workspace view has been removed from this tab.
+            </p>
+          </section>
         );
       case 'peer-study':
         return (
           <StudentPeerStudy
             selectedSubjectId={selectedSubjectId}
             subjects={subjects}
-            isCreateOpen={peerStudyModalOpen}
-            onCloseCreate={() => setPeerStudyModalOpen(false)}
-          />
-        );
-      case 'mastery-gaps':
-        return (
-          <StudentMasteryGaps
-            selectedSubjectId={selectedSubjectId}
-            subjects={subjects}
-            activePlan={activePlan}
-            onOpenTutor={handleOpenTutor}
           />
         );
       case 'profile':
@@ -1318,23 +1527,8 @@ const StudentDashboard: React.FC = () => {
         />
       )}
 
-      <main className="w-full bg-white py-6">
+      <main className={`w-full bg-white ${activeView === 'subjects' ? 'pt-6 pb-0' : 'py-6'}`}>
         <div className="max-w-[1400px] mx-auto px-4">
-          {activeView === 'peer-study' && (
-            <header className="mb-6">
-              <div className="flex flex-wrap items-center justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={() => setPeerStudyModalOpen(true)}
-                  className="inline-flex items-center justify-center gap-2 bg-blue-600 text-white text-sm font-semibold px-4 py-2 rounded-md hover:bg-blue-700"
-                >
-                  <PlusCircle className="w-4 h-4" />
-                  Create collaboration request
-                </button>
-              </div>
-            </header>
-          )}
-
           <AnimatePresence mode="wait">
             <motion.div
               key={activeView}
