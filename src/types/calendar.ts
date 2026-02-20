@@ -1,3 +1,15 @@
+export interface CalendarRecurringConfig {
+  enabled?: boolean;
+  frequency: 'daily' | 'weekly' | 'monthly';
+  interval: number;
+  endDate?: Date | string;
+}
+
+export interface CalendarReminderConfig {
+  time: number;
+  type: string;
+}
+
 export interface CalendarEvent {
   id: string;
   title: string;
@@ -14,11 +26,8 @@ export interface CalendarEvent {
   backgroundColor?: string;
   borderColor?: string;
   textColor?: string;
-  recurring?: {
-    frequency: 'daily' | 'weekly' | 'monthly';
-    interval: number;
-    endDate?: Date;
-  };
+  recurring?: CalendarRecurringConfig;
+  reminders?: CalendarReminderConfig[];
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;
@@ -47,13 +56,8 @@ export interface EventFormData {
   type: EventType;
   subjectId: string;
   location: string;
-  recurring: {
-    enabled: boolean;
-    frequency: 'daily' | 'weekly' | 'monthly';
-    interval: number;
-    endDate: string;
-  };
-  reminders?: any;
+  recurring: Required<Omit<CalendarRecurringConfig, 'endDate'>> & { endDate: string };
+  reminders?: CalendarReminderConfig[];
   createdBy?: string;
   schoolId?: string;
 }

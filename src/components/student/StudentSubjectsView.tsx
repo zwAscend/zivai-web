@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   ArrowLeft,
+  AlertCircle,
   BookOpen,
   ChevronRight,
   ChevronsLeft,
@@ -14,6 +15,9 @@ import {
 } from 'lucide-react';
 import { Question, Subject } from '../../types';
 import { aiService } from '../../services/aiService';
+import { curriculumService, CurriculumTopic as CurriculumTopicApi } from '../../services/curriculumService';
+import { resourceService, ResourceItem } from '../../services/resourceService';
+import { reportService, StudentReportResponse } from '../../services/reportService';
 import StudentPracticeRunner, { buildMockPracticeQuestions, PracticeQuestion, PracticeRunSummary } from './StudentPracticeRunner';
 
 type PracticeStatus = 'not-started' | 'in-progress' | 'mastered';
@@ -60,6 +64,7 @@ interface CurriculumUnit {
 }
 
 interface StudentSubjectsViewProps {
+  studentId: string;
   selectedSubjectId: string;
   subjects: Subject[];
 }
@@ -356,6 +361,138 @@ const getUnitsBySubject = (subjectName: string): CurriculumUnit[] => {
   return buildGenericUnits(subjectName);
 };
 
+const normalizeText = (value: string | null | undefined) => String(value || '').trim().toLowerCase();
+
+const getTopicMasteryPercent = (topic: CurriculumTopicApi, report: StudentReportResponse | null): number => {
+  if (!report?.masteryGaps?.length) return 0;
+  const byId = report.masteryGaps.find((entry) => normalizeText(entry.topicId) === normalizeText(topic.id));
+  if (byId) return Math.max(0, Math.min(100, Math.round(byId.masteryPercent || 0)));
+  const byName = report.masteryGaps.find((entry) => normalizeText(entry.topicName) === normalizeText(topic.name));
+  if (byName) return Math.max(0, Math.min(100, Math.round(byName.masteryPercent || 0)));
+  return 0;
+};
+
+const getResourceTypeFromItem = (resource: ResourceItem): ResourceType => {
+  const normalizedType = normalizeText(resource.type);
+  const normalizedMime = normalizeText(resource.mimeType);
+  const normalizedContentType = normalizeText(resource.contentType);
+  const normalizedName = normalizeText(resource.name || resource.originalName);
+
+  if (
+    normalizedType.includes('video') ||
+    normalizedMime.startsWith('video/') ||
+    normalizedContentType.includes('video') ||
+    normalizedName.endsWith('.mp4') ||
+    normalizedName.endsWith('.mov')
+  ) {
+    return 'video';
+  }
+
+  if (
+    normalizedType.includes('document') ||
+    normalizedType.includes('notes') ||
+    normalizedName.endsWith('.pdf') ||
+    normalizedName.endsWith('.doc') ||
+    normalizedName.endsWith('.docx') ||
+    normalizedName.endsWith('.ppt') ||
+    normalizedName.endsWith('.pptx')
+  ) {
+    return 'notes';
+  }
+
+  return 'article';
+};
+
+const getUnitNumber = (topic: CurriculumTopicApi): number => {
+  const source = `${topic.code || ''} ${topic.name || ''}`.toLowerCase();
+  const unitMatch = source.match(/unit[\s-]*(\d+)/i);
+  if (unitMatch?.[1]) return Number(unitMatch[1]);
+  const codeMatch = source.match(/^u[\s-]*(\d+)/i);
+  if (codeMatch?.[1]) return Number(codeMatch[1]);
+  return 1;
+};
+
+const mapApiCurriculumToUnits = (
+  subjectName: string,
+  topics: CurriculumTopicApi[],
+  resources: ResourceItem[],
+  report: StudentReportResponse | null
+): CurriculumUnit[] => {
+  if (!topics.length) return [];
+
+  const sortedTopics = [...topics].sort((a, b) => (a.sequenceIndex || 0) - (b.sequenceIndex || 0));
+  const unitBuckets = new Map<number, CurriculumTopicApi[]>();
+
+  sortedTopics.forEach((topic) => {
+    const unitNumber = getUnitNumber(topic);
+    const current = unitBuckets.get(unitNumber) || [];
+    current.push(topic);
+    unitBuckets.set(unitNumber, current);
+  });
+
+  return Array.from(unitBuckets.entries())
+    .sort(([a], [b]) => a - b)
+    .map(([unitNumber, unitTopics]) => {
+      const mappedTopics: CurriculumTopic[] = unitTopics.map((topic, topicIndex) => {
+        const topicName = topic.name || `Topic ${topicIndex + 1}`;
+        const topicNameToken = normalizeText(topicName);
+
+        const matchedResources = resources
+          .filter((resource) => {
+            const haystack = `${resource.name || ''} ${resource.originalName || ''} ${(resource.tags || []).join(' ')} ${resource.contentBody || ''}`;
+            return normalizeText(haystack).includes(topicNameToken);
+          })
+          .slice(0, 4);
+
+        const fallbackResources = matchedResources.length > 0
+          ? matchedResources
+          : resources.slice(topicIndex * 2, topicIndex * 2 + 2);
+
+        const learnResources: CurriculumResource[] = fallbackResources.slice(0, 2).map((resource) => ({
+          id: resource.id,
+          title: resource.name || resource.originalName || 'Learning resource',
+          type: getResourceTypeFromItem(resource),
+        }));
+
+        const practiceItems: CurriculumPractice[] = [
+          {
+            id: `practice-${topic.id}`,
+            title: `AI guided practice: ${topicName}`,
+            status: 'not-started',
+            target: 'Complete 5 questions',
+          },
+        ];
+
+        return {
+          id: topic.id,
+          title: topicName,
+          masteryPercent: getTopicMasteryPercent(topic, report),
+          learn: learnResources,
+          practice: practiceItems,
+        };
+      });
+
+      const unitMastery = mappedTopics.length > 0
+        ? Math.round(mappedTopics.reduce((sum, topic) => sum + topic.masteryPercent, 0) / mappedTopics.length)
+        : 0;
+
+      const firstTopic = unitTopics[0];
+      const titleFromTopic = firstTopic?.name ? `${firstTopic.name}` : `${subjectName} foundations`;
+
+      return {
+        id: `${normalizeText(subjectName).replace(/\s+/g, '-')}-unit-${unitNumber}`,
+        code: `Unit ${unitNumber}`,
+        title: titleFromTopic,
+        summary:
+          firstTopic?.description ||
+          firstTopic?.objectives ||
+          `Core ${subjectName} learning outcomes for Unit ${unitNumber}.`,
+        masteryPercent: unitMastery,
+        topics: mappedTopics,
+      };
+    });
+};
+
 const buildUnitChallengeQuestions = (unit: CurriculumUnit, targetCount = DEFAULT_UNIT_CHALLENGE_COUNT): PracticeQuestion[] => {
   const topicSeedPool = unit.topics.flatMap((topic, topicIndex) =>
     buildMockPracticeQuestions(`${unit.title} ${topic.title}`, 'quiz').map((question, questionIndex) => ({
@@ -514,10 +651,13 @@ const mapAiQuestionsToPractice = (
   }));
 };
 
-const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubjectId, subjects }) => {
+const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, selectedSubjectId, subjects }) => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isSubjectOverviewActive, setIsSubjectOverviewActive] = useState(false);
   const [selectedUnitIndex, setSelectedUnitIndex] = useState(0);
+  const [backendUnits, setBackendUnits] = useState<CurriculumUnit[] | null>(null);
+  const [isCurriculumLoading, setIsCurriculumLoading] = useState(false);
+  const [curriculumError, setCurriculumError] = useState<string | null>(null);
   const [practiceStatusOverrides, setPracticeStatusOverrides] = useState<Record<string, PracticeStatus>>({});
   const [detailState, setDetailState] = useState<{ unitId: string; topicId: string; contentItemId: string } | null>(null);
   const [unitChallengeState, setUnitChallengeState] = useState<{
@@ -540,9 +680,13 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
     return subjects.find((subject) => subject.id === selectedSubjectId) || subjects[0];
   }, [selectedSubjectId, subjects]);
 
-  const units = useMemo(() => (
+  const fallbackUnits = useMemo(() => (
     activeSubject ? getUnitsBySubject(activeSubject.name) : []
   ), [activeSubject]);
+
+  const units = useMemo(() => (
+    backendUnits && backendUnits.length > 0 ? backendUnits : fallbackUnits
+  ), [backendUnits, fallbackUnits]);
 
   const selectedUnit = units[selectedUnitIndex] || units[0];
   const nextUnit = selectedUnitIndex < units.length - 1 ? units[selectedUnitIndex + 1] : null;
@@ -571,6 +715,41 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
     : selectedSubjectChallengeConfig.questionCount;
   const unitChallengeEstimatedMinutes = Math.max(15, unitChallengeQuestionTotal * 2);
   const subjectChallengeEstimatedMinutes = Math.max(20, subjectChallengeQuestionTotal * 2);
+
+  useEffect(() => {
+    const loadCurriculum = async () => {
+      if (!activeSubject?.id) {
+        setBackendUnits(null);
+        setCurriculumError(null);
+        return;
+      }
+
+      setIsCurriculumLoading(true);
+      setCurriculumError(null);
+
+      try {
+        const [topics, resources, report] = await Promise.all([
+          curriculumService.listTopics(activeSubject.id).catch(() => []),
+          resourceService.listBySubject(activeSubject.id).catch(() => []),
+          studentId ? reportService.getStudentReport(studentId, activeSubject.id).catch(() => null) : Promise.resolve(null),
+        ]);
+
+        const mappedUnits = mapApiCurriculumToUnits(activeSubject.name, topics, resources, report);
+        setBackendUnits(mappedUnits.length > 0 ? mappedUnits : null);
+
+        if (topics.length === 0) {
+          setCurriculumError('No teacher-published curriculum found yet. Showing starter structure.');
+        }
+      } catch (loadError: any) {
+        setBackendUnits(null);
+        setCurriculumError(loadError?.message || 'Unable to load curriculum from backend right now.');
+      } finally {
+        setIsCurriculumLoading(false);
+      }
+    };
+
+    void loadCurriculum();
+  }, [activeSubject?.id, activeSubject?.name, studentId]);
 
   useEffect(() => {
     setSelectedUnitIndex(0);
@@ -914,7 +1093,23 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
       ? detailItems[selectedDetailItemIndex + 1]
       : null;
 
-  if (!activeSubject || units.length === 0 || !selectedUnit) {
+  if (!activeSubject) {
+    return (
+      <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500">
+        Select a subject to load curriculum.
+      </div>
+    );
+  }
+
+  if (isCurriculumLoading && units.length === 0) {
+    return (
+      <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500">
+        Loading curriculum and resources...
+      </div>
+    );
+  }
+
+  if (units.length === 0 || !selectedUnit) {
     return (
       <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500">
         No curriculum topics available yet.
@@ -1282,7 +1477,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
                           }`}
                         >
                           <h2 className="text-xl font-bold text-slate-900 truncate">{activeSubject.name}</h2>
-                          <p className="text-xs text-slate-500 mt-0.5">{units.length} topics in curriculum</p>
+                          <p className="text-xs text-slate-500 mt-0.5">{allTopics.length} topics in curriculum</p>
                         </div>
                       </div>
                     </button>
@@ -1327,6 +1522,14 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
             <section className={`min-w-0 rounded-none border border-slate-200 bg-white overflow-hidden xl:will-change-[margin] xl:transition-[margin] xl:duration-300 xl:ease-in-out ${contentDesktopOffset} ${
               isUnitChallengeActive || isSubjectChallengeActive ? 'min-h-[calc(100vh-var(--student-header-offset)-1.5rem)]' : ''
             }`}>
+              {curriculumError && (
+                <div className="mx-6 mt-6 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  <div className="inline-flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4" />
+                    <span>{curriculumError}</span>
+                  </div>
+                </div>
+              )}
               {!isUnitChallengeActive && !isSubjectChallengeActive && !isSubjectOverviewActive && (
                 <header className="px-6 py-5 border-b border-slate-200">
                   <h1 className="text-3xl font-bold text-slate-900">{selectedUnit.code}: {selectedUnit.title}</h1>

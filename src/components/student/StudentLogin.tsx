@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authService } from '../../services/api';
 import { User, Lock } from 'lucide-react';
+import { clearAuthSessionStorage } from '../../services/authSession';
 
 interface StudentLoginProps {
   onLogin: () => void;
@@ -25,8 +26,7 @@ const StudentLogin: React.FC<StudentLoginProps> = ({ onLogin }) => {
       const isStudent = user?.role === 'student' && !!user?.studentId;
 
       if (!isStudent) {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
+        clearAuthSessionStorage();
         setError('This account is not a student account.');
         return;
       }

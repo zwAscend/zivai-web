@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Student, StudentAttributes } from '../../types';
 import { developmentService } from '../../services/api';
+import { reportService, StudentReportResponse } from '../../services/reportService';
 import { TrendingUp, Award, Target, Zap, CheckCircle, Clock } from 'lucide-react';
 
 interface StudentStatsProps {
@@ -31,25 +32,36 @@ const MetricCard: React.FC<MetricCardProps> = ({ icon: Icon, label, value, color
 
 const StudentStats: React.FC<StudentStatsProps> = ({ student, selectedSubjectId }) => {
   const [attributes, setAttributes] = useState<StudentAttributes | null>(null);
+  const [studentReport, setStudentReport] = useState<StudentReportResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchAttributes = async () => {
       const subjectId = selectedSubjectId && selectedSubjectId !== 'all'
         ? selectedSubjectId
-        : student.subjects?.[0];
+        : ((student.subjects || [])
+            .map((subject) => (typeof subject === 'string' ? subject : subject?.id))
+            .find(Boolean) as string | undefined);
       if (subjectId) {
         try {
-          const attrs = await developmentService.getStudentAttributes(student.id, subjectId);
+          const [attrs, report] = await Promise.all([
+            developmentService.getStudentAttributes(student.id, subjectId).catch(() => null),
+            reportService.getStudentReport(student.id, subjectId).catch(() => null),
+          ]);
           setAttributes(attrs);
+          setStudentReport(report);
         } catch (error) {
           console.error('Failed to fetch student attributes:', error);
+          setStudentReport(null);
         }
+      } else {
+        setAttributes(null);
+        setStudentReport(null);
       }
       setLoading(false);
     };
     fetchAttributes();
-  }, [student]);
+  }, [student.id, student.subjects, selectedSubjectId]);
 
   if (loading) {
     return (
@@ -113,24 +125,31 @@ const StudentStats: React.FC<StudentStatsProps> = ({ student, selectedSubjectId 
         {/* Recent Progress */}
         <div className="bg-white rounded-xl shadow-sm p-6">
           <h2 className="text-lg font-bold text-slate-800 mb-4">Recent Progress</h2>
-          <div className="space-y-3">
-             {/* Example items - replace with dynamic data */}
-            <div className="flex items-center text-sm">
-                <CheckCircle className="w-4 h-4 text-green-500 mr-3 flex-shrink-0" />
-                <p className="text-slate-600">Improved <span className="font-semibold text-slate-800">Network Security</span> skill.</p>
-                <span className="ml-auto text-slate-400 text-xs">1d ago</span>
+          {studentReport?.assessments?.length ? (
+            <div className="space-y-3">
+              {studentReport.assessments.slice(0, 3).map((assessment) => (
+                <div key={assessment.assessmentId || assessment.assessmentName} className="flex items-center text-sm">
+                  <CheckCircle className="w-4 h-4 text-green-500 mr-3 flex-shrink-0" />
+                  <p className="text-slate-600">
+                    Completed{' '}
+                    <span className="font-semibold text-slate-800">
+                      {assessment.assessmentName || 'Assessment'}
+                    </span>
+                    {typeof assessment.percent === 'number' ? ` (${Math.round(assessment.percent)}%)` : ''}
+                    .
+                  </p>
+                  <span className="ml-auto text-slate-400 text-xs">
+                    {assessment.submittedAt ? new Date(assessment.submittedAt).toLocaleDateString() : '—'}
+                  </span>
+                </div>
+              ))}
             </div>
-            <div className="flex items-center text-sm">
-                <CheckCircle className="w-4 h-4 text-green-500 mr-3 flex-shrink-0" />
-                <p className="text-slate-600">Completed <span className="font-semibold text-slate-800">OSPF Lab</span> assignment.</p>
-                <span className="ml-auto text-slate-400 text-xs">3d ago</span>
+          ) : (
+            <div className="flex items-center text-sm text-slate-600">
+              <Clock className="w-4 h-4 text-amber-500 mr-3 flex-shrink-0" />
+              <p>No recent submissions available for this subject.</p>
             </div>
-             <div className="flex items-center text-sm">
-                <Clock className="w-4 h-4 text-amber-500 mr-3 flex-shrink-0" />
-                <p className="text-slate-600">Assessment due for <span className="font-semibold text-slate-800">Routing</span>.</p>
-                <span className="ml-auto text-slate-400 text-xs">in 2d</span>
-            </div>
-          </div>
+          )}
         </div>
       </div>
 

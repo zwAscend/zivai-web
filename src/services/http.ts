@@ -1,6 +1,8 @@
+import { getActiveAuthToken } from './authSession';
 export const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 const DEFAULT_GET_CACHE_TTL_MS = 20_000;
+const BROWSER_CACHE_PREFIX = 'zivai:http-cache:v1:';
 
 type FetchOptions = RequestInit & {
   skipCache?: boolean;
@@ -16,6 +18,67 @@ type CacheEntry = {
 const responseCache = new Map<string, CacheEntry>();
 const inFlightRequests = new Map<string, Promise<unknown>>();
 
+function getSessionStorage(): Storage | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return window.sessionStorage;
+  } catch {
+    return null;
+  }
+}
+
+function getBrowserCacheStorageKey(cacheKey: string): string {
+  return `${BROWSER_CACHE_PREFIX}${cacheKey}`;
+}
+
+function readBrowserCache(cacheKey: string): CacheEntry | null {
+  const storage = getSessionStorage();
+  if (!storage) return null;
+  const storageKey = getBrowserCacheStorageKey(cacheKey);
+  const raw = storage.getItem(storageKey);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as CacheEntry;
+    if (!parsed || typeof parsed.expiresAt !== 'number') {
+      storage.removeItem(storageKey);
+      return null;
+    }
+    if (parsed.expiresAt <= Date.now()) {
+      storage.removeItem(storageKey);
+      return null;
+    }
+    return parsed;
+  } catch {
+    storage.removeItem(storageKey);
+    return null;
+  }
+}
+
+function writeBrowserCache(cacheKey: string, entry: CacheEntry): void {
+  const storage = getSessionStorage();
+  if (!storage) return;
+  try {
+    storage.setItem(getBrowserCacheStorageKey(cacheKey), JSON.stringify(entry));
+  } catch {
+    // Best-effort cache; ignore quota/storage errors.
+  }
+}
+
+function clearBrowserCache(): void {
+  const storage = getSessionStorage();
+  if (!storage) return;
+  try {
+    for (let i = storage.length - 1; i >= 0; i -= 1) {
+      const key = storage.key(i);
+      if (key && key.startsWith(BROWSER_CACHE_PREFIX)) {
+        storage.removeItem(key);
+      }
+    }
+  } catch {
+    // Ignore storage access errors.
+  }
+}
+
 function safeClone<T>(value: T): T {
   if (typeof structuredClone === 'function') {
     return structuredClone(value);
@@ -29,7 +92,7 @@ function buildCacheKey(endpoint: string, method: string, token: string | null): 
 
 // Helper function for fetch requests with GET caching + request de-duplication.
 export async function fetchData<T = any>(endpoint: string, options: FetchOptions = {}): Promise<T> {
-  const token = localStorage.getItem('token');
+  const token = getActiveAuthToken();
   const method = (options.method || 'GET').toUpperCase();
   const isGet = method === 'GET';
   const cacheKey = buildCacheKey(endpoint, method, token);
@@ -41,6 +104,11 @@ export async function fetchData<T = any>(endpoint: string, options: FetchOptions
     const cached = responseCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
       return safeClone(cached.value as T);
+    }
+    const browserCached = readBrowserCache(cacheKey);
+    if (browserCached) {
+      responseCache.set(cacheKey, browserCached);
+      return safeClone(browserCached.value as T);
     }
     const inFlight = inFlightRequests.get(cacheKey);
     if (inFlight) {
@@ -82,13 +150,16 @@ export async function fetchData<T = any>(endpoint: string, options: FetchOptions
     const data = (await response.json()) as T;
 
     if (useCache) {
-      responseCache.set(cacheKey, {
+      const cacheEntry: CacheEntry = {
         value: safeClone(data),
         expiresAt: Date.now() + cacheTtlMs,
-      });
+      };
+      responseCache.set(cacheKey, cacheEntry);
+      writeBrowserCache(cacheKey, cacheEntry);
     } else {
       // Write operations invalidate read cache to avoid stale UI state.
       responseCache.clear();
+      clearBrowserCache();
     }
 
     return data;

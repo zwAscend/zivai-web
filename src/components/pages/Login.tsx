@@ -34,13 +34,6 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
       const response = await authService.login(data.email, data.password);
       const userPayload: any = response?.user;
 
-      if (response?.token) {
-        localStorage.setItem('token', response.token);
-      }
-      if (userPayload) {
-        localStorage.setItem('user', JSON.stringify(userPayload));
-      }
-
       onLogin();
 
       const isAdmin = !!userPayload?.isAdmin;

@@ -14,21 +14,21 @@ export interface StudentTeacher {
 export const studentService = {
   getStudents: async (subjectId?: string): Promise<Student[]> => {
     const endpoint = subjectId ? `/students?subjectId=${subjectId}` : '/students';
-    return fetchData(endpoint);
+    return fetchData(endpoint, { cacheTtlMs: 60 * 1000 });
   },
 
   getStudent: async (id: string): Promise<Student> => {
     if (!id || id === 'undefined') {
       throw new Error('Student id is required');
     }
-    return fetchData<Student>(`/students/${id}`);
+    return fetchData<Student>(`/students/${id}`, { cacheTtlMs: 5 * 60 * 1000 });
   },
 
   getTeachers: async (id: string): Promise<StudentTeacher[]> => {
     if (!id || id === 'undefined') {
       throw new Error('Student id is required');
     }
-    return fetchData<StudentTeacher[]>(`/students/${id}/teachers`);
+    return fetchData<StudentTeacher[]>(`/students/${id}/teachers`, { cacheTtlMs: 5 * 60 * 1000 });
   },
 
   createStudent: async (studentData: Partial<Student>): Promise<Student> => {

@@ -122,6 +122,19 @@ const CalendarView: React.FC = () => {
       end: dropInfo.event.end || dropInfo.event.start,
     };
 
+    const recurringPayload = updatedEvent.recurring
+      ? {
+          enabled: updatedEvent.recurring.enabled ?? true,
+          frequency: updatedEvent.recurring.frequency,
+          interval: updatedEvent.recurring.interval,
+          endDate: updatedEvent.recurring.endDate
+            ? (updatedEvent.recurring.endDate instanceof Date
+                ? updatedEvent.recurring.endDate.toISOString().slice(0, 10)
+                : String(updatedEvent.recurring.endDate))
+            : '',
+        }
+      : { enabled: false, frequency: 'weekly' as const, interval: 1, endDate: '' };
+
     try {
       await calendarService.updateEvent(event.id, {
         title: updatedEvent.title,
@@ -134,7 +147,7 @@ const CalendarView: React.FC = () => {
         type: updatedEvent.type,
         subjectId: updatedEvent.subjectId || '',
         location: updatedEvent.location || '',
-        recurring: updatedEvent.recurring ? { ...updatedEvent.recurring } : { enabled: false, frequency: 'weekly', interval: 1, endDate: '' },
+        recurring: recurringPayload,
         reminders: updatedEvent.reminders,
         createdBy: currentUser?.id,
       });

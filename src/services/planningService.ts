@@ -79,9 +79,9 @@ export const planningService = {
       performance: student.performance || 'Average',
       skills,
       steps: [
-        { title: 'Review core concepts', type: 'reading', order: 1 },
-        { title: 'Practice targeted exercises', type: 'exercise', order: 2 },
-        { title: 'Complete a mastery check', type: 'assessment', order: 3 }
+        { title: 'Review core concepts', type: 'document', order: 1 },
+        { title: 'Practice targeted exercises', type: 'assignment', order: 2 },
+        { title: 'Complete a mastery check', type: 'quiz', order: 3 }
       ],
       subjectId,
       createdAt: new Date(),
