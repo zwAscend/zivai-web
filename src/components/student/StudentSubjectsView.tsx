@@ -12,7 +12,8 @@ import {
   Sparkles,
   Target,
 } from 'lucide-react';
-import { Subject } from '../../types';
+import { Question, Subject } from '../../types';
+import { aiService } from '../../services/aiService';
 import StudentPracticeRunner, { buildMockPracticeQuestions, PracticeQuestion, PracticeRunSummary } from './StudentPracticeRunner';
 
 type PracticeStatus = 'not-started' | 'in-progress' | 'mastered';
@@ -64,6 +65,30 @@ interface StudentSubjectsViewProps {
 }
 
 type UnitChallengeStage = 'intro' | 'running' | 'completed';
+type ChallengeDifficulty = 'easy' | 'medium' | 'hard';
+
+interface ChallengeGenerationConfig {
+  questionCount: number;
+  difficulty: ChallengeDifficulty;
+  prompt: string;
+  questions: PracticeQuestion[];
+  isGenerating: boolean;
+  generatedWithAi: boolean;
+  error: string | null;
+}
+
+const DEFAULT_UNIT_CHALLENGE_COUNT = 10;
+const DEFAULT_SUBJECT_CHALLENGE_COUNT = 12;
+
+const createChallengeGenerationConfig = (questionCount: number): ChallengeGenerationConfig => ({
+  questionCount,
+  difficulty: 'medium',
+  prompt: '',
+  questions: [],
+  isGenerating: false,
+  generatedWithAi: false,
+  error: null,
+});
 
 const getPracticeActionLabel = (status: PracticeStatus) => {
   if (status === 'mastered') return 'Review';
@@ -331,7 +356,7 @@ const getUnitsBySubject = (subjectName: string): CurriculumUnit[] => {
   return buildGenericUnits(subjectName);
 };
 
-const buildUnitChallengeQuestions = (unit: CurriculumUnit): PracticeQuestion[] => {
+const buildUnitChallengeQuestions = (unit: CurriculumUnit, targetCount = DEFAULT_UNIT_CHALLENGE_COUNT): PracticeQuestion[] => {
   const topicSeedPool = unit.topics.flatMap((topic, topicIndex) =>
     buildMockPracticeQuestions(`${unit.title} ${topic.title}`, 'quiz').map((question, questionIndex) => ({
       ...question,
@@ -354,7 +379,6 @@ const buildUnitChallengeQuestions = (unit: CurriculumUnit): PracticeQuestion[] =
     dedupedByPrompt.push(question);
   });
 
-  const targetCount = 10;
   const finalizedQuestions = [...dedupedByPrompt];
   let fallbackIndex = 0;
 
@@ -373,7 +397,7 @@ const buildUnitChallengeQuestions = (unit: CurriculumUnit): PracticeQuestion[] =
   }));
 };
 
-const buildSubjectChallengeQuestions = (units: CurriculumUnit[]): PracticeQuestion[] => {
+const buildSubjectChallengeQuestions = (units: CurriculumUnit[], targetCount = DEFAULT_SUBJECT_CHALLENGE_COUNT): PracticeQuestion[] => {
   const pooledQuestions = units.flatMap((unit, unitIndex) =>
     buildUnitChallengeQuestions(unit).map((question, questionIndex) => ({
       ...question,
@@ -391,7 +415,6 @@ const buildSubjectChallengeQuestions = (units: CurriculumUnit[]): PracticeQuesti
     dedupedByPrompt.push(question);
   });
 
-  const targetCount = 12;
   const fallbackPool = dedupedByPrompt.length > 0 ? dedupedByPrompt : buildMockPracticeQuestions('subject challenge', 'mixed');
   const finalizedQuestions = [...dedupedByPrompt];
   let fallbackIndex = 0;
@@ -411,6 +434,86 @@ const buildSubjectChallengeQuestions = (units: CurriculumUnit[]): PracticeQuesti
   }));
 };
 
+const mapAiQuestionsToPractice = (
+  aiQuestions: Question[],
+  fallbackSeed: string,
+  targetCount: number
+): PracticeQuestion[] => {
+  const mappedQuestions: PracticeQuestion[] = aiQuestions.map((question, index) => {
+    const prompt = (question.text || `Question ${index + 1}`).trim();
+
+    const optionTexts = Array.isArray(question.options)
+      ? question.options
+          .map((option) => {
+            if (typeof option === 'string') return option.trim();
+            return option?.text?.trim() || '';
+          })
+          .filter((option): option is string => option.length > 0)
+      : [];
+
+    if ((question.type === 'multiple_choice' || question.type === 'true_false') && optionTexts.length >= 2) {
+      const correctIndexesFromFlags = (question.options || [])
+        .map((option, optionIndex) => {
+          if (typeof option === 'string') return null;
+          return option?.isCorrect ? optionIndex : null;
+        })
+        .filter((value): value is number => typeof value === 'number');
+
+      let correctOptionIndexes = correctIndexesFromFlags;
+      if (correctOptionIndexes.length === 0 && question.correctAnswer) {
+        const correctAnswers = Array.isArray(question.correctAnswer)
+          ? question.correctAnswer.map((answer) => String(answer).trim().toLowerCase())
+          : [String(question.correctAnswer).trim().toLowerCase()];
+        correctOptionIndexes = optionTexts
+          .map((option, optionIndex) => (correctAnswers.includes(option.trim().toLowerCase()) ? optionIndex : -1))
+          .filter((value) => value >= 0);
+      }
+
+      if (correctOptionIndexes.length === 0) {
+        correctOptionIndexes = [0];
+      }
+
+      return {
+        id: `ai-choice-${index + 1}`,
+        type: correctOptionIndexes.length > 1 ? 'multiple' : 'single',
+        prompt,
+        options: optionTexts,
+        correctOptionIndexes,
+      } as PracticeQuestion;
+    }
+
+    const acceptedAnswers = Array.isArray(question.correctAnswer)
+      ? question.correctAnswer.map((answer) => String(answer))
+      : question.correctAnswer
+        ? [String(question.correctAnswer)]
+        : ['sample answer'];
+
+    return {
+      id: `ai-input-${index + 1}`,
+      type: 'input',
+      prompt,
+      placeholder: 'Type your answer',
+      acceptedAnswers,
+    } as PracticeQuestion;
+  });
+
+  const fallbackQuestions = buildMockPracticeQuestions(fallbackSeed, 'quiz');
+  const finalizedQuestions = [...mappedQuestions];
+
+  while (finalizedQuestions.length < targetCount) {
+    const fallbackQuestion = fallbackQuestions[finalizedQuestions.length % fallbackQuestions.length];
+    finalizedQuestions.push({
+      ...fallbackQuestion,
+      id: `fallback-${finalizedQuestions.length + 1}`,
+    });
+  }
+
+  return finalizedQuestions.slice(0, targetCount).map((question, index) => ({
+    ...question,
+    id: `generated-${index + 1}`,
+  }));
+};
+
 const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubjectId, subjects }) => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isSubjectOverviewActive, setIsSubjectOverviewActive] = useState(false);
@@ -426,6 +529,10 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
     stage: UnitChallengeStage;
     summary?: PracticeRunSummary | null;
   } | null>(null);
+  const [unitChallengeStep, setUnitChallengeStep] = useState<1 | 2>(1);
+  const [subjectChallengeStep, setSubjectChallengeStep] = useState<1 | 2>(1);
+  const [unitChallengeConfigByUnitId, setUnitChallengeConfigByUnitId] = useState<Record<string, ChallengeGenerationConfig>>({});
+  const [subjectChallengeConfigBySubjectId, setSubjectChallengeConfigBySubjectId] = useState<Record<string, ChallengeGenerationConfig>>({});
 
   const activeSubject = useMemo(() => {
     if (subjects.length === 0) return null;
@@ -443,15 +550,27 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
   const contentDesktopOffset = isSidebarCollapsed ? 'xl:ml-[89px]' : 'xl:ml-[321px]';
   const desktopSidebarWidthPx = isSidebarCollapsed ? 89 : 321;
   const desktopContainerInset = 'max(1rem, calc((100vw - 1400px)/2 + 1rem))';
-  const unitChallengeQuestions = useMemo(() => (selectedUnit ? buildUnitChallengeQuestions(selectedUnit) : []), [selectedUnit]);
-  const subjectChallengeQuestions = useMemo(() => buildSubjectChallengeQuestions(units), [units]);
   const activeUnitChallenge = unitChallengeState && unitChallengeState.unitId === selectedUnit?.id ? unitChallengeState : null;
   const isUnitChallengeActive = Boolean(activeUnitChallenge);
   const isUnitChallengeRunning = activeUnitChallenge?.stage === 'running';
   const isSubjectChallengeActive = Boolean(subjectChallengeState);
   const isSubjectChallengeRunning = subjectChallengeState?.stage === 'running';
-  const unitChallengeEstimatedMinutes = Math.max(15, unitChallengeQuestions.length * 2);
-  const subjectChallengeEstimatedMinutes = Math.max(20, subjectChallengeQuestions.length * 2);
+  const activeUnitChallengeStep: 1 | 2 = isUnitChallengeRunning ? 2 : unitChallengeStep;
+  const activeSubjectChallengeStep: 1 | 2 = isSubjectChallengeRunning ? 2 : subjectChallengeStep;
+  const selectedUnitChallengeConfig = selectedUnit
+    ? unitChallengeConfigByUnitId[selectedUnit.id] || createChallengeGenerationConfig(DEFAULT_UNIT_CHALLENGE_COUNT)
+    : createChallengeGenerationConfig(DEFAULT_UNIT_CHALLENGE_COUNT);
+  const selectedSubjectChallengeConfig = activeSubject
+    ? subjectChallengeConfigBySubjectId[activeSubject.id] || createChallengeGenerationConfig(DEFAULT_SUBJECT_CHALLENGE_COUNT)
+    : createChallengeGenerationConfig(DEFAULT_SUBJECT_CHALLENGE_COUNT);
+  const unitChallengeQuestionTotal = selectedUnitChallengeConfig.questions.length > 0
+    ? selectedUnitChallengeConfig.questions.length
+    : selectedUnitChallengeConfig.questionCount;
+  const subjectChallengeQuestionTotal = selectedSubjectChallengeConfig.questions.length > 0
+    ? selectedSubjectChallengeConfig.questions.length
+    : selectedSubjectChallengeConfig.questionCount;
+  const unitChallengeEstimatedMinutes = Math.max(15, unitChallengeQuestionTotal * 2);
+  const subjectChallengeEstimatedMinutes = Math.max(20, subjectChallengeQuestionTotal * 2);
 
   useEffect(() => {
     setSelectedUnitIndex(0);
@@ -459,6 +578,10 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
     setPracticeStatusOverrides({});
     setUnitChallengeState(null);
     setSubjectChallengeState(null);
+    setUnitChallengeStep(1);
+    setSubjectChallengeStep(1);
+    setUnitChallengeConfigByUnitId({});
+    setSubjectChallengeConfigBySubjectId({});
     setIsSubjectOverviewActive(false);
   }, [activeSubject?.id]);
 
@@ -491,6 +614,130 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
   const getPracticeStatus = (practice: CurriculumPractice): PracticeStatus => (
     practiceStatusOverrides[practice.id] || practice.status
   );
+
+  const updateUnitChallengeConfig = (updater: (current: ChallengeGenerationConfig) => ChallengeGenerationConfig) => {
+    if (!selectedUnit) return;
+    setUnitChallengeConfigByUnitId((previous) => {
+      const current = previous[selectedUnit.id] || createChallengeGenerationConfig(DEFAULT_UNIT_CHALLENGE_COUNT);
+      return {
+        ...previous,
+        [selectedUnit.id]: updater(current),
+      };
+    });
+  };
+
+  const updateSubjectChallengeConfig = (updater: (current: ChallengeGenerationConfig) => ChallengeGenerationConfig) => {
+    if (!activeSubject) return;
+    setSubjectChallengeConfigBySubjectId((previous) => {
+      const current = previous[activeSubject.id] || createChallengeGenerationConfig(DEFAULT_SUBJECT_CHALLENGE_COUNT);
+      return {
+        ...previous,
+        [activeSubject.id]: updater(current),
+      };
+    });
+  };
+
+  const generateUnitChallengeWithAi = async () => {
+    if (!activeSubject || !selectedUnit) return;
+
+    const currentConfig = selectedUnitChallengeConfig;
+    updateUnitChallengeConfig((current) => ({ ...current, isGenerating: true, error: null }));
+
+    try {
+      const subjectAttributes = await aiService.getSubjectAttributes(activeSubject.id).catch(() => []);
+      const selectedAttributes = subjectAttributes.slice(0, 4).map((attribute) => ({
+        id: attribute.id,
+        name: attribute.name,
+        description: attribute.description,
+      }));
+
+      const generatedQuestions = await aiService.generateQuestions({
+        subjectId: activeSubject.id,
+        attributes: selectedAttributes.length > 0
+          ? selectedAttributes
+          : [{ id: selectedUnit.id, name: selectedUnit.title, description: selectedUnit.summary }],
+        questionCount: currentConfig.questionCount,
+        questionTypes: ['multiple_choice'],
+        difficulty: currentConfig.difficulty,
+        context: `Generate a unit challenge for ${activeSubject.name}. Unit: ${selectedUnit.code}: ${selectedUnit.title}. ${currentConfig.prompt}`.trim(),
+        tags: [activeSubject.name, selectedUnit.title, 'unit challenge'],
+      });
+
+      const practiceQuestions = mapAiQuestionsToPractice(
+        generatedQuestions,
+        `${selectedUnit.title} unit challenge`,
+        currentConfig.questionCount
+      );
+
+      updateUnitChallengeConfig((current) => ({
+        ...current,
+        questions: practiceQuestions,
+        isGenerating: false,
+        generatedWithAi: true,
+        error: null,
+      }));
+    } catch (error) {
+      const fallbackQuestions = buildUnitChallengeQuestions(selectedUnit, currentConfig.questionCount);
+      updateUnitChallengeConfig((current) => ({
+        ...current,
+        questions: fallbackQuestions,
+        isGenerating: false,
+        generatedWithAi: false,
+        error: 'AI generation is unavailable right now. A local draft challenge has been prepared.',
+      }));
+    }
+  };
+
+  const generateSubjectChallengeWithAi = async () => {
+    if (!activeSubject) return;
+
+    const currentConfig = selectedSubjectChallengeConfig;
+    updateSubjectChallengeConfig((current) => ({ ...current, isGenerating: true, error: null }));
+
+    try {
+      const subjectAttributes = await aiService.getSubjectAttributes(activeSubject.id).catch(() => []);
+      const selectedAttributes = subjectAttributes.slice(0, 6).map((attribute) => ({
+        id: attribute.id,
+        name: attribute.name,
+        description: attribute.description,
+      }));
+
+      const generatedQuestions = await aiService.generateQuestions({
+        subjectId: activeSubject.id,
+        attributes: selectedAttributes.length > 0
+          ? selectedAttributes
+          : [{ id: activeSubject.id, name: activeSubject.name, description: `${activeSubject.name} challenge` }],
+        questionCount: currentConfig.questionCount,
+        questionTypes: ['multiple_choice'],
+        difficulty: currentConfig.difficulty,
+        context: `Generate a subject challenge for ${activeSubject.name}. Include all major units and topic coverage. ${currentConfig.prompt}`.trim(),
+        tags: [activeSubject.name, 'subject challenge'],
+      });
+
+      const practiceQuestions = mapAiQuestionsToPractice(
+        generatedQuestions,
+        `${activeSubject.name} subject challenge`,
+        currentConfig.questionCount
+      );
+
+      updateSubjectChallengeConfig((current) => ({
+        ...current,
+        questions: practiceQuestions,
+        isGenerating: false,
+        generatedWithAi: true,
+        error: null,
+      }));
+    } catch (error) {
+      const fallbackQuestions = buildSubjectChallengeQuestions(units, currentConfig.questionCount);
+      updateSubjectChallengeConfig((current) => ({
+        ...current,
+        questions: fallbackQuestions,
+        isGenerating: false,
+        generatedWithAi: false,
+        error: 'AI generation is unavailable right now. A local draft challenge has been prepared.',
+      }));
+    }
+  };
 
   const openSubjectOverview = () => {
     setDetailState(null);
@@ -551,6 +798,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
     setIsSidebarCollapsed(false);
     setIsSubjectOverviewActive(false);
     setSubjectChallengeState(null);
+    setUnitChallengeStep(1);
     setDetailState(null);
     setUnitChallengeState({
       unitId: selectedUnit.id,
@@ -560,11 +808,19 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
   };
 
   const startUnitChallenge = () => {
+    if (!selectedUnitChallengeConfig.questions.length) {
+      updateUnitChallengeConfig((current) => ({
+        ...current,
+        error: 'Generate questions with AI before you start this challenge.',
+      }));
+      return;
+    }
     setUnitChallengeState({
       unitId: selectedUnit.id,
       stage: 'running',
       summary: null,
     });
+    setUnitChallengeStep(2);
   };
 
   const exitUnitChallenge = () => {
@@ -577,6 +833,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
       stage: 'completed',
       summary,
     });
+    setUnitChallengeStep(2);
   };
 
   const openSubjectChallenge = () => {
@@ -584,6 +841,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
     setDetailState(null);
     setUnitChallengeState(null);
     setIsSubjectOverviewActive(true);
+    setSubjectChallengeStep(1);
     setSubjectChallengeState({
       stage: 'intro',
       summary: null,
@@ -591,10 +849,18 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
   };
 
   const startSubjectChallenge = () => {
+    if (!selectedSubjectChallengeConfig.questions.length) {
+      updateSubjectChallengeConfig((current) => ({
+        ...current,
+        error: 'Generate questions with AI before you start this challenge.',
+      }));
+      return;
+    }
     setSubjectChallengeState({
       stage: 'running',
       summary: null,
     });
+    setSubjectChallengeStep(2);
   };
 
   const exitSubjectChallenge = () => {
@@ -606,6 +872,31 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
       stage: 'completed',
       summary,
     });
+    setSubjectChallengeStep(2);
+  };
+
+  const openUnitChallengeStep = (step: 1 | 2) => {
+    if (isUnitChallengeRunning) return;
+    if (step === 2 && selectedUnitChallengeConfig.questions.length === 0) {
+      updateUnitChallengeConfig((current) => ({
+        ...current,
+        error: 'Generate questions with AI in Step 1 before attempting Step 2.',
+      }));
+      return;
+    }
+    setUnitChallengeStep(step);
+  };
+
+  const openSubjectChallengeStep = (step: 1 | 2) => {
+    if (isSubjectChallengeRunning) return;
+    if (step === 2 && selectedSubjectChallengeConfig.questions.length === 0) {
+      updateSubjectChallengeConfig((current) => ({
+        ...current,
+        error: 'Generate questions with AI in Step 1 before attempting Step 2.',
+      }));
+      return;
+    }
+    setSubjectChallengeStep(step);
   };
 
   const detailUnit = detailState ? units.find((unit) => unit.id === detailState.unitId) || null : null;
@@ -878,26 +1169,37 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
                   </div>
 
                   <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                    <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
-                      <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">Format</p>
-                      <p className="text-sm font-semibold text-slate-800">{unitChallengeQuestions.length} questions</p>
-                      <p className="text-xs text-slate-500">{unitChallengeEstimatedMinutes}-{unitChallengeEstimatedMinutes + 5} min</p>
-                    </div>
-
-                    <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
-                      <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">Status</p>
-                      <p className="text-sm font-semibold text-slate-800">
-                        {activeUnitChallenge?.stage === 'running'
-                          ? 'In progress'
-                          : activeUnitChallenge?.stage === 'completed'
-                            ? 'Completed'
-                            : 'Ready to start'}
-                      </p>
-                      {activeUnitChallenge?.summary ? (
-                        <p className="text-xs text-slate-500 mt-0.5">
-                          {activeUnitChallenge.summary.correct}/{activeUnitChallenge.summary.total} correct
+                    <div className="rounded-md border border-slate-200 bg-white overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => openUnitChallengeStep(1)}
+                        className={`w-full border-b border-slate-200 px-3 py-2 text-left transition ${
+                          activeUnitChallengeStep === 1 ? 'bg-blue-50 border-l-4 border-l-blue-600 pl-2' : 'hover:bg-slate-50'
+                        }`}
+                      >
+                        <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">Step 1</p>
+                        <p className="text-sm font-semibold text-slate-800">Generate challenge</p>
+                        <p className="text-xs text-slate-500">Set question count and prompt AI.</p>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openUnitChallengeStep(2)}
+                        className={`w-full px-3 py-2 text-left transition ${
+                          activeUnitChallengeStep === 2 ? 'bg-blue-50 border-l-4 border-l-blue-600 pl-2' : 'hover:bg-slate-50'
+                        }`}
+                      >
+                        <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">Step 2</p>
+                        <p className="text-sm font-semibold text-slate-800">Attempt challenge</p>
+                        <p className="text-xs text-slate-500">
+                          {isUnitChallengeRunning
+                            ? 'In progress'
+                            : activeUnitChallenge?.stage === 'completed'
+                              ? 'Completed'
+                              : selectedUnitChallengeConfig.questions.length > 0
+                                ? 'Ready'
+                                : 'Locked until generated'}
                         </p>
-                      ) : null}
+                      </button>
                     </div>
                   </div>
                 </>
@@ -925,26 +1227,37 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
                   </div>
 
                   <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                    <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
-                      <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">Format</p>
-                      <p className="text-sm font-semibold text-slate-800">{subjectChallengeQuestions.length} questions</p>
-                      <p className="text-xs text-slate-500">{subjectChallengeEstimatedMinutes}-{subjectChallengeEstimatedMinutes + 5} min</p>
-                    </div>
-
-                    <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
-                      <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">Status</p>
-                      <p className="text-sm font-semibold text-slate-800">
-                        {subjectChallengeState?.stage === 'running'
-                          ? 'In progress'
-                          : subjectChallengeState?.stage === 'completed'
-                            ? 'Completed'
-                            : 'Ready to start'}
-                      </p>
-                      {subjectChallengeState?.summary ? (
-                        <p className="text-xs text-slate-500 mt-0.5">
-                          {subjectChallengeState.summary.correct}/{subjectChallengeState.summary.total} correct
+                    <div className="rounded-md border border-slate-200 bg-white overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => openSubjectChallengeStep(1)}
+                        className={`w-full border-b border-slate-200 px-3 py-2 text-left transition ${
+                          activeSubjectChallengeStep === 1 ? 'bg-blue-50 border-l-4 border-l-blue-600 pl-2' : 'hover:bg-slate-50'
+                        }`}
+                      >
+                        <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">Step 1</p>
+                        <p className="text-sm font-semibold text-slate-800">Generate challenge</p>
+                        <p className="text-xs text-slate-500">Set question count and prompt AI.</p>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openSubjectChallengeStep(2)}
+                        className={`w-full px-3 py-2 text-left transition ${
+                          activeSubjectChallengeStep === 2 ? 'bg-blue-50 border-l-4 border-l-blue-600 pl-2' : 'hover:bg-slate-50'
+                        }`}
+                      >
+                        <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">Step 2</p>
+                        <p className="text-sm font-semibold text-slate-800">Attempt challenge</p>
+                        <p className="text-xs text-slate-500">
+                          {isSubjectChallengeRunning
+                            ? 'In progress'
+                            : subjectChallengeState?.stage === 'completed'
+                              ? 'Completed'
+                              : selectedSubjectChallengeConfig.questions.length > 0
+                                ? 'Ready'
+                                : 'Locked until generated'}
                         </p>
-                      ) : null}
+                      </button>
                     </div>
                   </div>
                 </>
@@ -1039,32 +1352,76 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
               )}
 
               {isSubjectChallengeActive ? (
-                <div className={isSubjectChallengeRunning ? '' : 'p-6 pb-24'}>
-                  {subjectChallengeState?.stage === 'running' ? (
-                    <StudentPracticeRunner
-                      title={`${activeSubject.name} subject challenge`}
-                      subtitle="Subject challenge"
-                      questions={subjectChallengeQuestions}
-                      contentWrapperClassName="px-6 py-6 pb-8 space-y-6 md:pb-12"
-                      fixedFooterStyle={{
-                        left: 'calc(var(--subjects-footer-left) - 3px)',
-                        right: 'calc(var(--subjects-footer-right) - 3px)',
-                      }}
-                      onComplete={completeSubjectChallenge}
-                    />
-                  ) : (
-                    <section className="overflow-hidden rounded-lg border border-slate-200">
-                      <div className="bg-slate-900 px-6 py-10 text-center text-white">
-                        <p className="text-xs uppercase tracking-[0.2em] text-blue-200">Subject challenge</p>
-                        <h3 className="mt-3 text-4xl font-bold">Ready for the full subject challenge?</h3>
-                        <p className="mt-3 text-lg text-blue-100">Test your skills across all units and topics in {activeSubject.name}.</p>
-                        <p className="mt-4 text-xl font-semibold">
-                          {subjectChallengeQuestions.length} questions • {subjectChallengeEstimatedMinutes}-{subjectChallengeEstimatedMinutes + 5} minutes
-                        </p>
+                activeSubjectChallengeStep === 1 && !isSubjectChallengeRunning ? (
+                  <div className="p-6 pb-24 space-y-4">
+                    <div className="rounded-md border border-slate-200 bg-white p-3 space-y-3">
+                      <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">AI challenge builder</p>
+                      <div>
+                        <label className="text-xs font-semibold text-slate-600">Questions</label>
+                        <input
+                          type="number"
+                          min={6}
+                          max={40}
+                          value={selectedSubjectChallengeConfig.questionCount}
+                          onChange={(event) => {
+                            const parsed = Number.parseInt(event.target.value, 10);
+                            const nextCount = Number.isNaN(parsed) ? DEFAULT_SUBJECT_CHALLENGE_COUNT : Math.max(6, Math.min(40, parsed));
+                            updateSubjectChallengeConfig((current) => ({ ...current, questionCount: nextCount }));
+                          }}
+                          className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-700"
+                        />
                       </div>
-                    </section>
-                  )}
-                </div>
+                      <button
+                        type="button"
+                        onClick={generateSubjectChallengeWithAi}
+                        disabled={selectedSubjectChallengeConfig.isGenerating}
+                        className="w-full rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+                      >
+                        {selectedSubjectChallengeConfig.isGenerating ? 'Generating...' : 'Generate with AI'}
+                      </button>
+                      {selectedSubjectChallengeConfig.questions.length > 0 && (
+                        <p className="text-xs text-emerald-700">
+                          {selectedSubjectChallengeConfig.questions.length} questions ready.
+                          {selectedSubjectChallengeConfig.generatedWithAi ? ' Generated by AI.' : ' Generated locally.'}
+                        </p>
+                      )}
+                      {selectedSubjectChallengeConfig.error && (
+                        <p className="text-xs text-amber-700">{selectedSubjectChallengeConfig.error}</p>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <div className={isSubjectChallengeRunning ? '' : 'p-6 pb-24'}>
+                    {subjectChallengeState?.stage === 'running' ? (
+                      <StudentPracticeRunner
+                        title={`${activeSubject.name} subject challenge`}
+                        subtitle="Subject challenge"
+                        questions={selectedSubjectChallengeConfig.questions}
+                        contentWrapperClassName="px-6 py-6 pb-8 space-y-6 md:pb-12"
+                        fixedFooterStyle={{
+                          left: 'calc(var(--subjects-footer-left) - 3px)',
+                          right: 'calc(var(--subjects-footer-right) - 3px)',
+                        }}
+                        onComplete={completeSubjectChallenge}
+                      />
+                    ) : (
+                      <section className="overflow-hidden rounded-lg border border-slate-200">
+                        <div className="bg-slate-900 px-6 py-10 text-center text-white">
+                          <p className="text-xs uppercase tracking-[0.2em] text-blue-200">Step 2 of 2</p>
+                          <h3 className="mt-3 text-4xl font-bold">Attempt subject challenge</h3>
+                          <p className="mt-3 text-lg text-blue-100">
+                            {selectedSubjectChallengeConfig.questions.length > 0
+                              ? `Your AI challenge is ready. Test your skills across all units and topics in ${activeSubject.name}.`
+                              : `Return to Step 1 and generate questions first.`}
+                          </p>
+                          <p className="mt-4 text-xl font-semibold">
+                            {subjectChallengeQuestionTotal} questions • {subjectChallengeEstimatedMinutes}-{subjectChallengeEstimatedMinutes + 5} minutes
+                          </p>
+                        </div>
+                      </section>
+                    )}
+                  </div>
+                )
               ) : isSubjectOverviewActive && !isUnitChallengeActive ? (
                 <div className="p-6 pb-10 space-y-4">
                   <section className="rounded-lg border border-slate-200 bg-slate-50 px-5 py-4">
@@ -1134,11 +1491,49 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
               ) : (
                 <div className={isUnitChallengeActive ? (isUnitChallengeRunning ? '' : 'p-6 pb-24') : 'p-6 pb-28 space-y-4'}>
                   {isUnitChallengeActive ? (
-                    activeUnitChallenge?.stage === 'running' ? (
+                    activeUnitChallengeStep === 1 && !isUnitChallengeRunning ? (
+                      <div className="space-y-4">
+                        <div className="rounded-md border border-slate-200 bg-white p-3 space-y-3">
+                          <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">AI challenge builder</p>
+                          <div>
+                            <label className="text-xs font-semibold text-slate-600">Questions</label>
+                            <input
+                              type="number"
+                              min={4}
+                              max={30}
+                              value={selectedUnitChallengeConfig.questionCount}
+                              onChange={(event) => {
+                                const parsed = Number.parseInt(event.target.value, 10);
+                                const nextCount = Number.isNaN(parsed) ? DEFAULT_UNIT_CHALLENGE_COUNT : Math.max(4, Math.min(30, parsed));
+                                updateUnitChallengeConfig((current) => ({ ...current, questionCount: nextCount }));
+                              }}
+                              className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm text-slate-700"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={generateUnitChallengeWithAi}
+                            disabled={selectedUnitChallengeConfig.isGenerating}
+                            className="w-full rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+                          >
+                            {selectedUnitChallengeConfig.isGenerating ? 'Generating...' : 'Generate with AI'}
+                          </button>
+                          {selectedUnitChallengeConfig.questions.length > 0 && (
+                            <p className="text-xs text-emerald-700">
+                              {selectedUnitChallengeConfig.questions.length} questions ready.
+                              {selectedUnitChallengeConfig.generatedWithAi ? ' Generated by AI.' : ' Generated locally.'}
+                            </p>
+                          )}
+                          {selectedUnitChallengeConfig.error && (
+                            <p className="text-xs text-amber-700">{selectedUnitChallengeConfig.error}</p>
+                          )}
+                        </div>
+                      </div>
+                    ) : activeUnitChallenge?.stage === 'running' ? (
                       <StudentPracticeRunner
                         title={`${selectedUnit.code}: ${selectedUnit.title}`}
                         subtitle="Unit challenge"
-                        questions={unitChallengeQuestions}
+                        questions={selectedUnitChallengeConfig.questions}
                         contentWrapperClassName="px-6 py-6 pb-8 space-y-6 md:pb-12"
                         fixedFooterStyle={{
                           left: 'calc(var(--subjects-footer-left) - 3px)',
@@ -1149,11 +1544,15 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
                     ) : (
                       <section className="overflow-hidden rounded-lg border border-slate-200">
                         <div className="bg-slate-900 px-6 py-10 text-center text-white">
-                          <p className="text-xs uppercase tracking-[0.2em] text-blue-200">{selectedUnit.code} Unit challenge</p>
-                          <h3 className="mt-3 text-4xl font-bold">All set for the unit challenge?</h3>
-                          <p className="mt-3 text-lg text-blue-100">Test your skills across all topics in this unit.</p>
+                          <p className="text-xs uppercase tracking-[0.2em] text-blue-200">Step 2 of 2</p>
+                          <h3 className="mt-3 text-4xl font-bold">Attempt unit challenge</h3>
+                          <p className="mt-3 text-lg text-blue-100">
+                            {selectedUnitChallengeConfig.questions.length > 0
+                              ? 'Your AI challenge is ready. Test your skills across all topics in this unit.'
+                              : 'Return to Step 1 and generate questions first.'}
+                          </p>
                           <p className="mt-4 text-xl font-semibold">
-                            {unitChallengeQuestions.length} questions • {unitChallengeEstimatedMinutes}-{unitChallengeEstimatedMinutes + 5} minutes
+                            {unitChallengeQuestionTotal} questions • {unitChallengeEstimatedMinutes}-{unitChallengeEstimatedMinutes + 5} minutes
                           </p>
                         </div>
                       </section>
@@ -1337,7 +1736,8 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
                       <button
                         type="button"
                         onClick={startUnitChallenge}
-                        className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                        disabled={selectedUnitChallengeConfig.questions.length === 0 || selectedUnitChallengeConfig.isGenerating}
+                        className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
                       >
                         {activeUnitChallenge?.stage === 'completed' ? 'Retake challenge' : "Let's go"}
                       </button>
@@ -1364,7 +1764,8 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
                   <button
                     type="button"
                     onClick={startUnitChallenge}
-                    className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                    disabled={selectedUnitChallengeConfig.questions.length === 0 || selectedUnitChallengeConfig.isGenerating}
+                    className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
                   >
                     {activeUnitChallenge?.stage === 'completed' ? 'Retake challenge' : "Let's go"}
                   </button>
@@ -1403,7 +1804,8 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
                       <button
                         type="button"
                         onClick={startSubjectChallenge}
-                        className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                        disabled={selectedSubjectChallengeConfig.questions.length === 0 || selectedSubjectChallengeConfig.isGenerating}
+                        className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
                       >
                         {subjectChallengeState?.stage === 'completed' ? 'Retake challenge' : "Let's go"}
                       </button>
@@ -1430,7 +1832,8 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ selectedSubje
                   <button
                     type="button"
                     onClick={startSubjectChallenge}
-                    className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                    disabled={selectedSubjectChallengeConfig.questions.length === 0 || selectedSubjectChallengeConfig.isGenerating}
+                    className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
                   >
                     {subjectChallengeState?.stage === 'completed' ? 'Retake challenge' : "Let's go"}
                   </button>

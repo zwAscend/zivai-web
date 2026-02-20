@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AlertCircle, Calendar, CheckCircle, Clock, FileText, Loader2, Upload, X, Eye } from 'lucide-react';
+import { AlertCircle, Calendar, CheckCircle, Clock, FileText, Loader2, Upload, X, Eye, Sparkles } from 'lucide-react';
 import { Assessment, Result, Submission, SubmissionPayload, Student } from '../../types';
 import { Dialog } from '@headlessui/react';
 import { assessmentService, studentService, submissionService } from '../../services/api';
@@ -24,6 +24,46 @@ interface AssignmentWithResult extends Assessment {
   isOverdue: boolean;
 }
 
+type MockAssessmentCard = {
+  id: string;
+  title: string;
+  description: string;
+  questions: number;
+  duration: string;
+  format: string;
+  difficulty: 'Easy' | 'Medium' | 'Hard';
+};
+
+const mockAttemptCards: MockAssessmentCard[] = [
+  {
+    id: 'mock-quick-check',
+    title: 'Quick Mastery Check',
+    description: 'Short mixed set to refresh core concepts and identify small gaps.',
+    questions: 8,
+    duration: '12-15 min',
+    format: 'Mixed quiz',
+    difficulty: 'Easy',
+  },
+  {
+    id: 'mock-exam-readiness',
+    title: 'Exam Readiness Drill',
+    description: 'Exam-style questions with reasoning and structured working required.',
+    questions: 16,
+    duration: '25-30 min',
+    format: 'Structured assessment',
+    difficulty: 'Medium',
+  },
+  {
+    id: 'mock-challenge',
+    title: 'Challenge Mode',
+    description: 'Higher-order problems to strengthen confidence before finals.',
+    questions: 20,
+    duration: '35-40 min',
+    format: 'Extended paper',
+    difficulty: 'Hard',
+  },
+];
+
 const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, selectedSubjectId, onOpenTutor }) => {
   const [assignments, setAssignments] = useState<AssignmentWithResult[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,6 +77,8 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<'all' | 'pending' | 'submitted' | 'graded' | 'overdue'>('all');
   const [selectedType, setSelectedType] = useState<'all' | string>('all');
+  const [assessmentTab, setAssessmentTab] = useState<'attempt' | 'list' | 'review'>('attempt');
+  const [selectedReviewAssessmentId, setSelectedReviewAssessmentId] = useState<string | null>(null);
 
   useEffect(() => {
     console.log('--- Fetching Student Assignments ---');
@@ -184,6 +226,25 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
       console.log('DEBUG: No student ID provided. Skipping fetch.');
     }
   }, [studentId, selectedSubjectId]);
+
+  useEffect(() => {
+    if (assignments.length === 0) {
+      setSelectedReviewAssessmentId(null);
+      return;
+    }
+
+    const selectedStillExists = selectedReviewAssessmentId
+      ? assignments.some((assignment) => assignment.id === selectedReviewAssessmentId)
+      : false;
+
+    if (selectedStillExists) return;
+
+    const bestDefault =
+      assignments.find((assignment) => assignment.isSubmitted || assignment.result || assignment.submission) ||
+      assignments[0];
+
+    setSelectedReviewAssessmentId(bestDefault?.id || null);
+  }, [assignments, selectedReviewAssessmentId]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, assignmentId: string) => {
     if (e.target.files && e.target.files[0]) {
@@ -363,6 +424,11 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
     return statusMatch && typeMatch && queryMatch;
   });
 
+  const attemptAssignments = filteredAssignments.filter((assignment) => !assignment.isSubmitted);
+  const selectedReviewAssignment = assignments.find(
+    (assignment) => assignment.id === selectedReviewAssessmentId
+  ) || null;
+
   const getSubmissionDetails = (assignment: AssignmentWithResult) => {
     console.log('--- Getting Submission Details ---');
     console.log('Assignment:', assignment.name);
@@ -468,237 +534,460 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
   }
 
   return (
-    <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow p-4">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-          <div className="flex items-center gap-2 text-sm text-slate-600">Filters</div>
-          <div className="flex flex-wrap gap-2">
-            <input
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="Search assessments"
-              className="px-3 py-2 text-sm border border-slate-200 rounded-md"
-            />
-            <select
-              value={selectedType}
-              onChange={(event) => setSelectedType(event.target.value)}
-              className="px-3 py-2 text-sm border border-slate-200 rounded-md"
+    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+      <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] min-h-[680px]">
+        <aside className="border-b lg:border-b-0 lg:border-r border-slate-200 bg-slate-50 p-4 sm:p-5">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-semibold">Assessments</p>
+          <nav className="mt-3 space-y-2">
+            <button
+              type="button"
+              onClick={() => setAssessmentTab('attempt')}
+              className={`w-full inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition ${
+                assessmentTab === 'attempt'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-100'
+              }`}
             >
-              <option value="all">All types</option>
-              {assessmentTypes.map((type) => (
-                <option key={type} value={type}>
-                  {type}
-                </option>
-              ))}
-            </select>
-            <select
-              value={selectedStatus}
-              onChange={(event) => setSelectedStatus(event.target.value as any)}
-              className="px-3 py-2 text-sm border border-slate-200 rounded-md"
+              <Upload className="w-4 h-4 shrink-0" />
+              <span>Attempt Assessment</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setAssessmentTab('list')}
+              className={`w-full inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition ${
+                assessmentTab === 'list'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-100'
+              }`}
             >
-              <option value="all">All status</option>
-              <option value="pending">Pending</option>
-              <option value="submitted">Submitted</option>
-              <option value="graded">Graded</option>
-              <option value="overdue">Overdue</option>
-            </select>
+              <FileText className="w-4 h-4 shrink-0" />
+              <span>Assessment List</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setAssessmentTab('review')}
+              className={`w-full inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition ${
+                assessmentTab === 'review'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-100'
+              }`}
+            >
+              <Eye className="w-4 h-4 shrink-0" />
+              <span>Assessment Review</span>
+            </button>
+          </nav>
+
+          <div className="mt-5 space-y-2 rounded-md border border-slate-200 bg-white p-3 text-sm">
+            <p className="flex items-center justify-between text-slate-600">
+              <span>Total</span>
+              <span className="font-semibold text-slate-900">{assignments.length}</span>
+            </p>
+            <p className="flex items-center justify-between text-slate-600">
+              <span>Pending</span>
+              <span className="font-semibold text-slate-900">{assignments.filter((item) => !item.isSubmitted).length}</span>
+            </p>
+            <p className="flex items-center justify-between text-slate-600">
+              <span>Reviewed</span>
+              <span className="font-semibold text-slate-900">{assignments.filter((item) => !!item.result).length}</span>
+            </p>
           </div>
-        </div>
-      </div>
+        </aside>
 
-      <div className="space-y-4">
-        {filteredAssignments.map((assignment) => (
-          <div key={assignment.id} className="bg-white rounded-lg shadow p-6">
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex-1">
-                <div className="flex items-center gap-3 mb-2">
-                  <h3 className="text-lg font-semibold text-gray-800">{assignment.name}</h3>
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1 ${getStatusColor(assignment)}`}>
-                    {getStatusIcon(assignment)}
-                    {getStatusText(assignment)}
-                  </span>
-                </div>
-                <p className="text-gray-600 mb-3">{assignment.description}</p>
-                
-                <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500">
-                  <div className="flex items-center gap-1">
-                    <Calendar className="w-4 h-4" />
-                    <span>Due: {assignment.dueDate.toLocaleDateString()}</span>
+        <section className="p-4 sm:p-6 space-y-4">
+          {assessmentTab === 'attempt' && (
+            <>
+              {attemptAssignments.map((assignment) => (
+                <div key={assignment.id} className="rounded-lg border border-slate-200 bg-white p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+                    <div>
+                      <h3 className="text-lg font-semibold text-slate-900">{assignment.name}</h3>
+                      <p className="mt-1 text-sm text-slate-600">{assignment.description}</p>
+                    </div>
+                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-700">
+                      {assignment.isOverdue ? 'Overdue' : 'Pending'}
+                    </span>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <FileText className="w-4 h-4" />
-                    <span>Max Score: {assignment.maxScore}</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <span>Weight: {assignment.weight}%</span>
-                  </div>
-                  <span className="px-2 py-0.5 rounded-full text-xs bg-slate-100 text-slate-600">
-                    {getAssessmentTypeLabel(assignment)}
-                  </span>
-                </div>
-                {!assignment.isSubmitted && onOpenTutor && (
-                  <div className="mt-3">
-                    <button
-                      type="button"
-                      onClick={() => onOpenTutor(
-                        `I am preparing for "${assignment.name}". Coach me with hints, planning steps, and reasoning checks only. Do not provide final answers.`
-                      )}
-                      className="text-xs text-blue-600 hover:text-blue-700"
-                    >
-                      Open AI Study Coach
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
 
-            {/* Display submission and result details */}
-            {getSubmissionDetails(assignment)}
+                  <div className="flex flex-wrap items-center gap-4 text-sm text-slate-500 mb-4">
+                    <div className="flex items-center gap-1">
+                      <Calendar className="w-4 h-4" />
+                      <span>Due: {assignment.dueDate.toLocaleDateString()}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <FileText className="w-4 h-4" />
+                      <span>Max Score: {assignment.maxScore}</span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full text-xs bg-slate-100 text-slate-600">
+                      {getAssessmentTypeLabel(assignment)}
+                    </span>
+                  </div>
 
-            {assignment.result && (
-              <div className="mt-4 flex flex-wrap items-center gap-3 text-xs text-slate-600">
-                <span className="px-2.5 py-1 rounded-full bg-amber-50 text-amber-700">
-                  Reflect: Explain what went wrong before reviewing answers.
-                </span>
-                {onOpenTutor && (
-                  <button
-                    type="button"
-                    onClick={() => onOpenTutor(
-                      `Review my performance on "${assignment.name}". My feedback: ${assignment.result?.feedback || 'No feedback yet.'}. Help me identify reasoning gaps and next practice steps.`
-                    )}
-                    className="px-3 py-1.5 rounded-full bg-blue-50 text-blue-700 hover:bg-blue-100"
-                  >
-                    Review with AI Coach
-                  </button>
-                )}
-              </div>
-            )}
-
-            {!assignment.isSubmitted && (
-              <div className="border-t pt-4">
-                <div className="space-y-4">
-                  <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => { setSubmissionType('file'); setActiveAssignment(assignment.id); }}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        submissionType === 'file' && activeAssignment === assignment.id
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
-                    >
-                      File Upload
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setSubmissionType('text'); setActiveAssignment(assignment.id); }}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        submissionType === 'text' && activeAssignment === assignment.id
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                      }`}
-                    >
-                      Text Submission
-                    </button>
-                    {onOpenTutor && (
+                  <div className="space-y-4 border-t border-slate-200 pt-4">
+                    <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
-                        onClick={() => onOpenTutor(
-                          `I am working on "${assignment.name}". Ask me probing questions to strengthen my reasoning before I submit.`
-                        )}
-                        className="px-4 py-2 rounded-lg text-sm font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors"
+                        onClick={() => { setSubmissionType('file'); setActiveAssignment(assignment.id); }}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          submissionType === 'file' && activeAssignment === assignment.id
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
                       >
-                        Ask AI Coach
+                        File Upload
                       </button>
-                    )}
-                  </div>
-
-                  {submissionType === 'file' && activeAssignment === assignment.id && (
-                    <div className="flex items-center gap-4">
-                      <div className="flex-1">
-                        <label className="block">
-                          <input
-                            type="file"
-                            onChange={(e) => handleFileSelect(e, assignment.id)}
-                            className="hidden"
-                            accept=".pdf,.doc,.docx,.txt,.zip"
-                          />
-                          <div className="flex items-center gap-2 px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-400 transition-colors">
-                            <Upload className="w-5 h-5 text-gray-400" />
-                            <span className="text-gray-600">
-                              {selectedFile ? selectedFile.name : 'Choose file to upload'}
-                            </span>
-                          </div>
-                        </label>
-                      </div>
+                      <button
+                        type="button"
+                        onClick={() => { setSubmissionType('text'); setActiveAssignment(assignment.id); }}
+                        className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                          submissionType === 'text' && activeAssignment === assignment.id
+                            ? 'bg-blue-600 text-white'
+                            : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                        }`}
+                      >
+                        Text Submission
+                      </button>
                     </div>
-                  )}
 
-                  {submissionType === 'text' && activeAssignment === assignment.id && (
-                    <div>
+                    {submissionType === 'file' && activeAssignment === assignment.id && (
+                      <label className="block">
+                        <input
+                          type="file"
+                          onChange={(e) => handleFileSelect(e, assignment.id)}
+                          className="hidden"
+                          accept=".pdf,.doc,.docx,.txt,.zip"
+                        />
+                        <div className="flex items-center gap-2 px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-400 transition-colors">
+                          <Upload className="w-5 h-5 text-gray-400" />
+                          <span className="text-gray-600">
+                            {selectedFile ? selectedFile.name : 'Choose file to upload'}
+                          </span>
+                        </div>
+                      </label>
+                    )}
+
+                    {submissionType === 'text' && activeAssignment === assignment.id && (
                       <textarea
                         value={textSubmission}
                         onChange={(e) => setTextSubmission(e.target.value)}
                         placeholder="Enter your assignment submission here..."
-                        className="w-full p-4 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[200px]"
+                        className="w-full p-4 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[180px]"
                         rows={8}
                       />
-                    </div>
-                  )}
+                    )}
 
-                  <div className="flex justify-end">
-                    <button
-                      onClick={() => handleSubmitAssignment(assignment.id)}
-                      disabled={
-                        (submissionType === 'file' && (!selectedFile || activeAssignment !== assignment.id)) ||
-                        (submissionType === 'text' && !textSubmission.trim()) ||
-                        submitting === assignment.id
-                      }
-                      className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                    <div className="flex justify-end">
+                      <button
+                        onClick={() => handleSubmitAssignment(assignment.id)}
+                        disabled={
+                          (submissionType === 'file' && (!selectedFile || activeAssignment !== assignment.id)) ||
+                          (submissionType === 'text' && !textSubmission.trim()) ||
+                          submitting === assignment.id
+                        }
+                        className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                      >
+                        {submitting === assignment.id ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Submitting & Grading...
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="w-4 h-4" />
+                            Submit Assessment
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+
+              {attemptAssignments.length === 0 && (
+                <div className="space-y-4">
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-6">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <CheckCircle className="w-8 h-8 text-emerald-500" />
+                        <div>
+                          <p className="text-lg font-semibold text-slate-800">All formal assessments are submitted</p>
+                          <p className="text-sm text-slate-500 mt-0.5">
+                            Keep momentum with AI-generated mock assessments.
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setAssessmentTab('list')}
+                        className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                      >
+                        View assessment list
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    {mockAttemptCards.map((mock) => (
+                      <article key={mock.id} className="rounded-lg border border-slate-200 bg-white p-5">
+                        <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+                          <Sparkles className="w-3.5 h-3.5" />
+                          Mock assessment
+                        </div>
+                        <h4 className="mt-3 text-lg font-semibold text-slate-900">{mock.title}</h4>
+                        <p className="mt-2 text-sm text-slate-600">{mock.description}</p>
+                        <div className="mt-3 space-y-1.5 text-xs text-slate-500">
+                          <p>{mock.questions} questions</p>
+                          <p>{mock.duration}</p>
+                          <p>{mock.format} • {mock.difficulty}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!onOpenTutor) return;
+                            const scope = selectedSubjectId && selectedSubjectId !== 'all' ? 'the selected subject' : 'all active subjects';
+                            onOpenTutor(
+                              `Generate a ${mock.questions}-question ${mock.difficulty.toLowerCase()} ${mock.format.toLowerCase()} mock assessment for ${scope}. Title: "${mock.title}". Let me attempt first, then give feedback and mark scheme.`
+                            );
+                          }}
+                          className="mt-4 inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                          disabled={!onOpenTutor}
+                        >
+                          <Sparkles className="w-4 h-4" />
+                          Generate in AI Coach
+                        </button>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {assessmentTab === 'list' && (
+            <>
+              <div className="rounded-lg border border-slate-200 bg-white p-4">
+                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                  <div className="text-sm text-slate-600">Filters</div>
+                  <div className="flex flex-wrap gap-2">
+                    <input
+                      value={searchQuery}
+                      onChange={(event) => setSearchQuery(event.target.value)}
+                      placeholder="Search assessments"
+                      className="px-3 py-2 text-sm border border-slate-200 rounded-md"
+                    />
+                    <select
+                      value={selectedType}
+                      onChange={(event) => setSelectedType(event.target.value)}
+                      className="px-3 py-2 text-sm border border-slate-200 rounded-md"
                     >
-                      {submitting === assignment.id ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          Submitting & Grading...
-                        </>
+                      <option value="all">All types</option>
+                      {assessmentTypes.map((type) => (
+                        <option key={type} value={type}>
+                          {type}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={selectedStatus}
+                      onChange={(event) => setSelectedStatus(event.target.value as any)}
+                      className="px-3 py-2 text-sm border border-slate-200 rounded-md"
+                    >
+                      <option value="all">All status</option>
+                      <option value="pending">Pending</option>
+                      <option value="submitted">Submitted</option>
+                      <option value="graded">Graded</option>
+                      <option value="overdue">Overdue</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {filteredAssignments.map((assignment) => (
+                  <button
+                    key={assignment.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedReviewAssessmentId(assignment.id);
+                      setAssessmentTab('review');
+                    }}
+                    className="w-full rounded-lg border border-slate-200 bg-white p-4 text-left hover:border-blue-300 hover:bg-blue-50/40 transition"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-lg font-semibold text-slate-900 truncate">{assignment.name}</p>
+                        <p className="mt-1 text-sm text-slate-600 line-clamp-2">{assignment.description}</p>
+                      </div>
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1 ${getStatusColor(assignment)}`}>
+                        {getStatusIcon(assignment)}
+                        {getStatusText(assignment)}
+                      </span>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-slate-500">
+                      <span>Due: {assignment.dueDate.toLocaleDateString()}</span>
+                      <span>Max Score: {assignment.maxScore}</span>
+                      <span>Weight: {assignment.weight}%</span>
+                      <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
+                        {getAssessmentTypeLabel(assignment)}
+                      </span>
+                      {assignment.result && (
+                        <span className="font-semibold text-emerald-700">
+                          Score: {Math.round((assignment.result.actualMark / assignment.maxScore) * 100)}%
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              {filteredAssignments.length === 0 && !loading && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-8 text-center">
+                  <FileText className="w-12 h-12 text-slate-400 mx-auto mb-3" />
+                  <h3 className="text-lg font-semibold text-slate-700">No Assessments</h3>
+                  <p className="text-sm text-slate-500">No assessments match the selected filters.</p>
+                </div>
+              )}
+            </>
+          )}
+
+          {assessmentTab === 'review' && (
+            <>
+              {!selectedReviewAssignment ? (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-8 text-center">
+                  <Eye className="w-12 h-12 text-slate-400 mx-auto mb-3" />
+                  <h3 className="text-lg font-semibold text-slate-700">Select an assessment to review</h3>
+                  <p className="text-sm text-slate-500">Open Assessment List and pick an assessment.</p>
+                </div>
+              ) : (
+                <>
+                  <div className="rounded-lg border border-slate-200 bg-white p-5">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-2xl font-bold text-slate-900">{selectedReviewAssignment.name}</h3>
+                        <p className="mt-1 text-sm text-slate-600">{selectedReviewAssignment.description}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setAssessmentTab('list')}
+                        className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                      >
+                        Back to list
+                      </button>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                        <p className="text-xs text-slate-500">Outcome</p>
+                        <p className="text-base font-semibold text-slate-800">
+                          {selectedReviewAssignment.result
+                            ? `${selectedReviewAssignment.result.actualMark}/${selectedReviewAssignment.maxScore}`
+                            : 'Not graded'}
+                        </p>
+                      </div>
+                      <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                        <p className="text-xs text-slate-500">Grade</p>
+                        <p className="text-base font-semibold text-slate-800">
+                          {selectedReviewAssignment.result?.grade || 'Pending'}
+                        </p>
+                      </div>
+                      <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                        <p className="text-xs text-slate-500">Status</p>
+                        <p className="text-base font-semibold text-slate-800">{getStatusText(selectedReviewAssignment)}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                    <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-3">
+                      <h4 className="text-lg font-semibold text-slate-900">Student Attempt</h4>
+                      {!selectedReviewAssignment.submission ? (
+                        <p className="text-sm text-slate-500">No submission has been made for this assessment yet.</p>
                       ) : (
                         <>
-                          <Upload className="w-4 h-4" />
-                          Submit Assessment
+                          <div className="text-sm text-slate-600 space-y-1">
+                            <p>
+                              Submitted: {new Date(selectedReviewAssignment.submission.submittedAt).toLocaleString()}
+                            </p>
+                            <p>
+                              Type: {selectedReviewAssignment.submission.submissionType === 'file' ? 'File upload' : 'Text submission'}
+                            </p>
+                          </div>
+                          {selectedReviewAssignment.submission.submissionType === 'file' ? (
+                            <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                              <p className="font-semibold">Uploaded file</p>
+                              <p className="mt-1">
+                                {(selectedReviewAssignment.submission as any).originalFilename ||
+                                  selectedReviewAssignment.submission.originalFileName ||
+                                  (selectedReviewAssignment.submission as any).content ||
+                                  'File submitted'}
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                              <p className="font-semibold mb-2">Submitted response</p>
+                              <pre className="whitespace-pre-wrap break-words text-sm text-slate-700">
+                                {(selectedReviewAssignment.submission as any).textContent ||
+                                  (selectedReviewAssignment.submission as any).content ||
+                                  'No text captured.'}
+                              </pre>
+                            </div>
+                          )}
                         </>
                       )}
-                    </button>
+                    </div>
+
+                    <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-3">
+                      <h4 className="text-lg font-semibold text-slate-900">Feedback and Outcome</h4>
+                      {!selectedReviewAssignment.result ? (
+                        <p className="text-sm text-slate-500">Feedback will appear once this assessment has been graded.</p>
+                      ) : (
+                        <>
+                          <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 space-y-1">
+                            <p>
+                              Expected mark: <span className="font-semibold">{selectedReviewAssignment.result.expectedMark}</span>
+                            </p>
+                            <p>
+                              Actual mark: <span className="font-semibold">{selectedReviewAssignment.result.actualMark}</span>
+                            </p>
+                            <p>
+                              Grade: <span className="font-semibold">{selectedReviewAssignment.result.grade}</span>
+                            </p>
+                          </div>
+                          <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+                            <p className="font-semibold">Teacher/AI Feedback</p>
+                            <p className="mt-1">{selectedReviewAssignment.result.feedback || 'No feedback provided.'}</p>
+                          </div>
+                          {((selectedReviewAssignment.submission as any)?.result?.externalAssessmentData ||
+                            (selectedReviewAssignment.result as any)?.externalAssessmentData) && (
+                            <button
+                              type="button"
+                              onClick={() => handleViewDetailedFeedback(selectedReviewAssignment)}
+                              className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                            >
+                              <Eye className="w-4 h-4" />
+                              View detailed rubric
+                            </button>
+                          )}
+                          {onOpenTutor && (
+                            <button
+                              type="button"
+                              onClick={() => onOpenTutor(
+                                `Review my performance on "${selectedReviewAssignment.name}". My feedback: ${selectedReviewAssignment.result?.feedback || 'No feedback yet.'}. Help me identify where I went wrong and how to improve.`
+                              )}
+                              className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                            >
+                              Review with AI Coach
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </div>
-                  
-                  <p className="text-xs text-gray-500">
-                    {submissionType === 'file' 
-                      ? 'Accepted formats: PDF, DOC, DOCX, TXT, ZIP (Max size: 10MB)'
-                      : 'Your submission will be automatically graded using AI'
-                    }
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {assignment.isSubmitted && !assignment.result && (
-              <div className="border-t pt-4">
-                <div className="flex items-center gap-2 text-blue-600">
-                  <CheckCircle className="w-5 h-5" />
-                  <span>Assessment submitted and automatically graded. Awaiting teacher review.</span>
-                </div>
-              </div>
-            )}
-          </div>
-        ))}
+                </>
+              )}
+            </>
+          )}
+        </section>
       </div>
-
-      {filteredAssignments.length === 0 && !loading && (
-        <div className="bg-white rounded-lg shadow p-8 text-center">
-          <FileText className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-xl font-semibold text-gray-700 mb-2">No Assessments</h3>
-          <p className="text-gray-500">No assessments match the selected filters.</p>
-        </div>
-      )}
 
       {/* Feedback Details Modal */}
       <Dialog

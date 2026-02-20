@@ -50,6 +50,7 @@ function App() {
   const isAdmin = !!user?.isAdmin || user?.role === 'admin';
   const isTeacher = !!user?.isTeacher || user?.role === 'teacher';
   const isStudent = user?.role === 'student' && !!user?.studentId;
+  const studentDashboardElement = isAuthenticated && isStudent ? <StudentDashboard /> : <Navigate to="/login" replace />;
 
   useEffect(() => {
     const handleStorageChange = () => {
@@ -113,10 +114,15 @@ function App() {
           }
         />
 
-        <Route
-          path="/student/home"
-          element={isAuthenticated && isStudent ? <StudentDashboard /> : <Navigate to="/login" replace />}
-        />
+        <Route path="/student" element={<Navigate to="/student/home" replace />} />
+        <Route path="/student/home" element={studentDashboardElement} />
+        <Route path="/student/my-plans" element={studentDashboardElement} />
+        <Route path="/student/my-subjects" element={studentDashboardElement} />
+        <Route path="/student/assessments" element={studentDashboardElement} />
+        <Route path="/student/my-report" element={studentDashboardElement} />
+        <Route path="/student/peer-study" element={studentDashboardElement} />
+        <Route path="/student/profile" element={studentDashboardElement} />
+        <Route path="/student/ai-coach" element={studentDashboardElement} />
         <Route path="/student/dashboard" element={<Navigate to="/student/home" replace />} />
 
         {isAuthenticated && !isAdmin && (
