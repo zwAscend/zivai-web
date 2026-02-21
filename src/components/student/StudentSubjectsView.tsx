@@ -481,7 +481,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
   const subjectChallengeBlockedReason = !isSubjectChallengeEligible
     ? subjectChallengeEligibility?.reason || 'Subject challenge is currently unavailable.'
     : null;
-  const shouldShowSubjectsChat = !isUnitChallengeActive && !isSubjectChallengeActive && (Boolean(detailState) || !isSubjectOverviewActive);
+  const shouldShowSubjectsChat = !isUnitChallengeActive && !isSubjectChallengeActive && Boolean(detailState);
 
   useEffect(() => {
     const loadCurriculum = async () => {
@@ -1025,6 +1025,11 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
   const detailItems = detailTopic ? getTopicContentItems(detailTopic) : [];
   const selectedDetailItem =
     detailItems.find((item) => item.id === detailState?.contentItemId) || detailItems[0] || null;
+  const isDetailPracticeView = Boolean(
+    selectedDetailItem &&
+    selectedDetailItem.kind === 'practice' &&
+    selectedDetailItem.practice
+  );
   const selectedDetailItemIndex = selectedDetailItem
     ? detailItems.findIndex((item) => item.id === selectedDetailItem.id)
     : -1;
@@ -1204,23 +1209,25 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
             </aside>
 
             <section className={`min-w-0 rounded-none border border-slate-200 bg-white overflow-hidden xl:will-change-[margin] xl:transition-[margin] xl:duration-300 xl:ease-in-out ${contentDesktopOffset} ${
-              isUnitChallengeActive ? 'min-h-[calc(100vh-var(--student-header-offset)-1.5rem)]' : ''
+              isUnitChallengeActive || isDetailPracticeView ? 'min-h-[calc(100vh-var(--student-header-offset)-1.5rem)]' : ''
             }`}>
               <header className="px-6 py-5 border-b border-slate-200">
                 <h1 className="text-3xl font-bold text-slate-900">{selectedDetailItem.title}</h1>
                 <p className="text-sm text-slate-500 mt-1">{detailUnit.code}: {detailTopic.title}</p>
               </header>
 
-              <div className="p-6 pb-28 space-y-6">
+              <div className={isDetailPracticeView ? 'p-0' : 'p-6 pb-28 space-y-6'}>
                 {selectedDetailItem.kind === 'practice' && selectedDetailItem.practice ? (
                   <StudentPracticeRunner
                     key={`${detailTopic.id}-${selectedDetailItem.practice.id}`}
                     title={selectedDetailItem.practice.title}
                     subtitle="Practice questions run on a dedicated screen and are answered one by one."
                     questions={buildMockPracticeQuestions(`${activeSubject.name} ${selectedDetailItem.practice.title}`, 'quiz')}
+                    contentWrapperClassName="px-6 py-6 pb-8 space-y-6 md:pb-12"
                     fixedFooterStyle={{
                       left: 'var(--subjects-footer-left)',
                       right: 'var(--subjects-footer-right)',
+                      bottom: '0.75rem',
                     }}
                     onComplete={() =>
                       setPracticeStatusOverrides((previous) => ({
@@ -1283,7 +1290,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
           {selectedDetailItem.kind !== 'practice' && (
             <>
               <div
-                className="hidden xl:block fixed bottom-0 z-30"
+                className="hidden xl:block fixed bottom-3 z-30"
                 style={{
                   left: 'calc(var(--subjects-footer-left) - 3px)',
                   right: 'calc(var(--subjects-footer-right) - 3px)',
@@ -1597,6 +1604,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                         fixedFooterStyle={{
                           left: 'calc(var(--subjects-footer-left) - 3px)',
                           right: 'calc(var(--subjects-footer-right) - 3px)',
+                          bottom: '0.75rem',
                         }}
                         onComplete={completeSubjectChallenge}
                       />
@@ -1740,6 +1748,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                         fixedFooterStyle={{
                           left: 'calc(var(--subjects-footer-left) - 3px)',
                           right: 'calc(var(--subjects-footer-right) - 3px)',
+                          bottom: '0.75rem',
                         }}
                         onComplete={completeUnitChallenge}
                       />
@@ -1887,7 +1896,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
           {!isUnitChallengeActive && !isSubjectChallengeActive && !isSubjectOverviewActive && (
             <>
               <div
-                className="hidden xl:block fixed bottom-0 z-30"
+                className="hidden xl:block fixed bottom-3 z-30"
                 style={{
                   left: 'calc(var(--subjects-footer-left) - 3px)',
                   right: 'calc(var(--subjects-footer-right) - 3px)',
@@ -1929,7 +1938,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
           {isUnitChallengeActive && !isUnitChallengeRunning && (
             <>
               <div
-                className="hidden xl:block fixed bottom-0 z-30"
+                className="hidden xl:block fixed bottom-3 z-30"
                 style={{
                   left: 'calc(var(--subjects-footer-left) - 3px)',
                   right: 'calc(var(--subjects-footer-right) - 3px)',
@@ -1997,7 +2006,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
           {isSubjectChallengeActive && !isSubjectChallengeRunning && (
             <>
               <div
-                className="hidden xl:block fixed bottom-0 z-30"
+                className="hidden xl:block fixed bottom-3 z-30"
                 style={{
                   left: 'calc(var(--subjects-footer-left) - 3px)',
                   right: 'calc(var(--subjects-footer-right) - 3px)',
