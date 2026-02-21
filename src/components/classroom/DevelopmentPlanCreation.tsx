@@ -1,35 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { DevelopmentPlan, Student, StudentAttributes } from '../../types';
+import { Student, StudentAttributes, SubjectAttribute } from '../../types';
 import { studentService, developmentService } from '../../services/api';
 import { useToast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { ChevronDown, ChevronRight, Check } from 'lucide-react';
-
-// Simple Badge component
-const Badge = ({ 
-  children, 
-  variant = 'default',
-  className = '' 
-}: { 
-  children: React.ReactNode; 
-  variant?: 'default' | 'outline' | 'secondary';
-  className?: string;
-}) => {
-  const baseStyles = 'inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2';
-  const variantStyles = {
-    default: 'border-transparent bg-primary text-primary-foreground hover:bg-primary/80',
-    secondary: 'border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80',
-    outline: 'text-foreground',
-  };
-  
-  return (
-    <span className={`${baseStyles} ${variantStyles[variant]} ${className}`}>
-      {children}
-    </span>
-  );
-};
 import { planningService } from '../../services/planningService';
 import { useAuth } from '@/context/AuthContext';
 
@@ -37,6 +13,62 @@ interface DevelopmentPlanCreationProps {
   studentId?: string;
   subjectId?: string;
 }
+
+interface SkillSubItem {
+  id: string;
+  name: string;
+  score: number;
+  description?: string;
+}
+
+interface SkillItem {
+  id: string;
+  name: string;
+  score: number;
+  subskills: SkillSubItem[];
+}
+
+const formatAttributeName = (attributeId: string): string =>
+  attributeId
+    .split(/[-_ ]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+
+const mapStudentAttributesToSkills = (attributes: StudentAttributes | null): SkillItem[] => {
+  if (!attributes) return [];
+
+  return Object.entries(attributes).map(([attributeId, values]) => {
+    const current = Number(values?.current ?? 0);
+    const potential = Number(values?.potential ?? current);
+
+    return {
+      id: attributeId,
+      name: formatAttributeName(attributeId),
+      score: current,
+      subskills: [
+        {
+          id: `${attributeId}-target`,
+          name: `${formatAttributeName(attributeId)} target`,
+          score: potential,
+          description: `Current ${current}%, potential ${potential}%.`,
+        },
+      ],
+    };
+  });
+};
+
+const getAttendancePercentage = (student: Student): number | null => {
+  const rawAttendance = (student as { attendance?: unknown }).attendance;
+  if (typeof rawAttendance === 'number') return rawAttendance;
+  if (rawAttendance && typeof rawAttendance === 'object') {
+    const attendanceObject = rawAttendance as { percentage?: unknown };
+    if (typeof attendanceObject.percentage === 'number') {
+      return attendanceObject.percentage;
+    }
+  }
+  return null;
+};
 
 const DevelopmentPlanCreation: React.FC<DevelopmentPlanCreationProps> = ({ 
   studentId: propStudentId,
@@ -57,6 +89,7 @@ const DevelopmentPlanCreation: React.FC<DevelopmentPlanCreationProps> = ({
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [allStudents, setAllStudents] = useState<Student[]>([]);
   const [studentAttributes, setStudentAttributes] = useState<StudentAttributes | null>(null);
+  const [subjectAttributes, setSubjectAttributes] = useState<SubjectAttribute[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isCreating, setIsCreating] = useState(false);
@@ -69,6 +102,7 @@ const DevelopmentPlanCreation: React.FC<DevelopmentPlanCreationProps> = ({
   const [planName, setPlanName] = useState('');
   const [selectedSkills, setSelectedSkills] = useState<Set<string>>(new Set());
   const [selectedSubskills, setSelectedSubskills] = useState<Set<string>>(new Set());
+  const skills = mapStudentAttributesToSkills(studentAttributes);
 
   // Fetch all students for the sidebar
   useEffect(() => {
@@ -99,24 +133,20 @@ const DevelopmentPlanCreation: React.FC<DevelopmentPlanCreationProps> = ({
         
         // Fetch student attributes for the subject
         try {
-          const attributes = await developmentService.getStudentAttributes(initialStudentId, initialSubjectId);
+          const [attributes, attributeDefs] = await Promise.all([
+            developmentService.getStudentAttributes(initialStudentId, initialSubjectId),
+            developmentService.getSubjectAttributes(initialSubjectId).catch(() => []),
+          ]);
           setStudentAttributes(attributes);
+          setSubjectAttributes(attributeDefs);
         } catch (attrError) {
           console.error('Error fetching student attributes:', attrError);
-          toast({
-            title: 'Warning',
-            description: 'Could not load student attributes. Some features may be limited.',
-            variant: 'destructive',
-          });
+          toast.error('Could not load student attributes. Some features may be limited.');
         }
       } catch (err: any) {
         console.error('Error fetching student data:', err);
         setError('Failed to load student data.');
-        toast({
-          title: 'Error',
-          description: 'Failed to load student data. Please try again.',
-          variant: 'destructive',
-        });
+        toast.error('Failed to load student data. Please try again.');
       } finally {
         setLoading(false);
       }
@@ -147,9 +177,9 @@ const DevelopmentPlanCreation: React.FC<DevelopmentPlanCreationProps> = ({
     if (newSelectedSkills.has(skillId)) {
       newSelectedSkills.delete(skillId);
       // Also remove any selected subskills for this skill
-      const skill = studentAttributes?.skills?.find(s => s.id === skillId);
+      const skill = skills.find((s) => s.id === skillId);
       if (skill) {
-        skill.subskills?.forEach(sub => {
+        skill.subskills.forEach((sub) => {
           selectedSubskills.delete(sub.id);
         });
         setSelectedSubskills(new Set(selectedSubskills));
@@ -186,45 +216,38 @@ const DevelopmentPlanCreation: React.FC<DevelopmentPlanCreationProps> = ({
     setIsCreating(true);
     
     try {
-      // Prepare plan data
-      const planData = {
-        name: planName || `Development Plan for ${selectedStudent.firstName} ${selectedStudent.lastName}`,
-        studentId: selectedStudent.id,
-        subjectId: initialSubjectId,
-        skills: studentAttributes?.skills
-          .filter(skill => selectedSkills.has(skill.id) || 
-            skill.subskills?.some(sub => selectedSubskills.has(sub.id)))
-          .map(skill => ({
-            ...skill,
-            subskills: skill.subskills?.filter(sub => selectedSubskills.has(sub.id))
-          })),
-        status: 'draft' as const,
-        startDate: new Date().toISOString(),
-        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(), // 30 days from now
-      };
-      
+      const selectedSkillItems = skills.filter((skill) =>
+        selectedSkills.has(skill.id) || skill.subskills.some((sub) => selectedSubskills.has(sub.id))
+      );
+      const selectedAttributeIds = new Set(selectedSkillItems.map((skill) => skill.id));
+      const selectedAttributes = subjectAttributes.filter((attribute) => selectedAttributeIds.has(attribute.id));
+      const targetScores = selectedSkillItems.reduce<Record<string, number>>((accumulator, skill) => {
+        accumulator[skill.id] = Math.min(100, Math.max(skill.score + 10, 70));
+        return accumulator;
+      }, {});
+
       // Generate the plan using the planning service
-      const generatedPlan = await planningService.generateDevelopmentPlan(planData);
+      const generatedPlan = await planningService.generateDevelopmentPlan({
+        student: selectedStudent,
+        subjectId: initialSubjectId,
+        attributes: selectedAttributes,
+        studentAttributes: studentAttributes || {},
+        targetScores,
+        subjectName: selectedSubject?.name || 'Selected subject',
+      });
       
       // Save the plan
-      const createdPlan = await developmentService.createSubjectPlan(generatedPlan);
+      await developmentService.createSubjectPlan(generatedPlan);
       
       // Show success message
-      toast({
-        title: 'Success',
-        description: 'Development plan created successfully!',
-      });
+      toast.success('Development plan created successfully!');
       
       // Navigate to the development view for this student
       navigate(`/classroom/development/${selectedStudent.id}`);
       
     } catch (error: any) {
       console.error('Error creating development plan:', error);
-      toast({
-        title: 'Error',
-        description: error.message || 'Failed to create development plan',
-        variant: 'destructive',
-      });
+      toast.error(error.message || 'Failed to create development plan');
     } finally {
       setIsCreating(false);
     }
@@ -318,11 +341,11 @@ const DevelopmentPlanCreation: React.FC<DevelopmentPlanCreationProps> = ({
           <div className="mb-6">
             <h2 className="text-lg font-semibold mb-4">Select Skills & Subskills</h2>
             
-            {studentAttributes?.skills?.length ? (
+            {skills.length ? (
               <div className="space-y-3">
-                {studentAttributes.skills.map((skill, skillIndex) => {
+                {skills.map((skill, skillIndex) => {
                   const isSkillSelected = selectedSkills.has(skill.id);
-                  const hasSelectedSubskills = skill.subskills?.some(sub => selectedSubskills.has(sub.id));
+                  const hasSelectedSubskills = skill.subskills.some((sub) => selectedSubskills.has(sub.id));
                   const isExpanded = expandedSkill.skillIndex === skillIndex;
                   
                   return (
@@ -351,7 +374,7 @@ const DevelopmentPlanCreation: React.FC<DevelopmentPlanCreationProps> = ({
                           </div>
                           <div className="flex items-center">
                             <span className="text-sm text-gray-500 mr-2">
-                              {skill.subskills?.filter(sub => selectedSubskills.has(sub.id)).length || 0}/{skill.subskills?.length || 0} selected
+                              {skill.subskills.filter((sub) => selectedSubskills.has(sub.id)).length || 0}/{skill.subskills.length || 0} selected
                             </span>
                             {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                           </div>
@@ -361,7 +384,7 @@ const DevelopmentPlanCreation: React.FC<DevelopmentPlanCreationProps> = ({
                         </div>
                       </div>
                       
-                      {isExpanded && skill.subskills?.length > 0 && (
+                      {isExpanded && skill.subskills.length > 0 && (
                         <div className="p-0">
                           <div className="border-t">
                             {skill.subskills.map((subskill, subIndex) => {
@@ -372,7 +395,7 @@ const DevelopmentPlanCreation: React.FC<DevelopmentPlanCreationProps> = ({
                                 <div key={subskill.id} className="border-b last:border-b-0">
                                   <div 
                                     className="p-3 pl-10 pr-4 hover:bg-gray-50 cursor-pointer flex justify-between items-center"
-                                    onClick={(e) => toggleSubskill(skillIndex, subIndex)}
+                                    onClick={() => toggleSubskill(skillIndex, subIndex)}
                                   >
                                     <div className="flex items-center gap-3">
                                       <button
@@ -460,35 +483,35 @@ const DevelopmentPlanCreation: React.FC<DevelopmentPlanCreationProps> = ({
                       <p className="font-medium truncate">{`${student.firstName} ${student.lastName}`}</p>
                       <div className="flex items-center gap-2">
                         <span className="inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold transition-colors bg-secondary text-secondary-foreground">
-                          {getPerformanceLevel(student.overallGrade || student.overall || 0)}
+                          {getPerformanceLevel(student.overall || 0)}
                         </span>
                         <span className="text-xs text-gray-500">
-                          OVR: {(student.overallGrade || student.overall)?.toFixed(1) || 'N/A'}%
+                          OVR: {typeof student.overall === 'number' ? student.overall.toFixed(1) : 'N/A'}%
                         </span>
                       </div>
                     </div>
                   </div>
                   
-                  {student.attendance && (
+                  {getAttendancePercentage(student) != null && (
                     <div className="mt-2">
                       <div className="flex justify-between text-xs text-gray-500 mb-1">
                         <span>Attendance</span>
-                        <span>{typeof student.attendance === 'object' ? student.attendance.percentage : student.attendance}%</span>
+                        <span>{getAttendancePercentage(student)}%</span>
                       </div>
                       <Progress 
-                        value={typeof student.attendance === 'object' ? student.attendance.percentage : student.attendance} 
+                        value={getAttendancePercentage(student) || 0}
                         className="h-1.5" 
                       />
                     </div>
                   )}
                   
-                  {student.currentPlan && (
+                  {student.activePlan && (
                     <div className="mt-2">
                       <div className="flex justify-between text-xs mb-1">
                         <span className="text-gray-500">Current Plan</span>
-                        <span className="font-medium">{student.currentPlan.progress}%</span>
+                        <span className="font-medium">{student.activePlan.currentProgress}%</span>
                       </div>
-                      <Progress value={student.currentPlan.progress} className="h-1.5" />
+                      <Progress value={student.activePlan.currentProgress} className="h-1.5" />
                     </div>
                   )}
                 </div>

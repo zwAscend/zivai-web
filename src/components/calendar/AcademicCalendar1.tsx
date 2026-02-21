@@ -83,7 +83,6 @@ const AcademicCalendar: React.FC = () => {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentView, setCurrentView] = useState<string>('dayGridMonth');
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [showEventModal, setShowEventModal] = useState(false);
   const [filterSubject, setFilterSubject] = useState<string>('all');
@@ -136,8 +135,7 @@ const AcademicCalendar: React.FC = () => {
   });
 
   // Handle date selection
-  const handleDateSelect = (selectInfo: any) => {
-    setSelectedDate(selectInfo.start);
+  const handleDateSelect = () => {
     setSelectedEvent(null);
     setShowEventModal(true);
   };
@@ -147,7 +145,6 @@ const AcademicCalendar: React.FC = () => {
     const event = events.find(e => e.id === clickInfo.event.id);
     if (event) {
       setSelectedEvent(event);
-      setSelectedDate(null);
       setShowEventModal(true);
     }
   };
@@ -240,7 +237,6 @@ const AcademicCalendar: React.FC = () => {
             <Button
               onClick={() => {
                 setSelectedEvent(null);
-                setSelectedDate(new Date());
                 setShowEventModal(true);
               }}
               className="bg-blue-600 hover:bg-blue-700 flex items-center gap-2"
@@ -458,7 +454,6 @@ const AcademicCalendar: React.FC = () => {
                 onClick={() => {
                   setShowEventModal(false);
                   setSelectedEvent(null);
-                  setSelectedDate(null);
                 }}
               >
                 Cancel

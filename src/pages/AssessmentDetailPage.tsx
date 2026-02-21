@@ -10,7 +10,7 @@ import {
   studentService,
   submissionService,
 } from '../services/api';
-import { Assessment, Result, Student } from '../types';
+import { Assessment, Student } from '../types';
 
 type DetailTab = 'assessment' | 'submissions' | 'scheme';
 
@@ -65,7 +65,7 @@ interface SubmissionDetail {
   id: string;
   submissionType?: string;
   submissionContent?: string;
-  externalAssessmentData?: unknown;
+  externalAssessmentData?: Record<string, unknown> | null;
   autoGrading?: {
     result?: {
       feedback?: string;
@@ -77,14 +77,33 @@ interface SubmissionDetail {
   };
 }
 
-type ResultRecord = Result & {
-  student: string | { id?: string; firstName?: string; lastName?: string };
+interface ResultStudentRef {
+  id?: string;
+  firstName?: string;
+  lastName?: string;
+}
+
+interface ResultCriteria {
+  criterion?: string;
+  comments?: string;
+  score?: number;
+}
+
+interface ResultRecord {
+  id: string;
+  student: string | ResultStudentRef;
+  assessment: string;
+  expectedMark?: number;
+  actualMark?: number;
+  grade?: string;
+  feedback?: string;
+  submittedDate?: Date | string;
   externalAssessmentData?: {
     fileName?: string;
-    criteria?: Array<{ criterion?: string; comments?: string; score?: number }>;
+    criteria?: ResultCriteria[];
     [key: string]: unknown;
   } | null;
-};
+}
 
 const formatDate = (value?: string | Date | null) => {
   if (!value) return 'N/A';
@@ -517,7 +536,7 @@ const AssessmentDetailPage: React.FC = () => {
                               ) : (
                                 <div className="text-xs text-slate-500">No submission text/file payload returned for this attempt.</div>
                               )}
-                              {submissionDetail.externalAssessmentData && (
+                              {Boolean(submissionDetail.externalAssessmentData) && (
                                 <details className="text-xs text-slate-600">
                                   <summary className="cursor-pointer">External assessment payload</summary>
                                   <pre className="mt-2 max-h-40 overflow-auto rounded-md border border-slate-200 bg-slate-50 p-2 whitespace-pre-wrap">
@@ -568,7 +587,7 @@ const AssessmentDetailPage: React.FC = () => {
                             <details className="text-xs text-slate-600">
                               <summary className="cursor-pointer">Criteria breakdown from AI marking</summary>
                               <div className="mt-2 space-y-2">
-                                {selectedResult.externalAssessmentData.criteria.map((criterion, index) => (
+                                {selectedResult.externalAssessmentData.criteria.map((criterion: ResultCriteria, index: number) => (
                                   <div key={`${criterion.criterion || 'criterion'}-${index}`} className="rounded-md border border-slate-200 bg-slate-50 p-2">
                                     <div className="font-semibold text-slate-700">{criterion.criterion || `Criterion ${index + 1}`}</div>
                                     {criterion.score != null && (

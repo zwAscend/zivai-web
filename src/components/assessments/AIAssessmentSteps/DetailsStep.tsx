@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -6,15 +6,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { 
-  X, 
+  X,
   Plus, 
   Upload, 
   FileText, 
   Settings, 
   Target, 
-  Calendar,
   Hash,
-  BookOpen,
   CheckCircle,
   AlertCircle
 } from 'lucide-react';
@@ -65,8 +63,6 @@ export function DetailsStep({
   selectedSubject,
   setSelectedSubject
 }: DetailsStepProps) {
-  const [dragActive, setDragActive] = useState(false);
-
   // Handle file drop
   const onDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {

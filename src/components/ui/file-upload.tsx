@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Button } from './button';
-import { FileUpload as FileUploadIcon } from 'lucide-react';
+import { Upload as FileUploadIcon } from 'lucide-react';
 
 interface FileUploadProps {
   onFileSelect: (file: File) => void;
@@ -19,8 +19,8 @@ export function FileUpload({ onFileSelect, accept }: FileUploadProps) {
     }
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleFileSelect = (files: FileList | null | undefined) => {
+    const file = files?.[0];
     if (file) {
       onFileSelect(file);
     }
@@ -54,7 +54,10 @@ export function FileUpload({ onFileSelect, accept }: FileUploadProps) {
                 const input = document.createElement('input');
                 input.type = 'file';
                 input.accept = accept || '';
-                input.onchange = handleFileSelect;
+                input.onchange = (event) => {
+                  const target = event.target as HTMLInputElement | null;
+                  handleFileSelect(target?.files);
+                };
                 input.click();
               }}
             >

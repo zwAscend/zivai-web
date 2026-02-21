@@ -52,7 +52,7 @@ export const planningService = {
    * Local fallback plan generation (no AI dependency)
    */
   generateLocalPlan(params: GeneratePlanParams): Omit<Plan, 'id'> {
-    const { subjectId, subjectName, attributes, studentAttributes, targetScores, student } = params;
+    const { subjectId, subjectName, attributes, targetScores, student } = params;
 
     const skills = (attributes && attributes.length > 0 ? attributes : [
       { id: 'overall', name: 'Overall Performance', description: '' }

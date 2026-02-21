@@ -135,14 +135,6 @@ const ClassroomView: React.FC = () => {
     }
   };
 
-  const handleTabChange = (tab: string) => {
-    setActiveTab(tab);
-    navigate(`/classroom?tab=${tab}`);
-    setSelectedForResults(false);
-    setSelectedForDevelopment(false);
-    setShowChat(false);
-  };
-
   const handleClosePane = () => {
     setSelectedForResults(false);
     setSelectedForDevelopment(false);

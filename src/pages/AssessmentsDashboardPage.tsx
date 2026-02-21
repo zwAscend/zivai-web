@@ -1,40 +1,22 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Search, Filter } from 'lucide-react';
-import { assessmentService, studentService, subjectService } from '../services/api';
-import { Assessment, Student, Subject } from '../types';
+import { teacherService } from '../services/teacherService';
+import { authService } from '../services/authService';
 import Sidebar from '../components/resources/Sidebar';
 
-interface AssessmentWithResult {
-  assessment: Assessment;
-  resultScore?: number;
-  resultExpected?: number;
-}
-
-interface AssessmentMetrics {
-  attempted: number;
-  submitted: number;
-  passed: number;
-  failed: number;
-  averageScore: number;
-  passRate: number;
-  aiReview: string;
-}
-
-const normalizeType = (assessment: Assessment) => {
-  const raw: any = assessment as any;
-  const type = raw.assessmentType || assessment.type || 'Test';
-  const normalized = String(type).toLowerCase().replace(/\s+/g, '-');
+const normalizeType = (value?: string | null) => {
+  const normalized = String(value || 'test').toLowerCase().replace(/\s+/g, '-');
   return normalized === 'homework' ? 'home-work' : normalized;
 };
 
 const AssessmentsDashboardPage: React.FC = () => {
   const navigate = useNavigate();
-  const [subjects, setSubjects] = useState<Subject[]>([]);
-  const [students, setStudents] = useState<Student[]>([]);
-  const [assessments, setAssessments] = useState<Assessment[]>([]);
-  const [filtered, setFiltered] = useState<AssessmentWithResult[]>([]);
-  const [metricsByAssessment, setMetricsByAssessment] = useState<Record<string, AssessmentMetrics>>({});
+  const teacherId = useMemo(() => authService.getCurrentUserId(), []);
+
+  const [subjects, setSubjects] = useState<Array<{ id: string; name: string }>>([]);
+  const [students, setStudents] = useState<Array<{ id: string; firstName: string; lastName: string; email: string }>>([]);
+  const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSubjectId, setSelectedSubjectId] = useState('');
   const [selectedType, setSelectedType] = useState('all');
@@ -45,147 +27,56 @@ const AssessmentsDashboardPage: React.FC = () => {
 
   useEffect(() => {
     const loadSubjects = async () => {
+      if (!teacherId) {
+        setSubjects([]);
+        return;
+      }
       try {
-        const data = await subjectService.getTeachingSubjects();
-        setSubjects(data || []);
-        if (data && data.length > 0) {
-          setSelectedSubjectId(data[0].id);
+        const data = await teacherService.getMySubjects(teacherId);
+        const mapped = (data || []).map((subject) => ({
+          id: subject.subjectId,
+          name: subject.subjectName,
+        }));
+        setSubjects(mapped);
+        if (mapped.length > 0) {
+          setSelectedSubjectId((prev) => prev || mapped[0].id);
         }
       } catch (error) {
         console.error('Failed to load subjects:', error);
+        setSubjects([]);
       }
     };
     loadSubjects();
-  }, []);
+  }, [teacherId]);
 
   useEffect(() => {
     const loadStudents = async () => {
+      if (!teacherId) {
+        setStudents([]);
+        return;
+      }
       try {
-        const data = await studentService.getStudents(selectedSubjectId || undefined);
-        setStudents(data || []);
+        const response = await teacherService.getStudentsSummary(teacherId, {
+          subjectId: selectedSubjectId || undefined,
+          q: searchMode === 'student' && searchQuery.trim() ? searchQuery.trim() : undefined,
+          page: 0,
+          size: 500,
+        });
+        const items = Array.isArray(response?.items) ? response.items : [];
+        setStudents(items.map((student) => ({
+          id: student.studentId,
+          firstName: student.firstName,
+          lastName: student.lastName,
+          email: student.email,
+        })));
       } catch (error) {
         console.error('Failed to load students:', error);
         setStudents([]);
       }
     };
+
     loadStudents();
-  }, [selectedSubjectId]);
-
-  useEffect(() => {
-    const loadAssessments = async () => {
-      setLoading(true);
-      try {
-        const data = selectedSubjectId
-          ? await assessmentService.getAssessmentsBySubjectId(selectedSubjectId)
-          : await assessmentService.getAssessments();
-        setAssessments(data || []);
-      } catch (error) {
-        console.error('Failed to load assessments:', error);
-        setAssessments([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadAssessments();
-  }, [selectedSubjectId]);
-
-  useEffect(() => {
-    const applyFilters = async () => {
-      setLoading(true);
-      try {
-        let list = assessments;
-        const assessmentSearch = searchMode === 'assessment'
-          ? searchQuery.trim().toLowerCase()
-          : '';
-        if (assessmentSearch) {
-          list = list.filter((item) =>
-            (item.name || '').toLowerCase().includes(assessmentSearch)
-          );
-        }
-        if (selectedType !== 'all') {
-          list = list.filter((item) => normalizeType(item) === selectedType);
-        }
-        if (selectedStatus !== 'all' && selectedStatus !== 'marked') {
-          list = list.filter((item) => (item.status || 'draft') === selectedStatus);
-        }
-
-        let results: AssessmentWithResult[] = list.map((item) => ({ assessment: item }));
-
-        const metricsEntries = await Promise.all(
-          list.map(async (item) => {
-            const resultsList = await assessmentService.getResults(item.id).catch(() => []);
-            const attempted = resultsList.length;
-            const submitted = resultsList.length;
-            const totalScore = resultsList.reduce((sum, result) => sum + (result.actualMark || 0), 0);
-            const averageScore = attempted > 0 ? totalScore / attempted : 0;
-            const passed = resultsList.filter((result) => {
-              const expected = result.expectedMark ?? item.maxScore ?? 0;
-              if (expected > 0) {
-                return (result.actualMark || 0) >= expected * 0.5;
-              }
-              const grade = (result.grade || '').toLowerCase();
-              return grade && !grade.includes('fail') && !grade.includes('f');
-            }).length;
-            const failed = attempted - passed;
-            const passRate = attempted > 0 ? Math.round((passed / attempted) * 100) : 0;
-            const aiReview = (item as any).isAIEnhanced || (item as any).aiEnhanced ? 'Enabled' : 'Disabled';
-            return [
-              item.id,
-              {
-                attempted,
-                submitted,
-                passed,
-                failed,
-                averageScore,
-                passRate,
-                aiReview,
-              } as AssessmentMetrics,
-            ] as const;
-          })
-        );
-
-        const nextMetrics = Object.fromEntries(metricsEntries);
-        setMetricsByAssessment(nextMetrics);
-
-        if (selectedStatus === 'marked') {
-          list = list.filter((item) => nextMetrics[item.id]?.attempted > 0);
-          results = results.filter((item) => nextMetrics[item.assessment.id]?.attempted > 0);
-        }
-
-        if (selectedStudentId) {
-          results = await Promise.all(
-            list.map(async (item) => {
-              const resultList = await assessmentService.getResults(item.id, selectedStudentId).catch(() => []);
-              if (resultList.length === 0) return null;
-              const result = resultList[0];
-              return {
-                assessment: item,
-                resultScore: result.actualMark,
-                resultExpected: result.expectedMark,
-              };
-            })
-          ).then((items) => items.filter(Boolean) as AssessmentWithResult[]);
-        }
-
-        const sortedResults = [...results].sort((left, right) => {
-          const leftMarked = nextMetrics[left.assessment.id]?.attempted ?? 0;
-          const rightMarked = nextMetrics[right.assessment.id]?.attempted ?? 0;
-          if (rightMarked !== leftMarked) return rightMarked - leftMarked;
-          return (left.assessment.name || '').localeCompare(right.assessment.name || '');
-        });
-
-        setFiltered(sortedResults);
-      } catch (error) {
-        console.error('Failed to filter assessments:', error);
-        setFiltered([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    applyFilters();
-  }, [assessments, selectedType, selectedStatus, selectedStudentId, searchMode, searchQuery]);
+  }, [teacherId, selectedSubjectId, searchMode, searchQuery]);
 
   const matchingStudents = useMemo(() => {
     const query = searchMode === 'student' ? searchQuery.trim().toLowerCase() : '';
@@ -208,6 +99,50 @@ const AssessmentsDashboardPage: React.FC = () => {
       setSelectedStudentId('');
     }
   }, [searchMode, searchQuery, matchingStudents]);
+
+  useEffect(() => {
+    const loadOverview = async () => {
+      setLoading(true);
+      try {
+        if (!teacherId) {
+          setRows([]);
+          return;
+        }
+
+        if (searchMode === 'student' && searchQuery.trim() && !selectedStudentId) {
+          setRows([]);
+          return;
+        }
+
+        const data = await teacherService.getAssessmentsOverview(teacherId, {
+          subjectId: selectedSubjectId || undefined,
+          status: selectedStatus !== 'all' ? selectedStatus : undefined,
+          studentId: selectedStudentId || undefined,
+          search: searchMode === 'assessment' && searchQuery.trim() ? searchQuery.trim() : undefined,
+        });
+        setRows(data || []);
+      } catch (error) {
+        console.error('Failed to load assessment overview:', error);
+        setRows([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadOverview();
+  }, [
+    teacherId,
+    selectedSubjectId,
+    selectedStatus,
+    selectedStudentId,
+    searchMode,
+    searchQuery,
+  ]);
+
+  const filteredRows = useMemo(() => {
+    if (selectedType === 'all') return rows;
+    return rows.filter((row) => normalizeType(row.assessmentType) === selectedType);
+  }, [rows, selectedType]);
 
   return (
     <div className="flex h-full bg-slate-50 text-slate-900 overflow-hidden">
@@ -249,7 +184,7 @@ const AssessmentsDashboardPage: React.FC = () => {
                 />
               </div>
               {searchMode === 'student' && (
-                <p className="text-[11px] text-gray-400 mt-1">All students by default. Search will narrow to a single match.</p>
+                <p className="text-[11px] text-gray-400 mt-1">Search will narrow to one student before loading student-specific marks.</p>
               )}
             </div>
           </div>
@@ -306,7 +241,7 @@ const AssessmentsDashboardPage: React.FC = () => {
             <h2 className="text-lg font-semibold">Assessment List</h2>
             <div className="flex items-center gap-2 text-xs text-gray-500">
               <Filter className="h-4 w-4" />
-              {filtered.length} assessments
+              {filteredRows.length} assessments
             </div>
           </div>
 
@@ -316,36 +251,36 @@ const AssessmentsDashboardPage: React.FC = () => {
                 <div key={index} className="h-14 bg-slate-200 rounded animate-pulse" />
               ))}
             </div>
-          ) : filtered.length > 0 ? (
+          ) : filteredRows.length > 0 ? (
             <div className="space-y-3">
-              {filtered.map(({ assessment, resultScore, resultExpected }) => (
-                <div key={assessment.id} className="border border-gray-200 rounded-lg p-4 space-y-3">
+              {filteredRows.map((row) => (
+                <div key={row.assignmentId} className="border border-gray-200 rounded-lg p-4 space-y-3">
                   <div className="flex flex-wrap items-start justify-between gap-4">
                     <div>
-                      <div className="text-sm font-semibold text-gray-800">{assessment.name}</div>
+                      <div className="text-sm font-semibold text-gray-800">{row.assessmentName}</div>
                       <div className="text-xs text-gray-500">
-                        {assessment.type || (assessment as any).assessmentType || 'Assessment'} • Status: {assessment.status || 'draft'}
+                        {row.assessmentType || 'Assessment'} • Status: {row.assessmentStatus || 'draft'}
                       </div>
                     </div>
-                    {(metricsByAssessment[assessment.id]?.attempted ?? 0) > 0 && (
+                    {row.attempted > 0 && (
                       <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
                         Marked
                       </span>
                     )}
                     {selectedStudentId && (
                       <div className="text-sm text-gray-600">
-                        Score: {resultScore ?? 0}/{resultExpected ?? 0}
+                        Score: {row.studentActualMark ?? 0}/{row.studentExpectedMark ?? 0}
                       </div>
                     )}
                     <div className="flex items-center gap-3">
                       <button
-                        onClick={() => navigate(`/assessments/view/${assessment.id}`)}
+                        onClick={() => navigate(`/assessments/view/${row.assessmentId}`)}
                         className="text-blue-600 text-sm font-medium hover:text-blue-700"
                       >
                         View assessment
                       </button>
                       <button
-                        onClick={() => navigate(`/assessments/analysis?assessmentId=${assessment.id}`)}
+                        onClick={() => navigate(`/assessments/analysis?assessmentId=${row.assessmentId}`)}
                         className="text-slate-600 text-sm font-medium hover:text-slate-800"
                       >
                         Analysis
@@ -353,14 +288,14 @@ const AssessmentsDashboardPage: React.FC = () => {
                     </div>
                   </div>
                   <div className="grid grid-cols-2 md:grid-cols-6 gap-2 text-xs text-gray-600">
-                    <div className="bg-slate-50 rounded px-2 py-1">Marked submissions: {metricsByAssessment[assessment.id]?.attempted ?? 0}</div>
-                    <div className="bg-slate-50 rounded px-2 py-1">Submitted: {metricsByAssessment[assessment.id]?.submitted ?? 0}</div>
-                    <div className="bg-slate-50 rounded px-2 py-1">Passed: {metricsByAssessment[assessment.id]?.passed ?? 0}</div>
-                    <div className="bg-slate-50 rounded px-2 py-1">Failed: {metricsByAssessment[assessment.id]?.failed ?? 0}</div>
-                    <div className="bg-slate-50 rounded px-2 py-1">Average: {(metricsByAssessment[assessment.id]?.averageScore ?? 0).toFixed(1)}</div>
-                    <div className="bg-slate-50 rounded px-2 py-1">Pass rate: {metricsByAssessment[assessment.id]?.passRate ?? 0}%</div>
+                    <div className="bg-slate-50 rounded px-2 py-1">Marked submissions: {row.attempted}</div>
+                    <div className="bg-slate-50 rounded px-2 py-1">Submitted: {row.submitted}</div>
+                    <div className="bg-slate-50 rounded px-2 py-1">Passed: {row.passed}</div>
+                    <div className="bg-slate-50 rounded px-2 py-1">Failed: {row.failed}</div>
+                    <div className="bg-slate-50 rounded px-2 py-1">Average: {(row.averageScore ?? 0).toFixed(1)}</div>
+                    <div className="bg-slate-50 rounded px-2 py-1">Pass rate: {Math.round(row.passRate ?? 0)}%</div>
                   </div>
-                  <div className="text-xs text-gray-500">AI Review: {metricsByAssessment[assessment.id]?.aiReview ?? 'Disabled'}</div>
+                  <div className="text-xs text-gray-500">AI Review: {row.aiEnhanced ? 'Enabled' : 'Disabled'}</div>
                 </div>
               ))}
             </div>
@@ -369,7 +304,6 @@ const AssessmentsDashboardPage: React.FC = () => {
           )}
         </div>
       </main>
-
     </div>
   );
 };

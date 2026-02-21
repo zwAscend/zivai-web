@@ -19,4 +19,6 @@ export { reteachCardService } from './reteachCardService';
 export { aiTutorService } from './aiTutorService';
 export { calendarService } from './calendarService';
 export { resourceService } from './resourceService';
+export { peerStudyService } from './peerStudyService';
+export { teacherService } from './teacherService';
 export type { UnreadChatCount } from './chatService';

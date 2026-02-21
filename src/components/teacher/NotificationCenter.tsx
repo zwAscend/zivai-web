@@ -1,15 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, X, Eye, CheckCircle, Clock, AlertCircle, FileText, User } from 'lucide-react';
-import { notificationService, submissionService } from '../../services/api';
-import { motion, AnimatePresence } from 'framer-motion';
+import { Bell, X, CheckCircle, AlertCircle, FileText, User } from 'lucide-react';
+import { notificationService } from '../../services/api';
+import { motion } from 'framer-motion';
 import SubmissionReviewModal from './SubmissionReviewModal';
+import type { NotificationItem } from '../../services/notificationService';
 
 interface Notification {
   id: string;
   type: string;
   title: string;
   message: string;
-  data: any;
+  data: {
+    submissionId?: string;
+    score?: number | string;
+    maxScore?: number | string;
+    confidence?: number | string;
+  };
   read: boolean;
   createdAt: string;
   priority: 'low' | 'medium' | 'high' | 'urgent';
@@ -36,12 +42,20 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ isOpen, onClose
     try {
       setLoading(true);
       const response = await notificationService.getNotifications(1, 50);
-      const list = Array.isArray(response?.notifications)
-        ? response.notifications
-        : Array.isArray(response)
-          ? response
-          : [];
-      setNotifications(list);
+      const list = Array.isArray(response) ? response : [];
+      const normalized: Notification[] = list.map((item: NotificationItem) => ({
+        id: item.id,
+        type: item.notifType || 'notification',
+        title: item.title || 'Notification',
+        message: item.message || '',
+        data: {},
+        read: item.read ?? false,
+        createdAt: item.createdAt || new Date().toISOString(),
+        priority: (['low', 'medium', 'high', 'urgent'].includes(String(item.priority))
+          ? item.priority
+          : 'low') as Notification['priority'],
+      }));
+      setNotifications(normalized);
     } catch (error) {
       console.error('Error fetching notifications:', error);
       setNotifications([]);
@@ -62,7 +76,7 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ isOpen, onClose
   };
 
   const handleViewSubmission = async (notification: Notification) => {
-    if (notification.data.submissionId) {
+    if (typeof notification.data.submissionId === 'string' && notification.data.submissionId.length > 0) {
       setSelectedSubmission(notification.data.submissionId);
       setShowReviewModal(true);
       
@@ -180,16 +194,16 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ isOpen, onClose
                       {/* Additional data for assignment notifications */}
                       {notification.data && (notification.type === 'assignment_graded' || notification.type === 'assignment_submitted') && (
                         <div className="mt-2 flex items-center gap-4 text-xs text-gray-500">
-                          {notification.data.score && (
+                          {notification.data.score != null && (
                             <span className="flex items-center gap-1">
                               <CheckCircle className="w-3 h-3" />
-                              Score: {notification.data.score}/{notification.data.maxScore}
+                              Score: {String(notification.data.score)}/{String(notification.data.maxScore ?? '')}
                             </span>
                           )}
-                          {notification.data.confidence && (
+                          {notification.data.confidence != null && (
                             <span className="flex items-center gap-1">
                               <AlertCircle className="w-3 h-3" />
-                              Confidence: {notification.data.confidence}%
+                              Confidence: {String(notification.data.confidence)}%
                             </span>
                           )}
                         </div>

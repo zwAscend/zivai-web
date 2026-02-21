@@ -68,6 +68,22 @@ export interface StudentReportResponse {
   masteryGaps: StudentTopicMastery[];
 }
 
+export interface StudentReportCardSubject {
+  subjectId: string;
+  subjectCode?: string | null;
+  subjectName?: string | null;
+  masteryPercent: number;
+  currentGrade: string;
+  predictedZimsecGrade: string;
+  assessmentCount: number;
+}
+
+export interface StudentReportCardResponse {
+  studentId: string;
+  studentName?: string | null;
+  subjects: StudentReportCardSubject[];
+}
+
 export const reportService = {
   getCurriculumForecast: async (subjectId?: string): Promise<CurriculumForecastResponse | null> => {
     const params = new URLSearchParams();
@@ -105,5 +121,13 @@ export const reportService = {
     if (subjectId) params.append('subjectId', subjectId);
     const endpoint = `/reports/student-report?${params.toString()}`;
     return fetchData(endpoint);
-  }
+  },
+  getStudentReportCard: async (studentId: string): Promise<StudentReportCardResponse | null> => {
+    if (!studentId || studentId === 'undefined') {
+      throw new Error('Student id is required');
+    }
+    return fetchData<StudentReportCardResponse>(`/reports/student/${studentId}/report-card`, {
+      cacheTtlMs: 2 * 60 * 1000,
+    });
+  },
 };

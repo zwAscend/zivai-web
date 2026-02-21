@@ -15,6 +15,20 @@ type CacheEntry = {
   expiresAt: number;
 };
 
+export class ApiError extends Error {
+  status: number;
+  endpoint: string;
+  details?: unknown;
+
+  constructor(status: number, message: string, endpoint: string, details?: unknown) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.endpoint = endpoint;
+    this.details = details;
+  }
+}
+
 const responseCache = new Map<string, CacheEntry>();
 const inFlightRequests = new Map<string, Promise<unknown>>();
 
@@ -90,6 +104,17 @@ function buildCacheKey(endpoint: string, method: string, token: string | null): 
   return `${method}:${endpoint}:token=${token ?? 'anon'}`;
 }
 
+function sanitizeApiErrorMessage(status: number, rawMessage: string): string {
+  if (status === 401) return 'Your session has expired. Please sign in again.';
+  if (status === 403) return 'You are not allowed to access this resource.';
+  if (status === 404) return 'Requested data is not available right now.';
+  if (status >= 500) return 'Server error. Please try again shortly.';
+  if (rawMessage.toLowerCase().includes('no static resource')) {
+    return 'Requested data is not available right now.';
+  }
+  return rawMessage || 'Something went wrong';
+}
+
 // Helper function for fetch requests with GET caching + request de-duplication.
 export async function fetchData<T = any>(endpoint: string, options: FetchOptions = {}): Promise<T> {
   const token = getActiveAuthToken();
@@ -137,10 +162,15 @@ export async function fetchData<T = any>(endpoint: string, options: FetchOptions
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({
-        message: 'Something went wrong',
+      const errorPayload = await response.json().catch(() => ({
+        message: '',
       }));
-      throw new Error(error.message || `HTTP error! status: ${response.status}`);
+      const rawMessage =
+        typeof errorPayload?.message === 'string'
+          ? errorPayload.message
+          : '';
+      const message = sanitizeApiErrorMessage(response.status, rawMessage);
+      throw new ApiError(response.status, message, endpoint, errorPayload);
     }
 
     if (response.status === 204) {

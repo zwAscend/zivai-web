@@ -55,7 +55,7 @@ interface ClassSummary {
   categories: GradeCategory[];
 }
 
-const Header: React.FC<HeaderProps> = ({ activeTab, setActiveTab, portalType = 'teacher' }) => {
+const Header: React.FC<HeaderProps> = ({ activeTab: _activeTab, setActiveTab, portalType = 'teacher' }) => {
   const currentUser = authService.getCurrentUser();
   const navigate = useNavigate();
   const location = useLocation();

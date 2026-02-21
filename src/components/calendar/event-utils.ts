@@ -1,7 +1,7 @@
 // src/components/calendar/event-utils.ts
 // import { EventInput } from '@fullcalendar/react';
 // import EventInput from "@fullcalendar/react";
-import { EventInput } from '@fullcalendar/common';
+import { EventInput } from '@fullcalendar/core';
 
 let eventGuid = 0;
 const TODAY_STR = new Date().toISOString().replace(/T.*$/, ''); // YYYY-MM-DD of today

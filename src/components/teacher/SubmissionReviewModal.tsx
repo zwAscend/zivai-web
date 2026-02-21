@@ -16,14 +16,11 @@ import {
   Save,
   CheckCircle,
   User,
-  Calendar,
   Award,
   TrendingUp,
   AlertTriangle,
   Eye,
   X,
-  Clock,
-  Target,
   BookOpen
 } from 'lucide-react';
 import { submissionService } from '../../services/api';

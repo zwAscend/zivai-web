@@ -282,7 +282,7 @@ const Dashboard: React.FC = () => {
   
   const fetchStudentsBySubject = async (subjectId: string): Promise<Student[]> => {
     try {
-      return await studentService.getStudents(subjectId);
+      return (await studentService.getStudents(subjectId)) as unknown as Student[];
     } catch (error) {
       console.error("Error fetching students:", error);
       return [];
@@ -291,7 +291,7 @@ const Dashboard: React.FC = () => {
 
   const fetchAssessmentsBySubject = async (subjectId: string): Promise<Assessment[]> => {
     try {
-      return await assessmentService.getAssessmentsBySubjectId(subjectId);
+      return (await assessmentService.getAssessmentsBySubjectId(subjectId)) as unknown as Assessment[];
     } catch (error) {
       console.error("Error fetching assessments:", error);
       return [];
@@ -300,7 +300,7 @@ const Dashboard: React.FC = () => {
 
   const fetchAssessmentResults = async (assessmentId: string): Promise<AssessmentResult[]> => {
     try {
-      return await assessmentService.getResults(assessmentId);
+      return (await assessmentService.getResults(assessmentId)) as unknown as AssessmentResult[];
     } catch (error) {
       console.error("Error fetching assessment results:", error);
       return [];
@@ -309,7 +309,7 @@ const Dashboard: React.FC = () => {
 
   const fetchStudentDevelopmentPlan = async (studentId: string, subjectId: string): Promise<DevelopmentPlan | null> => {
     try {
-      return await developmentService.getStudentPlan(studentId, subjectId);
+      return (await developmentService.getStudentPlan(studentId, subjectId)) as unknown as DevelopmentPlan;
     } catch (error) {
       console.error("Error fetching development plan:", error);
       return null;

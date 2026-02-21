@@ -2,7 +2,6 @@ import React, { useCallback, useState, useRef } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Progress } from '../ui/progress';
-import { Badge } from '../ui/badge';
 import { 
   X, 
   UploadCloud, 
@@ -19,7 +18,7 @@ import {
 interface Subject {
   id: string;
   name: string;
-  code: string;
+  code?: string;
 }
 
 interface UploadModalProps {

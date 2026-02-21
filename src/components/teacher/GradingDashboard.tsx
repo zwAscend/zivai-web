@@ -2,18 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   FileText, 
-  Clock, 
   CheckCircle, 
-  AlertCircle, 
   TrendingUp, 
   Users,
   BarChart3,
-  Filter,
   Search,
   ArrowLeft
 } from 'lucide-react';
 import { submissionService } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
+import { authService } from '../../services/authService';
 import SubmissionReviewModal from './SubmissionReviewModal';
 
 interface GradingStats {
@@ -64,6 +62,7 @@ const GradingDashboard: React.FC<GradingDashboardProps> = ({ embedded = false })
   const [filterStatus, setFilterStatus] = useState<'all' | 'graded' | 'submitted'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const { selectedSubject } = useAuth();
+  const teacherId = authService.getCurrentUserId();
 
   useEffect(() => {
     fetchData();
@@ -74,7 +73,11 @@ const GradingDashboard: React.FC<GradingDashboardProps> = ({ embedded = false })
       setLoading(true);
       const [statsData, submissionsData] = await Promise.all([
         submissionService.getGradingStats(selectedSubject?.id),
-        submissionService.getPendingSubmissions()
+        submissionService.getPendingSubmissions({
+          teacherId: teacherId || undefined,
+          subjectId: selectedSubject?.id,
+          size: 200,
+        })
       ]);
       
       setStats(statsData);

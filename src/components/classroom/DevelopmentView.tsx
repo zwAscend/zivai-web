@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { DevelopmentPlan, Student, Plan, Skill, Subskill, SkillColor } from '../../types';
+import { DevelopmentPlan, Student, Skill, SkillColor } from '../../types';
 import { studentService, developmentService } from '../../services/api';
 import { useToast } from "@/components/ui/use-toast";
 import CreateDevelopmentPlanModal from '../resources/CreateDevelopmentPlanModal';
@@ -189,7 +189,11 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
           onOpenChange={setIsCreatePlanModalOpen}
           onPlanCreated={handlePlanCreated}
           students={[selectedStudent]}
-          subjectId={selectedStudent.subjects?.[0] || ''}
+          subjectId={
+            typeof selectedStudent.subjects?.[0] === 'string'
+              ? selectedStudent.subjects?.[0]
+              : selectedStudent.subjects?.[0]?.id || ''
+          }
         />
       )}
 
@@ -388,7 +392,7 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                 .map((step, idx) => (
                   <li key={idx} className="text-gray-700 text-sm">
                     <span className="font-semibold">
-                      Step {step.order || idx + 1}: {step.title || step.name || `Step ${idx + 1}`}
+                      Step {step.order || idx + 1}: {step.title || `Step ${idx + 1}`}
                     </span>
                     <span className="ml-2 px-2 py-0.5 rounded bg-gray-200 text-xs text-gray-700 inline-block w-fit">
                       {step.type ? step.type.charAt(0).toUpperCase() + step.type.slice(1) : ''}

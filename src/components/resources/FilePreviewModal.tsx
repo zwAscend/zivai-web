@@ -1,4 +1,4 @@
-import React, { forwardRef } from 'react';
+import { forwardRef } from 'react';
 import { X, FileText, Download, AlertCircle } from 'lucide-react'; // Added AlertCircle for error states
 import type { Resource } from './ResourcesView'; // Import the Resource type
 

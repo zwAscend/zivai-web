@@ -3,7 +3,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 import { clsx } from 'clsx';
-import { ArrowLeft, ArrowUp, Folder, Search as SearchIcon, BarChart, Star, UploadCloud, Link as LinkIcon, Sparkles, BookOpen, CalendarDays, Send, Maximize2, Minimize2, GripVertical, Wand2, Paperclip, Settings2, X } from 'lucide-react';
+import { ArrowLeft, ArrowUp, Folder, Search as SearchIcon, BarChart, Star, UploadCloud, Link as LinkIcon, Sparkles, BookOpen, CalendarDays, Send, Maximize2, Minimize2, GripVertical, Wand2, Paperclip, Settings2, X, type LucideIcon } from 'lucide-react';
 import { toast } from 'sonner';
 import Sidebar from './Sidebar';
 import UploadModal from './UploadModal';
@@ -31,6 +31,12 @@ export interface Analytics {
     averageDownloads: number;
     mostPopularResource: string;
     topClassEngagement: string;
+}
+
+interface UploadModalSubject {
+    id: string;
+    name: string;
+    code?: string;
 }
 
 interface CollaboratorThreadEntry {
@@ -257,6 +263,16 @@ const ResourcesDashboard: React.FC = () => {
         if (!query) return availableReferenceResources;
         return availableReferenceResources.filter((resource) => resource.name.toLowerCase().includes(query));
     }, [availableReferenceResources, referenceSearch]);
+
+    const uploadSubjects = useMemo<UploadModalSubject[]>(() => (
+        subjects.map(({ id, name, code }) => ({ id, name, code }))
+    ), [subjects]);
+
+    const selectedUploadSubject = useMemo<UploadModalSubject | null>(() => {
+        if (!selectedSubjectForUpload) return null;
+        const { id, name, code } = selectedSubjectForUpload;
+        return { id, name, code };
+    }, [selectedSubjectForUpload]);
 
     useEffect(() => {
         setSelectedReferenceResourceIds((prev) =>
@@ -1252,14 +1268,32 @@ const ResourcesDashboard: React.FC = () => {
                 </div>
             )}
             
-            <UploadModal isOpen={showUploadModal} onClose={() => setShowUploadModal(false)} onUploadSuccess={handleFileUploadSuccess} selectedSubject={selectedSubjectForUpload} subjects={subjects} onSubjectSelect={setSelectedSubjectForUpload} />
+            <UploadModal
+                isOpen={showUploadModal}
+                onClose={() => setShowUploadModal(false)}
+                onUploadSuccess={handleFileUploadSuccess}
+                selectedSubject={selectedUploadSubject}
+                subjects={uploadSubjects}
+                onSubjectSelect={(subject) => {
+                    const matchedSubject = subjects.find((item) => item.id === subject.id) || null;
+                    setSelectedSubjectForUpload(matchedSubject);
+                }}
+            />
         </div>
     );
 };
 
 // --- Child Components ---
 
-const StatCard = ({ icon: Icon, value, label, color, isText = false }) => (
+interface StatCardProps {
+    icon: LucideIcon;
+    value: string | number;
+    label: string;
+    color: 'blue' | 'green' | 'purple' | 'amber';
+    isText?: boolean;
+}
+
+const StatCard: React.FC<StatCardProps> = ({ icon: Icon, value, label, color, isText = false }) => (
     <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 flex items-center gap-5">
         <div className={`w-12 h-12 flex items-center justify-center rounded-full bg-${color}-100`}>
             <Icon size={24} className={`text-${color}-600`} />

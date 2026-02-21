@@ -1,6 +1,24 @@
 import { API_URL, fetchData } from './http';
 import { SubmissionPayload } from '../types';
 
+export interface SubmissionReviewQuestionDetail {
+  assessmentQuestionId: string;
+  order?: number;
+  prompt?: string;
+  studentAnswer?: string;
+  expectedMarkingPoints?: string[];
+  awardedMarks?: number;
+  maxMarks?: number;
+  feedback?: string;
+}
+
+export interface SubmissionReviewDetail {
+  submissionId: string;
+  assessmentId: string;
+  studentId: string;
+  questions: SubmissionReviewQuestionDetail[];
+}
+
 export const submissionService = {
   submitAnswers: async (payload: {
     assessmentId: string;
@@ -74,6 +92,10 @@ export const submissionService = {
     return fetchData(`/submissions/${submissionId}`);
   },
 
+  getSubmissionReviewDetail: async (submissionId: string): Promise<SubmissionReviewDetail> => {
+    return fetchData<SubmissionReviewDetail>(`/submissions/${submissionId}/review-detail`);
+  },
+
   getStudentSubmissions: async (studentId: string) => {
     return fetchData(`/submissions/student/${studentId}`);
   },
@@ -90,8 +112,27 @@ export const submissionService = {
     });
   },
 
-  getPendingSubmissions: async () => {
-    return fetchData('/submissions/teacher/pending');
+  getPendingSubmissions: async (filters: {
+    teacherId?: string;
+    subjectId?: string;
+    classId?: string;
+    assessmentId?: string;
+    studentId?: string;
+    status?: string;
+    page?: number;
+    size?: number;
+  } = {}) => {
+    const params = new URLSearchParams();
+    if (filters.teacherId) params.set('teacherId', filters.teacherId);
+    if (filters.subjectId) params.set('subjectId', filters.subjectId);
+    if (filters.classId) params.set('classId', filters.classId);
+    if (filters.assessmentId) params.set('assessmentId', filters.assessmentId);
+    if (filters.studentId) params.set('studentId', filters.studentId);
+    if (filters.status) params.set('status', filters.status);
+    if (typeof filters.page === 'number') params.set('page', String(filters.page));
+    if (typeof filters.size === 'number') params.set('size', String(filters.size));
+    const query = params.toString();
+    return fetchData(`/submissions/teacher/pending${query ? `?${query}` : ''}`);
   },
 
   getGradingStats: async (subjectId?: string, timeframe?: string) => {

@@ -36,5 +36,9 @@ export const authService = {
   getCurrentUser(): User | null {
     const userStr = getActiveUserJson();
     return userStr ? JSON.parse(userStr) : null;
+  },
+
+  getCurrentUserId(): string | null {
+    return this.getCurrentUser()?.id ?? null;
   }
 };

@@ -6,17 +6,10 @@ import interactionPlugin from '@fullcalendar/interaction';
 import listPlugin from '@fullcalendar/list';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  Calendar as CalendarIcon, 
   Plus, 
-  Filter, 
-  Download, 
   Settings,
   ChevronLeft,
   ChevronRight,
-  Grid,
-  List,
-  Clock,
-  Eye,
 } from 'lucide-react';
 import { CalendarEvent, EventFormData } from '../../types/calendar';
 import { Subject } from '../../types';
@@ -26,17 +19,10 @@ import EventModal from './EventModal';
 import EventDetailsModal from './EventDetailsModal';
 import CalendarIntegration from './CalendarIntegration';
 import { Button } from '../ui/button';
-import { Badge } from '../ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { useToast } from '../ui/use-toast';
 
 type EventType = 'lesson' | 'lab' | 'assignment_due' | 'exam' | 'quiz' | 'meeting' | 'office_hours' | 'workshop' | 'seminar' | 'presentation' | 'project_due' | 'holiday';
-
-// Define event types as a constant array for iteration
-const EVENT_TYPES: EventType[] = [
-  'lesson', 'lab', 'assignment_due', 'exam', 'quiz', 'meeting', 
-  'office_hours', 'workshop', 'seminar', 'presentation', 'project_due', 'holiday'
-];
 
 const CalendarView: React.FC = () => {
   const { toast } = useToast();

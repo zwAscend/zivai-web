@@ -1,40 +1,21 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import StudentsLayout from '../components/students/StudentsLayout';
-import { assessmentService, developmentService, studentService, subjectService } from '../services/api';
-import { DevelopmentPlan, Student, Subject } from '../types';
+import { teacherService } from '../services/teacherService';
+import { authService } from '../services/authService';
 
-interface SubjectMap {
-  [id: string]: Subject;
-}
-
-interface AssessmentSummary {
-  totalAssessments: number;
-  latestAssessmentName?: string;
-  latestScore?: number;
-  latestExpected?: number;
-  latestDate?: string;
-}
-
-interface SubjectSummary extends AssessmentSummary {
-  subjectId: string;
-  subjectName: string;
-  plans: DevelopmentPlan[];
-}
-
-const getInitials = (student: Student) =>
+const getInitials = (student: { firstName?: string; lastName?: string }) =>
   `${student.firstName?.[0] || ''}${student.lastName?.[0] || ''}`.toUpperCase();
 
 const StudentProfilePage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [students, setStudents] = useState<Student[]>([]);
-  const [subjects, setSubjects] = useState<SubjectMap>({});
+  const teacherId = authService.getCurrentUserId();
+
+  const [students, setStudents] = useState<any[]>([]);
+  const [subjects, setSubjects] = useState<Array<{ id: string; name: string }>>([]);
   const [selectedStudentId, setSelectedStudentId] = useState('');
-  const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
-  const [plans, setPlans] = useState<DevelopmentPlan[]>([]);
-  const [assessmentSummary, setAssessmentSummary] = useState<AssessmentSummary>({ totalAssessments: 0 });
-  const [subjectSummaries, setSubjectSummaries] = useState<SubjectSummary[]>([]);
+  const [profileSummary, setProfileSummary] = useState<any | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [loadingList, setLoadingList] = useState(true);
   const [studentQuery, setStudentQuery] = useState('');
@@ -50,30 +31,40 @@ const StudentProfilePage: React.FC = () => {
 
   useEffect(() => {
     const loadSubjects = async () => {
+      if (!teacherId) {
+        setSubjects([]);
+        return;
+      }
       try {
-        const data = await subjectService.getSubjects();
-        const map: SubjectMap = {};
-        (data || []).forEach((subject) => {
-          map[subject.id] = subject;
-        });
-        setSubjects(map);
+        const data = await teacherService.getMySubjects(teacherId);
+        setSubjects((data || []).map((subject) => ({ id: subject.subjectId, name: subject.subjectName })));
       } catch (error) {
         console.error('Failed to load subjects:', error);
-        setSubjects({});
+        setSubjects([]);
       }
     };
     loadSubjects();
-  }, []);
+  }, [teacherId]);
 
   useEffect(() => {
     const loadStudents = async () => {
+      if (!teacherId) {
+        setStudents([]);
+        setLoadingList(false);
+        return;
+      }
       setLoadingList(true);
       try {
-        const data = await studentService.getStudents();
-        const list = Array.isArray(data) ? data : [];
-        setStudents(list);
-        if (!selectedStudentId && list.length > 0) {
-          setSelectedStudentId(list[0].id);
+        const response = await teacherService.getStudentsSummary(teacherId, {
+          subjectId: subjectFocusId === 'all' ? undefined : subjectFocusId,
+          q: studentQuery.trim() || undefined,
+          page: 0,
+          size: 200,
+        });
+        const items = Array.isArray(response?.items) ? response.items : [];
+        setStudents(items);
+        if (!selectedStudentId && items.length > 0) {
+          setSelectedStudentId(items[0].studentId);
         }
       } catch (error) {
         console.error('Failed to load students:', error);
@@ -82,93 +73,34 @@ const StudentProfilePage: React.FC = () => {
         setLoadingList(false);
       }
     };
+
     loadStudents();
-  }, [selectedStudentId]);
+  }, [teacherId, selectedStudentId, subjectFocusId, studentQuery]);
 
   useEffect(() => {
     const loadStudentDetails = async () => {
-      if (!selectedStudentId) {
-        setSelectedStudent(null);
-        setPlans([]);
-        setAssessmentSummary({ totalAssessments: 0 });
+      if (!teacherId || !selectedStudentId) {
+        setProfileSummary(null);
         return;
       }
       setLoadingDetails(true);
       try {
-        const student = await studentService.getStudent(selectedStudentId);
-        setSelectedStudent(student);
-
-        const planData = await developmentService.getAllPlansForStudent(selectedStudentId).catch(() => []);
-        setPlans(planData || []);
-
-        const subjectIds = (student.subjects || [])
-          .map((subject) => (typeof subject === 'string' ? subject : subject?.id))
-          .filter(Boolean) as string[];
-
-        const filteredSubjectIds = subjectFocusId === 'all' ? subjectIds : subjectIds.filter((id) => id === subjectFocusId);
-
-        if (filteredSubjectIds.length === 0) {
-          setAssessmentSummary({ totalAssessments: 0 });
-          setSubjectSummaries([]);
-          return;
-        }
-
-        const summaryGroups = await Promise.all(
-          filteredSubjectIds.map(async (id) => {
-            const assessments = await assessmentService.getAssessmentsBySubjectId(id).catch(() => []);
-            const subjectName = subjects[id]?.name
-              || (student.subjects || []).find((subject) => (typeof subject === 'string' ? subject === id : subject?.id === id) && typeof subject !== 'string')?.name
-              || 'Subject';
-            const totalAssessments = assessments.length;
-
-            if (totalAssessments === 0) {
-              return {
-                subjectId: id,
-                subjectName,
-                totalAssessments: 0,
-                plans: planData.filter((plan) => plan.plan.subjectId === id),
-              } as SubjectSummary;
-            }
-
-            const latestAssessment = [...assessments].sort((a, b) => {
-              const aDate = a.dueDate ? new Date(a.dueDate).getTime() : 0;
-              const bDate = b.dueDate ? new Date(b.dueDate).getTime() : 0;
-              return bDate - aDate;
-            })[0];
-
-            const results = await assessmentService.getResults(latestAssessment.id, selectedStudentId).catch(() => []);
-            const latestResult = results[0];
-
-            return {
-              subjectId: id,
-              subjectName,
-              totalAssessments,
-              latestAssessmentName: latestAssessment.name,
-              latestScore: latestResult?.actualMark,
-              latestExpected: latestResult?.expectedMark,
-              latestDate: latestResult?.submittedDate ? new Date(latestResult.submittedDate).toLocaleDateString() : undefined,
-              plans: planData.filter((plan) => plan.plan.subjectId === id),
-            } as SubjectSummary;
-          })
+        const summary = await teacherService.getStudentProfileSummary(
+          teacherId,
+          selectedStudentId,
+          subjectFocusId === 'all' ? undefined : subjectFocusId
         );
-
-        setSubjectSummaries(summaryGroups);
-
-        const totalAssessments = summaryGroups.reduce((sum, summary) => sum + summary.totalAssessments, 0);
-        setAssessmentSummary({ totalAssessments });
+        setProfileSummary(summary);
       } catch (error) {
-        console.error('Failed to load student details:', error);
-        setSelectedStudent(null);
-        setPlans([]);
-        setAssessmentSummary({ totalAssessments: 0 });
-        setSubjectSummaries([]);
+        console.error('Failed to load student profile summary:', error);
+        setProfileSummary(null);
       } finally {
         setLoadingDetails(false);
       }
     };
 
     loadStudentDetails();
-  }, [selectedStudentId, subjectFocusId]);
+  }, [teacherId, selectedStudentId, subjectFocusId]);
 
   const filteredStudents = useMemo(() => {
     const query = studentQuery.trim().toLowerCase();
@@ -179,46 +111,11 @@ const StudentProfilePage: React.FC = () => {
     });
   }, [students, studentQuery]);
 
-  const averageProgress = useMemo(() => {
-    const filteredPlans = subjectFocusId === 'all'
-      ? plans
-      : plans.filter((plan) => plan.plan.subjectId === subjectFocusId);
-    if (filteredPlans.length === 0) return 0;
-    const total = filteredPlans.reduce((sum, plan) => sum + (plan.currentProgress || 0), 0);
-    return Math.round(total / filteredPlans.length);
-  }, [plans, subjectFocusId]);
+  const selectedStudent = useMemo(() => {
+    return students.find((student) => student.studentId === selectedStudentId) || null;
+  }, [students, selectedStudentId]);
 
-  const visibleSubjectSummaries = useMemo(() => {
-    if (subjectFocusId === 'all') return subjectSummaries;
-    return subjectSummaries.filter((summary) => summary.subjectId === subjectFocusId);
-  }, [subjectSummaries, subjectFocusId]);
-
-  const registrationNumber = selectedStudent
-    ? (selectedStudent as { registrationNumber?: string }).registrationNumber
-    : '';
-
-  const extraDetails = useMemo(() => {
-    if (!selectedStudent) return [];
-    const excluded = new Set([
-      'id',
-      'firstName',
-      'lastName',
-      'email',
-      'overall',
-      'strength',
-      'performance',
-      'engagement',
-      'subjects',
-      'activePlan',
-      'attributes',
-      'attendance',
-      'assessments',
-      'registrationNumber',
-    ]);
-    return Object.entries(selectedStudent)
-      .filter(([key, value]) => !excluded.has(key) && ['string', 'number', 'boolean'].includes(typeof value))
-      .map(([key, value]) => ({ key, value: String(value) }));
-  }, [selectedStudent]);
+  const studentCard = profileSummary?.student || selectedStudent;
 
   return (
     <StudentsLayout>
@@ -254,7 +151,7 @@ const StudentProfilePage: React.FC = () => {
                 className="px-3 py-2 text-sm border border-slate-200 rounded-md"
               >
                 {filteredStudents.map((student) => (
-                  <option key={student.id} value={student.id}>
+                  <option key={student.studentId} value={student.studentId}>
                     {student.firstName} {student.lastName}
                   </option>
                 ))}
@@ -265,7 +162,7 @@ const StudentProfilePage: React.FC = () => {
                 className="px-3 py-2 text-sm border border-slate-200 rounded-md"
               >
                 <option value="all">All subjects</option>
-                {Object.values(subjects).map((subject) => (
+                {subjects.map((subject) => (
                   <option key={subject.id} value={subject.id}>{subject.name}</option>
                 ))}
               </select>
@@ -283,28 +180,28 @@ const StudentProfilePage: React.FC = () => {
             </div>
             <div className="h-32 bg-slate-200 rounded animate-pulse" />
           </div>
-        ) : selectedStudent ? (
+        ) : studentCard && profileSummary ? (
           <div className="space-y-4">
             <div className="bg-white rounded-lg shadow p-4">
               <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                 <div className="flex items-center gap-3">
                   <div className="w-12 h-12 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-semibold">
-                    {getInitials(selectedStudent)}
+                    {getInitials(studentCard)}
                   </div>
                   <div>
-                    <h3 className="text-lg font-semibold">{selectedStudent.firstName} {selectedStudent.lastName}</h3>
-                    <p className="text-sm text-gray-500">{selectedStudent.email}</p>
-                    <p className="text-sm text-gray-500">Reg #: {registrationNumber || selectedStudent.id}</p>
+                    <h3 className="text-lg font-semibold">{studentCard.firstName} {studentCard.lastName}</h3>
+                    <p className="text-sm text-gray-500">{studentCard.email}</p>
+                    <p className="text-sm text-gray-500">Reg #: {studentCard.id || selectedStudentId}</p>
                   </div>
                 </div>
                 <div className="flex gap-4">
                   <div className="text-center">
                     <div className="text-xs text-gray-500">Overall</div>
-                    <div className="text-lg font-bold text-blue-600">{selectedStudent.overall ?? 0}%</div>
+                    <div className="text-lg font-bold text-blue-600">{studentCard.overall ?? 0}%</div>
                   </div>
                   <div className="text-center">
                     <div className="text-xs text-gray-500">Mastery</div>
-                    <div className="text-lg font-bold text-green-600">{averageProgress}%</div>
+                    <div className="text-lg font-bold text-green-600">{Math.round(profileSummary.planSummary?.averageProgress ?? 0)}%</div>
                   </div>
                 </div>
               </div>
@@ -314,167 +211,62 @@ const StudentProfilePage: React.FC = () => {
               <div className="bg-white rounded-lg shadow p-4">
                 <h4 className="text-sm font-semibold mb-2">Profile Details</h4>
                 <div className="space-y-2 text-sm text-gray-600">
-                  <div className="flex justify-between"><span>Performance</span><span>{selectedStudent.performance || '—'}</span></div>
-                  <div className="flex justify-between"><span>Engagement</span><span>{selectedStudent.engagement || '—'}</span></div>
-                  <div className="flex justify-between"><span>Strength</span><span>{selectedStudent.strength || '—'}</span></div>
-                  <div className="flex justify-between"><span>Attendance</span><span>{selectedStudent.attendance ?? '—'}</span></div>
-                  <div className="flex justify-between"><span>Assessments</span><span>{selectedStudent.assessments ?? assessmentSummary.totalAssessments}</span></div>
+                  <div className="flex justify-between"><span>Performance</span><span>{studentCard.performance || '—'}</span></div>
+                  <div className="flex justify-between"><span>Engagement</span><span>{studentCard.engagement || '—'}</span></div>
+                  <div className="flex justify-between"><span>Strength</span><span>{studentCard.strength || '—'}</span></div>
+                  <div className="flex justify-between"><span>Grade level</span><span>{studentCard.gradeLevel || '—'}</span></div>
                 </div>
               </div>
 
               <div className="bg-white rounded-lg shadow p-4">
-                <h4 className="text-sm font-semibold mb-2">Subjects Enrolled</h4>
-                <div className="flex flex-wrap gap-2">
-                  {(selectedStudent.subjects || []).length > 0 ? (
-                    (selectedStudent.subjects || []).map((subject, index) => {
-                      const subjectId = typeof subject === 'string' ? subject : subject?.id;
-                      const subjectName = subjectId && subjects[subjectId]?.name
-                        ? subjects[subjectId].name
-                        : typeof subject !== 'string'
-                          ? subject?.name
-                          : 'Subject';
-                      return (
-                        <span key={`${subjectId || 'subject'}-${index}`} className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">
-                          {subjectName}
-                        </span>
-                      );
-                    })
-                  ) : (
-                    <span className="text-xs text-gray-500">No subjects assigned.</span>
-                  )}
+                <h4 className="text-sm font-semibold mb-2">Plan Overview</h4>
+                <div className="space-y-2 text-sm text-gray-600">
+                  <div className="flex justify-between"><span>Total plans</span><span>{profileSummary.planSummary?.totalPlans ?? 0}</span></div>
+                  <div className="flex justify-between"><span>Active plans</span><span>{profileSummary.planSummary?.activePlans ?? 0}</span></div>
+                  <div className="flex justify-between"><span>Completed plans</span><span>{profileSummary.planSummary?.completedPlans ?? 0}</span></div>
+                  <div className="flex justify-between"><span>Latest status</span><span>{profileSummary.planSummary?.latestStatus || '—'}</span></div>
                 </div>
               </div>
 
               <div className="bg-white rounded-lg shadow p-4">
                 <h4 className="text-sm font-semibold mb-2">Assessment Overview</h4>
-                <div className="text-sm text-gray-600">Total assessments: {assessmentSummary.totalAssessments}</div>
-                <div className="text-xs text-gray-500 mt-2">See per-subject breakdown below.</div>
-              </div>
-            </div>
-
-            {extraDetails.length > 0 && (
-              <div className="bg-white rounded-lg shadow p-4">
-                <h4 className="text-sm font-semibold mb-2">Additional Details</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm text-gray-600">
-                  {extraDetails.map((detail) => (
-                    <div key={detail.key} className="flex justify-between gap-4">
-                      <span className="text-gray-500">{detail.key}</span>
-                      <span className="font-medium text-gray-700">{detail.value}</span>
-                    </div>
-                  ))}
+                <div className="space-y-2 text-sm text-gray-600">
+                  <div className="flex justify-between"><span>Total assigned</span><span>{profileSummary.assessmentSummary?.totalAssigned ?? 0}</span></div>
+                  <div className="flex justify-between"><span>Attempted</span><span>{profileSummary.assessmentSummary?.attempted ?? 0}</span></div>
+                  <div className="flex justify-between"><span>Reviewed</span><span>{profileSummary.assessmentSummary?.reviewed ?? 0}</span></div>
+                  <div className="flex justify-between"><span>Average score</span><span>{profileSummary.assessmentSummary?.averageScore ?? 0}</span></div>
                 </div>
               </div>
-            )}
+            </div>
 
             <div className="bg-gray-50 rounded-lg shadow p-4">
-              <h4 className="text-sm font-semibold mb-3">Subject Breakdown</h4>
-              {visibleSubjectSummaries.length > 0 ? (
-                <div className="space-y-4">
-                  {visibleSubjectSummaries.map((summary) => (
-                    <div key={summary.subjectId} className="bg-white rounded-lg border border-gray-200 p-4 space-y-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                          <div className="text-sm font-semibold">{summary.subjectName}</div>
-                          <div className="text-xs text-gray-500">Subject assessments & development plans</div>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                          <span>Assessments: {summary.totalAssessments}</span>
-                          <button
-                            type="button"
-                            onClick={() => navigate(`/assessments/student-analysis?subjectId=${summary.subjectId}&studentId=${selectedStudentId}`)}
-                            className="text-xs font-semibold text-blue-600 hover:text-blue-700"
-                          >
-                            View assessments
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => navigate(`/development/${selectedStudentId}`)}
-                            className="text-xs font-semibold text-emerald-600 hover:text-emerald-700"
-                          >
-                            View development
-                          </button>
-                        </div>
-                      </div>
-
-                      {summary.latestAssessmentName ? (
-                        <div className="text-xs text-gray-600">
-                          Latest assessment: <span className="font-medium text-gray-800">{summary.latestAssessmentName}</span>
-                          <div className="text-sm text-gray-700 font-semibold">
-                            {summary.latestScore ?? 0} / {summary.latestExpected ?? 0}
-                          </div>
-                          {summary.latestDate && (
-                            <div className="text-xs text-gray-500">Submitted: {summary.latestDate}</div>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="text-xs text-gray-500">No assessment results for this subject yet.</div>
-                      )}
-
-                      <div>
-                        <div className="text-xs font-semibold text-gray-600 mb-2">Development Plans</div>
-                        {summary.plans.length > 0 ? (
-                          <div className="space-y-2">
-                            {summary.plans.map((plan) => (
-                              <div key={plan.id} className="border border-gray-100 rounded-md p-3">
-                                <div className="flex items-center justify-between">
-                                  <div className="text-sm font-semibold">{plan.plan.name}</div>
-                                  <div className="text-xs text-gray-500">{plan.status}</div>
-                                </div>
-                                <div className="mt-2">
-                                  <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-                                    <span>Progress</span>
-                                    <span>{plan.currentProgress}%</span>
-                                  </div>
-                                  <div className="w-full bg-gray-200 rounded-full h-2">
-                                    <div
-                                      className="bg-green-500 h-2 rounded-full"
-                                      style={{ width: `${plan.currentProgress}%` }}
-                                    ></div>
-                                  </div>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="text-xs text-gray-500">No development plans for this subject.</div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+              <h4 className="text-sm font-semibold mb-3">Latest Snapshot</h4>
+              <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-2 text-sm text-gray-600">
+                <div>
+                  Latest assessment:{' '}
+                  <span className="font-semibold text-gray-800">{profileSummary.assessmentSummary?.latestAssessmentName || '—'}</span>
                 </div>
-              ) : (
-                <div className="text-sm text-gray-500">No subjects assigned to this student.</div>
-              )}
-            </div>
-
-            <div className="bg-white rounded-lg shadow p-4">
-              <h4 className="text-sm font-semibold mb-3">Mastery Attributes</h4>
-              {selectedStudent.attributes ? (
-                <div className="space-y-2 text-sm text-gray-600">
-                  {Object.entries(selectedStudent.attributes).map(([name, attr]) => (
-                    <div key={name} className="border border-gray-100 rounded-md p-3">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium text-gray-800">{name}</span>
-                        <span className="text-xs text-gray-500">
-                          Last assessed {attr.lastAssessed ? new Date(attr.lastAssessed).toLocaleDateString() : '—'}
-                        </span>
-                      </div>
-                      <div className="mt-2 grid grid-cols-2 gap-3 text-xs text-gray-500">
-                        <div>
-                          <span className="block">Current</span>
-                          <span className="text-sm font-semibold text-blue-600">{attr.current}</span>
-                        </div>
-                        <div>
-                          <span className="block">Potential</span>
-                          <span className="text-sm font-semibold text-emerald-600">{attr.potential}</span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                <div>
+                  Latest score:{' '}
+                  <span className="font-semibold text-gray-800">{profileSummary.assessmentSummary?.latestScore ?? 0}</span>
                 </div>
-              ) : (
-                <div className="text-sm text-gray-500">No mastery attributes available.</div>
-              )}
+                <div>
+                  Latest grade:{' '}
+                  <span className="font-semibold text-gray-800">{profileSummary.assessmentSummary?.latestGrade || '—'}</span>
+                </div>
+                <div>
+                  Latest due date:{' '}
+                  <span className="font-semibold text-gray-800">
+                    {profileSummary.assessmentSummary?.latestDueTime
+                      ? new Date(profileSummary.assessmentSummary.latestDueTime).toLocaleDateString()
+                      : '—'}
+                  </span>
+                </div>
+                <div>
+                  Latest plan:{' '}
+                  <span className="font-semibold text-gray-800">{profileSummary.planSummary?.latestPlanName || '—'}</span>
+                </div>
+              </div>
             </div>
           </div>
         ) : (

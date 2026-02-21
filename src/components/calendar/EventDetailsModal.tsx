@@ -12,8 +12,7 @@ import {
   Trash2,
   X,
   Bell,
-  Repeat,
-  ExternalLink
+  Repeat
 } from 'lucide-react';
 import { CalendarEvent } from '../../types/calendar';
 import { format } from 'date-fns';

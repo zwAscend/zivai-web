@@ -56,7 +56,7 @@ const getFileIcon = (type: string, className = "h-5 w-5") => {
 
 const Sidebar: React.FC<SidebarProps> = ({
   mode = 'resources',
-  onUploadClick,
+  onUploadClick: _onUploadClick,
   onCreateAssessment,
   onMarkAssessment,
   onViewAssessments,

@@ -12,9 +12,7 @@ import {
   Loader2, 
   Edit3, 
   Save, 
-  X,
   CheckCircle,
-  AlertCircle,
   Eye,
   MessageSquare
 } from 'lucide-react';
@@ -242,7 +240,7 @@ export function ReviewStep({ questions, onUpdateQuestion, onRegenerate, isGenera
               const optionText = typeof option === 'string' ? option : option.text;
               const isCorrect = Array.isArray(question.correctAnswer) 
                 ? question.correctAnswer.includes(idx.toString()) 
-                : question.correctAnswer === idx;
+                : question.correctAnswer === idx.toString();
               
               return (
                 <div key={idx} className={`p-3 rounded-lg border ${

@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import StudentsLayout from '../components/students/StudentsLayout';
-import { studentService, subjectService } from '../services/api';
-import { Student, Subject } from '../types';
+import { teacherService } from '../services/teacherService';
+import { authService } from '../services/authService';
 import { useAuth } from '../context/AuthContext';
 
 const performanceOptions = [
@@ -13,10 +13,10 @@ const performanceOptions = [
   { value: 'needs-improvement', label: 'Needs improvement' },
 ];
 
-const getInitials = (student: Student) =>
+const getInitials = (student: { firstName?: string; lastName?: string }) =>
   `${student.firstName?.[0] || ''}${student.lastName?.[0] || ''}`.toUpperCase();
 
-const normalizePerformance = (student: Student) => {
+const normalizePerformance = (student: { overall?: number | null; performance?: string | null }) => {
   const overall = typeof student.overall === 'number' ? student.overall : 0;
   if (overall >= 75) return 'excellent';
   if (overall >= 65) return 'good';
@@ -31,7 +31,7 @@ const normalizePerformance = (student: Student) => {
   return 'unknown';
 };
 
-const getPerformanceLabel = (student: Student) => {
+const getPerformanceLabel = (student: { performance?: string | null; overall?: number | null }) => {
   if (student.performance) return student.performance;
   const bucket = normalizePerformance(student);
   if (bucket === 'excellent') return 'Excellent';
@@ -41,7 +41,7 @@ const getPerformanceLabel = (student: Student) => {
   return 'Unrated';
 };
 
-const getPerformanceBadge = (student: Student) => {
+const getPerformanceBadge = (student: { performance?: string | null; overall?: number | null }) => {
   const bucket = normalizePerformance(student);
   if (bucket === 'excellent') return 'bg-emerald-50 text-emerald-700';
   if (bucket === 'good') return 'bg-blue-50 text-blue-700';
@@ -53,8 +53,10 @@ const getPerformanceBadge = (student: Student) => {
 const StudentDirectoryPage: React.FC = () => {
   const navigate = useNavigate();
   const { selectedSubject } = useAuth();
-  const [students, setStudents] = useState<Student[]>([]);
-  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const teacherId = authService.getCurrentUserId();
+
+  const [students, setStudents] = useState<any[]>([]);
+  const [subjects, setSubjects] = useState<Array<{ id: string; name: string }>>([]);
   const [selectedSubjectId, setSelectedSubjectId] = useState('all');
   const [performanceFilter, setPerformanceFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -62,9 +64,17 @@ const StudentDirectoryPage: React.FC = () => {
 
   useEffect(() => {
     const loadSubjects = async () => {
+      if (!teacherId) {
+        setSubjects([]);
+        return;
+      }
       try {
-        const teaching = await subjectService.getTeachingSubjects();
-        setSubjects(teaching || []);
+        const teaching = await teacherService.getMySubjects(teacherId);
+        const mapped = (teaching || []).map((subject) => ({
+          id: subject.subjectId,
+          name: subject.subjectName,
+        }));
+        setSubjects(mapped);
         if (selectedSubject?.id) {
           setSelectedSubjectId(selectedSubject.id);
         }
@@ -74,15 +84,26 @@ const StudentDirectoryPage: React.FC = () => {
       }
     };
     loadSubjects();
-  }, [selectedSubject]);
+  }, [teacherId, selectedSubject]);
 
   useEffect(() => {
     const loadStudents = async () => {
+      if (!teacherId) {
+        setStudents([]);
+        setLoadingList(false);
+        return;
+      }
+
       setLoadingList(true);
       try {
-        const subjectId = selectedSubjectId === 'all' ? undefined : selectedSubjectId;
-        const data = await studentService.getStudents(subjectId);
-        setStudents(Array.isArray(data) ? data : []);
+        const response = await teacherService.getStudentsSummary(teacherId, {
+          subjectId: selectedSubjectId === 'all' ? undefined : selectedSubjectId,
+          performance: performanceFilter === 'all' ? undefined : performanceFilter,
+          q: searchQuery.trim() || undefined,
+          page: 0,
+          size: 200,
+        });
+        setStudents(Array.isArray(response?.items) ? response.items : []);
       } catch (error) {
         console.error('Failed to load students:', error);
         setStudents([]);
@@ -92,22 +113,7 @@ const StudentDirectoryPage: React.FC = () => {
     };
 
     loadStudents();
-  }, [selectedSubjectId]);
-
-  const filteredStudents = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    return students.filter((student) => {
-      const fullName = `${student.firstName} ${student.lastName}`.toLowerCase();
-      const matchesQuery =
-        !query ||
-        fullName.includes(query) ||
-        (student.email || '').toLowerCase().includes(query);
-      const performanceBucket = normalizePerformance(student);
-      const matchesPerformance =
-        performanceFilter === 'all' || performanceBucket === performanceFilter;
-      return matchesQuery && matchesPerformance;
-    });
-  }, [students, searchQuery, performanceFilter]);
+  }, [teacherId, selectedSubjectId, performanceFilter, searchQuery]);
 
   return (
     <StudentsLayout>
@@ -118,7 +124,7 @@ const StudentDirectoryPage: React.FC = () => {
               <h1 className="text-2xl font-bold text-slate-900">Student Directory</h1>
               <p className="text-sm text-slate-500">Browse students, filter by subject, and open full profiles.</p>
             </div>
-            <div className="text-xs text-slate-500">{filteredStudents.length} students</div>
+            <div className="text-xs text-slate-500">{students.length} students</div>
           </div>
         </div>
 
@@ -163,12 +169,12 @@ const StudentDirectoryPage: React.FC = () => {
               <div key={index} className="h-20 bg-slate-200 rounded-lg animate-pulse" />
             ))}
           </div>
-        ) : filteredStudents.length === 0 ? (
+        ) : students.length === 0 ? (
           <div className="bg-white rounded-lg shadow p-6 text-sm text-slate-500">No students found.</div>
         ) : (
           <div className="grid grid-cols-1 gap-3">
-            {filteredStudents.map((student) => (
-              <div key={student.id} className="bg-white rounded-lg shadow p-4">
+            {students.map((student) => (
+              <div key={student.studentId} className="bg-white rounded-lg shadow p-4">
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                   <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-semibold">
@@ -180,7 +186,7 @@ const StudentDirectoryPage: React.FC = () => {
                       </div>
                       <div className="text-xs text-slate-500">{student.email}</div>
                       <div className="text-xs text-slate-500">
-                        Reg #: {(student as { registrationNumber?: string }).registrationNumber || student.id}
+                        Reg #: {student.studentId}
                       </div>
                     </div>
                   </div>
@@ -196,9 +202,9 @@ const StudentDirectoryPage: React.FC = () => {
                 </div>
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
                   <span>Engagement: {student.engagement || '—'}</span>
-                  <span>Subjects: {(student.subjects || []).length}</span>
+                  <span>Subjects: {student.subjectCount ?? 0}</span>
                   <button
-                    onClick={() => navigate(`/students/profile?studentId=${student.id}`)}
+                    onClick={() => navigate(`/students/profile?studentId=${student.studentId}`)}
                     className="text-blue-600 hover:text-blue-700 font-medium"
                   >
                     View Profile

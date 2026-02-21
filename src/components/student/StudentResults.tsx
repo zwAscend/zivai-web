@@ -120,21 +120,31 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubj
 
   if (loading) {
     return (
-      <div className="bg-white rounded-lg shadow p-6">
-        <div className="space-y-4">
-          <div className="h-7 w-32 bg-blue-100 rounded animate-pulse" />
+      <div className="space-y-6 animate-pulse">
+        <div className="border border-slate-200 bg-white p-6">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div className="flex flex-wrap gap-3">
+              <div className="h-10 w-44 rounded-md bg-slate-200" />
+              <div className="h-10 w-36 rounded-md bg-slate-200" />
+              <div className="h-10 w-36 rounded-md bg-slate-200" />
+            </div>
+          </div>
+        </div>
+
+        <div className="border border-slate-200 bg-white p-6">
+          <div className="h-6 w-28 rounded bg-slate-200 mb-4" />
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="h-20 bg-blue-50 rounded-lg p-4">
-                <div className="h-4 w-24 bg-blue-100 rounded animate-pulse mb-2" />
-                <div className="h-6 w-16 bg-blue-100 rounded animate-pulse" />
-              </div>
+              <div key={i} className="h-20 border border-slate-200 rounded-lg bg-slate-50" />
             ))}
           </div>
-          <div className="h-72 bg-blue-50 rounded-lg p-4 space-y-2">
-            <div className="h-5 w-40 bg-blue-100 rounded animate-pulse" />
-            {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="h-4 bg-blue-100 rounded animate-pulse" />
+        </div>
+
+        <div className="border border-slate-200 bg-white p-6">
+          <div className="h-6 w-36 rounded bg-slate-200 mb-4" />
+          <div className="space-y-3">
+            {Array.from({ length: 7 }).map((_, i) => (
+              <div key={i} className="h-10 rounded-md bg-slate-100" />
             ))}
           </div>
         </div>

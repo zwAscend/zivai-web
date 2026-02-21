@@ -1,10 +1,8 @@
 import React from 'react';
-import { useNavigate } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
 import { 
   Loader2, 
   User, 
@@ -12,7 +10,6 @@ import {
   TrendingUp, 
   BookOpen, 
   CheckCircle,
-  AlertCircle,
   X,
   Sparkles
 } from 'lucide-react';
@@ -49,7 +46,7 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
   const { selectedSubject } = useAuth();
   const { toast } = useToast();
 
-  const showToast = (title: string, description: string, variant: 'default' | 'destructive' = 'default') => {
+  const showToast = (_title: string, description: string, variant: 'default' | 'destructive' = 'default') => {
     if (variant === 'destructive') {
       toast.error(description);
     } else {

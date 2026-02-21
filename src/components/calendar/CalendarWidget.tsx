@@ -16,7 +16,7 @@ const CalendarWidget: React.FC<CalendarWidgetProps> = ({
   onEventClick,
   onCreateEvent,
   events = [],
-  selectedDate,
+  selectedDate: _selectedDate,
   className = ''
 }) => {
   const today = new Date();
