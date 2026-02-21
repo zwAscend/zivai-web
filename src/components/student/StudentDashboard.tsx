@@ -7,7 +7,6 @@ import {
   LogOut,
   BarChart2,
   FileText,
-  Users,
   User,
   CheckCircle2,
   Play,
@@ -28,9 +27,7 @@ import { Student, DevelopmentPlan, Subject } from '../../types';
 import { studentService, developmentService, subjectService, calendarService, notificationService, authService } from '../../services/api';
 import { StudentTeacher } from '../../services/studentService';
 import StudentPlanView from './StudentPlanView';
-import StudentStats from './StudentStats';
 import StudentAssignments from './StudentAssignments';
-import StudentResults from './StudentResults';
 import StudentReportCard from './StudentReportCard';
 import StudentPeerStudy from './StudentPeerStudy';
 import StudentProfileSettings from './StudentProfileSettings';
@@ -101,7 +98,7 @@ const DashboardSkeleton = () => (
 
     <main className="w-full bg-white py-6">
       <div className="max-w-[1400px] mx-auto px-4 space-y-4">
-        <section className="relative left-1/2 w-screen -translate-x-1/2 border-y border-orange-100 bg-gradient-to-r from-amber-50 via-orange-50 to-yellow-50">
+        <section className="w-full border-y border-orange-100 bg-gradient-to-r from-amber-50 via-orange-50 to-yellow-50">
           <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
               <div className="h-6 w-72 rounded-md bg-orange-100 animate-pulse" />
@@ -182,7 +179,6 @@ const StudentDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<NavItemKey>(initialRouteView);
-  const [resultsTab, setResultsTab] = useState<'analytics' | 'results' | 'report-card'>('analytics');
   const [isResultsSidebarCollapsed, setIsResultsSidebarCollapsed] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [notificationMenuOpen, setNotificationMenuOpen] = useState(false);
@@ -646,7 +642,6 @@ const StudentDashboard: React.FC = () => {
 
   useEffect(() => {
     if (activeView !== 'results') {
-      setResultsTab('analytics');
       setIsResultsSidebarCollapsed(false);
     }
     setAccountMenuOpen(false);
@@ -757,7 +752,6 @@ const StudentDashboard: React.FC = () => {
     { key: 'subjects', label: 'My Subjects', icon: BookOpen },
     { key: 'assessments', label: 'Assessments', icon: FileText },
     { key: 'results', label: 'My Report', icon: BarChart2 },
-    { key: 'peer-study', label: 'Peer Study', icon: Users },
   ];
 
   const activeNavItemLabel = navItems.find((item) => item.key === activeView)?.label || 'Navigation';
@@ -881,7 +875,7 @@ const StudentDashboard: React.FC = () => {
 
   const renderOverview = () => (
     <div className="space-y-4">
-      <section className="relative left-1/2 w-screen -translate-x-1/2 border-y border-orange-100 bg-gradient-to-r from-amber-50 via-orange-50 to-yellow-50">
+      <section className="w-full border-y border-orange-100 bg-gradient-to-r from-amber-50 via-orange-50 to-yellow-50">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <p className="text-lg sm:text-xl font-semibold text-slate-900">
@@ -1562,8 +1556,6 @@ const StudentDashboard: React.FC = () => {
           />
         );
       case 'results':
-        const reportSubjectsCount = reportCardRows.length;
-        const reportStrongSubjectsCount = reportCardRows.filter((row) => row.masteryPercent >= 70).length;
         const reportNeedsAttentionCount = reportCardRows.filter((row) => row.masteryPercent < 50).length;
 
         return (
@@ -1588,110 +1580,17 @@ const StudentDashboard: React.FC = () => {
                 <nav className={`${isResultsSidebarCollapsed ? '-mx-4 sm:-mx-5 border-y border-slate-200 bg-white overflow-hidden' : '-mx-4 sm:-mx-5 border-t border-slate-200'}`}>
                   <button
                     type="button"
-                    onClick={() => setResultsTab('analytics')}
-                    aria-current={resultsTab === 'analytics' ? 'page' : undefined}
-                    title="Performance Analytics"
-                    className={`w-full inline-flex items-center text-sm transition ${
-                      isResultsSidebarCollapsed
-                        ? 'justify-center h-11 border-b border-slate-200'
-                        : 'justify-between rounded-none border-b border-slate-200 px-4 sm:px-5 py-2.5'
-                    } ${
-                      resultsTab === 'analytics'
-                        ? isResultsSidebarCollapsed
-                          ? 'bg-blue-50 text-blue-700'
-                          : 'bg-blue-50 border-l-4 border-l-blue-600 pl-2 text-blue-700 font-semibold'
-                        : 'text-slate-600 hover:bg-slate-100'
-                    }`}
-                  >
-                    <span className={`inline-flex items-center min-w-0 ${isResultsSidebarCollapsed ? '' : 'gap-2'}`}>
-                      <span
-                        className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
-                          resultsTab === 'analytics'
-                            ? 'bg-blue-100 text-blue-700'
-                            : 'bg-white border border-slate-200 text-slate-600'
-                        }`}
-                      >
-                        <BarChart2 className="w-4 h-4" />
-                      </span>
-                      <span
-                        className={`truncate transition-[max-width,opacity,transform] duration-200 ${
-                          isResultsSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-1 overflow-hidden' : 'max-w-[180px] opacity-100 translate-x-0'
-                        }`}
-                      >
-                        Performance Analytics
-                      </span>
-                    </span>
-                    {!isResultsSidebarCollapsed && (
-                      <span className={`text-xs font-semibold ${resultsTab === 'analytics' ? 'text-blue-700' : 'text-slate-500'}`}>
-                        {reportSubjectsCount}
-                      </span>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setResultsTab('results')}
-                    aria-current={resultsTab === 'results' ? 'page' : undefined}
-                    title="Assessment Results"
-                    className={`w-full inline-flex items-center text-sm transition ${
-                      isResultsSidebarCollapsed
-                        ? 'justify-center h-11 border-b border-slate-200'
-                        : 'justify-between rounded-none border-b border-slate-200 px-4 sm:px-5 py-2.5'
-                    } ${
-                      resultsTab === 'results'
-                        ? isResultsSidebarCollapsed
-                          ? 'bg-blue-50 text-blue-700'
-                          : 'bg-blue-50 border-l-4 border-l-blue-600 pl-2 text-blue-700 font-semibold'
-                        : 'text-slate-600 hover:bg-slate-100'
-                    }`}
-                  >
-                    <span className={`inline-flex items-center min-w-0 ${isResultsSidebarCollapsed ? '' : 'gap-2'}`}>
-                      <span
-                        className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
-                          resultsTab === 'results'
-                            ? 'bg-blue-100 text-blue-700'
-                            : 'bg-white border border-slate-200 text-slate-600'
-                        }`}
-                      >
-                        <FileText className="w-4 h-4" />
-                      </span>
-                      <span
-                        className={`truncate transition-[max-width,opacity,transform] duration-200 ${
-                          isResultsSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-1 overflow-hidden' : 'max-w-[180px] opacity-100 translate-x-0'
-                        }`}
-                      >
-                        Assessment Results
-                      </span>
-                    </span>
-                    {!isResultsSidebarCollapsed && (
-                      <span className={`text-xs font-semibold ${resultsTab === 'results' ? 'text-blue-700' : 'text-slate-500'}`}>
-                        {reportStrongSubjectsCount}
-                      </span>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setResultsTab('report-card')}
-                    aria-current={resultsTab === 'report-card' ? 'page' : undefined}
+                    aria-current="page"
                     title="Report Card"
                     className={`w-full inline-flex items-center text-sm transition ${
                       isResultsSidebarCollapsed
                         ? 'justify-center h-11'
                         : 'justify-between rounded-none border-b border-slate-200 px-4 sm:px-5 py-2.5'
-                    } ${
-                      resultsTab === 'report-card'
-                        ? isResultsSidebarCollapsed
-                          ? 'bg-blue-50 text-blue-700'
-                          : 'bg-blue-50 border-l-4 border-l-blue-600 pl-2 text-blue-700 font-semibold'
-                        : 'text-slate-600 hover:bg-slate-100'
-                    }`}
+                    } ${isResultsSidebarCollapsed ? 'bg-blue-50 text-blue-700' : 'bg-blue-50 border-l-4 border-l-blue-600 pl-2 text-blue-700 font-semibold'}`}
                   >
                     <span className={`inline-flex items-center min-w-0 ${isResultsSidebarCollapsed ? '' : 'gap-2'}`}>
                       <span
-                        className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
-                          resultsTab === 'report-card'
-                            ? 'bg-blue-100 text-blue-700'
-                            : 'bg-white border border-slate-200 text-slate-600'
-                        }`}
+                        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700"
                       >
                         <GraduationCap className="w-4 h-4" />
                       </span>
@@ -1704,7 +1603,7 @@ const StudentDashboard: React.FC = () => {
                       </span>
                     </span>
                     {!isResultsSidebarCollapsed && (
-                      <span className={`text-xs font-semibold ${resultsTab === 'report-card' ? 'text-blue-700' : 'text-slate-500'}`}>
+                      <span className="text-xs font-semibold text-blue-700">
                         {reportNeedsAttentionCount}
                       </span>
                     )}
@@ -1713,17 +1612,7 @@ const StudentDashboard: React.FC = () => {
 
               </aside>
               <div className="p-4 sm:p-6 bg-white">
-                {resultsTab === 'analytics' ? (
-                  <StudentStats student={student} selectedSubjectId={selectedSubjectId} />
-                ) : resultsTab === 'results' ? (
-                  <StudentResults
-                    studentId={student.id}
-                    selectedSubjectId={selectedSubjectId}
-                    onOpenTutor={handleOpenTutor}
-                  />
-                ) : (
-                  <StudentReportCard rows={reportCardRows} />
-                )}
+                <StudentReportCard rows={reportCardRows} />
               </div>
             </div>
           </section>
@@ -2006,13 +1895,13 @@ const StudentDashboard: React.FC = () => {
 
             <div className="hidden lg:flex items-center gap-3 py-1.5">
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-6 overflow-x-auto overflow-y-hidden whitespace-nowrap pr-2">
+                <div className="flex items-center gap-0 overflow-x-hidden overflow-y-hidden whitespace-nowrap pr-2">
                   {navItems.map(({ key, label, icon: Icon }) => (
                     <button
                       key={key}
                       type="button"
                       onClick={() => handleNavChange(key)}
-                      className={`group relative inline-flex items-center gap-2 py-3 text-sm transition ${
+                      className={`group relative inline-flex items-center gap-2 py-3 pl-1 pr-4 text-sm transition ${
                         activeView === key
                           ? 'text-slate-900 font-semibold'
                           : 'text-slate-500 font-medium hover:text-slate-900'
