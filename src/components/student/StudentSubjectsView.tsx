@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   ArrowLeft,
@@ -8,9 +8,13 @@ import {
   ChevronsRight,
   ExternalLink,
   FileText,
+  GripHorizontal,
+  MessageCircle,
   PlayCircle,
+  Send,
   Sparkles,
   Target,
+  X,
 } from 'lucide-react';
 import { Question, Subject } from '../../types';
 import { aiService } from '../../services/aiService';
@@ -84,8 +88,22 @@ interface ChallengeGenerationConfig {
   error: string | null;
 }
 
+interface SubjectsChatMessage {
+  id: string;
+  sender: 'student' | 'coach';
+  text: string;
+}
+
+interface SubjectsChatDragState {
+  startX: number;
+  startY: number;
+  originX: number;
+  originY: number;
+}
+
 const DEFAULT_UNIT_CHALLENGE_COUNT = 10;
 const DEFAULT_SUBJECT_CHALLENGE_COUNT = 12;
+const CRITICAL_TOPIC_MASTERY_THRESHOLD = 50;
 
 const createChallengeGenerationConfig = (questionCount: number): ChallengeGenerationConfig => ({
   questionCount,
@@ -409,6 +427,19 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
   const [subjectChallengeStep, setSubjectChallengeStep] = useState<1 | 2>(1);
   const [unitChallengeConfigByUnitId, setUnitChallengeConfigByUnitId] = useState<Record<string, ChallengeGenerationConfig>>({});
   const [subjectChallengeConfigBySubjectId, setSubjectChallengeConfigBySubjectId] = useState<Record<string, ChallengeGenerationConfig>>({});
+  const [isSubjectsChatOpen, setIsSubjectsChatOpen] = useState(false);
+  const [subjectsChatInput, setSubjectsChatInput] = useState('');
+  const [subjectsChatMessages, setSubjectsChatMessages] = useState<SubjectsChatMessage[]>([
+    {
+      id: 'subjects-chat-welcome',
+      sender: 'coach',
+      text: 'Need help on this topic? Ask a question and I will guide your next step.',
+    },
+  ]);
+  const [subjectsChatPosition, setSubjectsChatPosition] = useState<{ x: number; y: number } | null>(null);
+  const subjectsChatFloatingRef = useRef<HTMLDivElement | null>(null);
+  const subjectsChatDragStateRef = useRef<SubjectsChatDragState | null>(null);
+  const subjectsChatDragCleanupRef = useRef<(() => void) | null>(null);
 
   const activeSubject = useMemo(() => {
     if (subjects.length === 0) return null;
@@ -450,6 +481,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
   const subjectChallengeBlockedReason = !isSubjectChallengeEligible
     ? subjectChallengeEligibility?.reason || 'Subject challenge is currently unavailable.'
     : null;
+  const shouldShowSubjectsChat = !isUnitChallengeActive && !isSubjectChallengeActive && (Boolean(detailState) || !isSubjectOverviewActive);
 
   useEffect(() => {
     const loadCurriculum = async () => {
@@ -512,7 +544,23 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
     setUnitChallengeConfigByUnitId({});
     setSubjectChallengeConfigBySubjectId({});
     setIsSubjectOverviewActive(false);
+    setIsSubjectsChatOpen(false);
+    setSubjectsChatInput('');
+    setSubjectsChatPosition(null);
+    setSubjectsChatMessages([
+      {
+        id: 'subjects-chat-welcome',
+        sender: 'coach',
+        text: 'Need help on this topic? Ask a question and I will guide your next step.',
+      },
+    ]);
   }, [activeSubject?.id]);
+
+  useEffect(() => () => {
+    if (subjectsChatDragCleanupRef.current) {
+      subjectsChatDragCleanupRef.current();
+    }
+  }, []);
 
   useEffect(() => {
     if (!detailState) return;
@@ -535,7 +583,6 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
 
   const masteredTopics = allTopics.filter((topic) => topic.masteryPercent >= 80).length;
   const inProgressTopics = allTopics.filter((topic) => topic.masteryPercent >= 50 && topic.masteryPercent < 80).length;
-  const focusTopics = allTopics.filter((topic) => topic.masteryPercent < 50).slice(0, 3);
   const overallCoverage = allTopics.length > 0
     ? Math.round(allTopics.reduce((sum, topic) => sum + topic.masteryPercent, 0) / allTopics.length)
     : 0;
@@ -543,6 +590,11 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
   const getPracticeStatus = (practice: CurriculumPractice): PracticeStatus => (
     practiceStatusOverrides[practice.id] || practice.status
   );
+
+  const hasTopicBeenAttempted = (topic: CurriculumTopic): boolean => {
+    if (topic.masteryPercent > 0) return true;
+    return topic.practice.some((practice) => getPracticeStatus(practice) !== 'not-started');
+  };
 
   const updateUnitChallengeConfig = (updater: (current: ChallengeGenerationConfig) => ChallengeGenerationConfig) => {
     if (!selectedUnit) return;
@@ -736,6 +788,115 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
       [topicId]: !previous[topicId],
     }));
   };
+
+  const sendSubjectsChatMessage = () => {
+    const message = subjectsChatInput.trim();
+    if (!message) return;
+
+    const studentMessage: SubjectsChatMessage = {
+      id: `subjects-student-${Date.now()}`,
+      sender: 'student',
+      text: message,
+    };
+
+    const focusLabel = detailTopic?.title || selectedUnit?.title || activeSubject?.name || 'this topic';
+    const coachReply: SubjectsChatMessage = {
+      id: `subjects-coach-${Date.now() + 1}`,
+      sender: 'coach',
+      text: `Focus on "${focusLabel}". Review one example, then attempt one practice item and explain each step.`,
+    };
+
+    setSubjectsChatMessages((previous) => [...previous, studentMessage, coachReply]);
+    setSubjectsChatInput('');
+  };
+
+  const clampSubjectsChatPosition = (x: number, y: number) => {
+    const floatingNode = subjectsChatFloatingRef.current;
+    if (!floatingNode) return { x, y };
+
+    const margin = 8;
+    const width = floatingNode.offsetWidth;
+    const height = floatingNode.offsetHeight;
+
+    return {
+      x: Math.min(Math.max(margin, x), window.innerWidth - width - margin),
+      y: Math.min(Math.max(margin, y), window.innerHeight - height - margin),
+    };
+  };
+
+  const startSubjectsChatDrag = (event: React.PointerEvent<HTMLElement>) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const floatingNode = subjectsChatFloatingRef.current;
+    if (!floatingNode) return;
+
+    const rect = floatingNode.getBoundingClientRect();
+    const initialPosition = subjectsChatPosition || { x: rect.left, y: rect.top };
+
+    if (!subjectsChatPosition) {
+      setSubjectsChatPosition(initialPosition);
+    }
+
+    subjectsChatDragStateRef.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: initialPosition.x,
+      originY: initialPosition.y,
+    };
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      if (!subjectsChatDragStateRef.current) return;
+      const nextX = subjectsChatDragStateRef.current.originX + (moveEvent.clientX - subjectsChatDragStateRef.current.startX);
+      const nextY = subjectsChatDragStateRef.current.originY + (moveEvent.clientY - subjectsChatDragStateRef.current.startY);
+      setSubjectsChatPosition(clampSubjectsChatPosition(nextX, nextY));
+    };
+
+    const cleanup = () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerEnd);
+      window.removeEventListener('pointercancel', handlePointerEnd);
+      subjectsChatDragStateRef.current = null;
+      subjectsChatDragCleanupRef.current = null;
+    };
+
+    const handlePointerEnd = () => {
+      cleanup();
+    };
+
+    if (subjectsChatDragCleanupRef.current) {
+      subjectsChatDragCleanupRef.current();
+    }
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerEnd);
+    window.addEventListener('pointercancel', handlePointerEnd);
+    subjectsChatDragCleanupRef.current = cleanup;
+  };
+
+  useEffect(() => {
+    if (!subjectsChatPosition) return;
+
+    const keepSubjectsChatInViewport = () => {
+      setSubjectsChatPosition((previous) => {
+        if (!previous) return previous;
+        const clamped = clampSubjectsChatPosition(previous.x, previous.y);
+        if (clamped.x === previous.x && clamped.y === previous.y) return previous;
+        return clamped;
+      });
+    };
+
+    const frameId = window.requestAnimationFrame(keepSubjectsChatInViewport);
+    const handleResize = () => window.requestAnimationFrame(keepSubjectsChatInViewport);
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [isSubjectsChatOpen, subjectsChatPosition?.x, subjectsChatPosition?.y]);
 
   const openUnitChallenge = () => {
     setIsSidebarCollapsed(false);
@@ -1367,9 +1528,8 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
               {!isUnitChallengeActive && !isSubjectChallengeActive && !isSubjectOverviewActive && (
                 <header className="px-6 py-5 border-b border-slate-200">
                   <h1 className="text-3xl font-bold text-slate-900">{selectedUnit.code}: {selectedUnit.title}</h1>
-                  <p className="text-sm text-slate-500 mt-2">{selectedUnit.summary}</p>
 
-                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
                       <p className="text-[11px] uppercase font-semibold tracking-wide text-emerald-700">Mastered</p>
                       <p className="text-lg font-semibold text-emerald-800">{masteredTopics} topics</p>
@@ -1377,12 +1537,6 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                     <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2">
                       <p className="text-[11px] uppercase font-semibold tracking-wide text-blue-700">In Progress</p>
                       <p className="text-lg font-semibold text-blue-800">{inProgressTopics} topics</p>
-                    </div>
-                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
-                      <p className="text-[11px] uppercase font-semibold tracking-wide text-amber-700">Needs Support</p>
-                      <p className="text-sm font-semibold text-amber-800 truncate">
-                        {focusTopics.length > 0 ? focusTopics.map((topic) => topic.title).join(', ') : 'No immediate gaps'}
-                      </p>
                     </div>
                   </div>
                 </header>
@@ -1609,9 +1763,16 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                     <>
                       {selectedUnit.topics.map((topic) => {
                         const isTopicCollapsed = Boolean(collapsedTopicIds[topic.id]);
+                        const isCriticalTopic =
+                          hasTopicBeenAttempted(topic) && topic.masteryPercent < CRITICAL_TOPIC_MASTERY_THRESHOLD;
 
                         return (
-                        <section key={topic.id} className="border border-slate-200 rounded-lg p-5 space-y-4">
+                        <section
+                          key={topic.id}
+                          className={`border rounded-lg p-5 space-y-4 ${
+                            isCriticalTopic ? 'border-red-300 bg-red-50/30' : 'border-slate-200'
+                          }`}
+                        >
                           <div className="flex flex-wrap items-center justify-between gap-3">
                             <button
                               type="button"
@@ -1622,6 +1783,11 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                               {topic.title}
                             </button>
                             <div className="flex items-center gap-2">
+                              {isCriticalTopic && (
+                                <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-md border border-red-200 bg-red-100 text-red-700">
+                                  Critical unit
+                                </span>
+                              )}
                               <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-md bg-slate-100 text-slate-700">
                                 <Target className="w-3.5 h-3.5" />
                                 {topic.masteryPercent}% mastery
@@ -1896,6 +2062,113 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
             </>
           )}
         </>
+      )}
+
+      {shouldShowSubjectsChat && (
+        <div
+          ref={subjectsChatFloatingRef}
+          className="fixed z-40"
+          style={
+            subjectsChatPosition
+              ? { left: `${subjectsChatPosition.x}px`, top: `${subjectsChatPosition.y}px` }
+              : {
+                  right: 'calc(var(--subjects-footer-right) + 1rem)',
+                  bottom: '6rem',
+                }
+          }
+        >
+          <div className="flex flex-col items-end gap-3">
+            {isSubjectsChatOpen && (
+              <div className="w-[460px] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
+                <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2">
+                  <p className="text-sm font-semibold text-slate-800">Topic Chat</p>
+                  <div className="inline-flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onPointerDown={startSubjectsChatDrag}
+                      className="inline-flex h-7 w-7 cursor-grab items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 active:cursor-grabbing"
+                      aria-label="Drag topic chat window"
+                      title="Drag"
+                    >
+                      <GripHorizontal className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsSubjectsChatOpen(false)}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100"
+                      aria-label="Close topic chat"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+                <div className="h-[300px] max-h-[52vh] space-y-2 overflow-y-auto px-3 py-3">
+                  {subjectsChatMessages.map((message) => (
+                    <div
+                      key={message.id}
+                      className={`flex ${message.sender === 'student' ? 'justify-end' : 'justify-start'}`}
+                    >
+                      <div
+                        className={`max-w-[88%] rounded-lg px-3 py-2 text-sm ${
+                          message.sender === 'student'
+                            ? 'bg-blue-600 text-white'
+                            : 'border border-slate-200 bg-slate-50 text-slate-700'
+                        }`}
+                      >
+                        {message.text}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="border-t border-slate-200 p-3">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={subjectsChatInput}
+                      onChange={(event) => setSubjectsChatInput(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' && !event.shiftKey) {
+                          event.preventDefault();
+                          sendSubjectsChatMessage();
+                        }
+                      }}
+                      placeholder="Ask about this topic..."
+                      className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-blue-500 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={sendSubjectsChatMessage}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-blue-600 text-white hover:bg-blue-700"
+                      aria-label="Send message"
+                    >
+                      <Send className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-2 shadow-sm">
+              <button
+                type="button"
+                onPointerDown={startSubjectsChatDrag}
+                className="inline-flex h-8 w-8 cursor-grab items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 active:cursor-grabbing"
+                aria-label="Drag topic chat button"
+                title="Drag"
+              >
+                <GripHorizontal className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsSubjectsChatOpen((previous) => !previous)}
+                className="inline-flex items-center gap-2 rounded-md bg-white px-1.5 py-1 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                <MessageCircle className="h-4 w-4" />
+                {isSubjectsChatOpen ? 'Hide chat' : 'Open chat'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </motion.div>
   );

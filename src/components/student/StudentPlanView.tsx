@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { DevelopmentPlan, Step } from '../../types';
 import {
@@ -9,13 +9,30 @@ import {
   Edit,
   ExternalLink,
   FileText,
+  GripHorizontal,
+  MessageCircle,
+  Send,
   Video,
+  X,
 } from 'lucide-react';
 import StudentPracticeRunner, { buildMockPracticeQuestions } from './StudentPracticeRunner';
 
 interface StudentPlanViewProps {
   plan: DevelopmentPlan;
   initialStepIndex?: number;
+}
+
+interface PlanChatMessage {
+  id: string;
+  sender: 'student' | 'coach';
+  text: string;
+}
+
+interface ChatDragState {
+  startX: number;
+  startY: number;
+  originX: number;
+  originY: number;
 }
 
 const getStepIcon = (type: string) => {
@@ -195,6 +212,19 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
   const [selectedStepIndex, setSelectedStepIndex] = useState(0);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [completedPracticeSteps, setCompletedPracticeSteps] = useState<Record<number, boolean>>({});
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [chatInput, setChatInput] = useState('');
+  const [chatMessages, setChatMessages] = useState<PlanChatMessage[]>([
+    {
+      id: 'welcome-1',
+      sender: 'coach',
+      text: 'Need help with this plan step? Ask a question and I will guide you.',
+    },
+  ]);
+  const [chatPosition, setChatPosition] = useState<{ x: number; y: number } | null>(null);
+  const chatFloatingRef = useRef<HTMLDivElement | null>(null);
+  const chatDragStateRef = useRef<ChatDragState | null>(null);
+  const chatDragCleanupRef = useRef<(() => void) | null>(null);
 
   const selectedStep = sortedSteps[selectedStepIndex] || null;
   const nextStep = selectedStepIndex < totalSteps - 1 ? sortedSteps[selectedStepIndex + 1] : null;
@@ -223,7 +253,130 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
 
   useEffect(() => {
     setCompletedPracticeSteps({});
+    setIsChatOpen(false);
+    setChatInput('');
+    setChatMessages([
+      {
+        id: 'welcome-1',
+        sender: 'coach',
+        text: 'Need help with this plan step? Ask a question and I will guide you.',
+      },
+    ]);
+    setChatPosition(null);
   }, [plan.id]);
+
+  useEffect(() => () => {
+    if (chatDragCleanupRef.current) {
+      chatDragCleanupRef.current();
+    }
+  }, []);
+
+  const sendChatMessage = () => {
+    const message = chatInput.trim();
+    if (!message) return;
+
+    const studentMessage: PlanChatMessage = {
+      id: `student-${Date.now()}`,
+      sender: 'student',
+      text: message,
+    };
+
+    const coachReply: PlanChatMessage = {
+      id: `coach-${Date.now() + 1}`,
+      sender: 'coach',
+      text: `Good question. Focus on "${selectedStep?.title || 'this step'}", then explain your reasoning before moving to the next activity.`,
+    };
+
+    setChatMessages((previous) => [...previous, studentMessage, coachReply]);
+    setChatInput('');
+  };
+
+  const clampChatPosition = (x: number, y: number) => {
+    const floatingNode = chatFloatingRef.current;
+    if (!floatingNode) return { x, y };
+    const margin = 8;
+    const width = floatingNode.offsetWidth;
+    const height = floatingNode.offsetHeight;
+
+    return {
+      x: Math.min(Math.max(margin, x), window.innerWidth - width - margin),
+      y: Math.min(Math.max(margin, y), window.innerHeight - height - margin),
+    };
+  };
+
+  const startChatDrag = (event: React.PointerEvent<HTMLElement>) => {
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const floatingNode = chatFloatingRef.current;
+    if (!floatingNode) return;
+
+    const rect = floatingNode.getBoundingClientRect();
+    const initialPosition = chatPosition || { x: rect.left, y: rect.top };
+
+    if (!chatPosition) {
+      setChatPosition(initialPosition);
+    }
+
+    chatDragStateRef.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: initialPosition.x,
+      originY: initialPosition.y,
+    };
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      if (!chatDragStateRef.current) return;
+      const nextX = chatDragStateRef.current.originX + (moveEvent.clientX - chatDragStateRef.current.startX);
+      const nextY = chatDragStateRef.current.originY + (moveEvent.clientY - chatDragStateRef.current.startY);
+      setChatPosition(clampChatPosition(nextX, nextY));
+    };
+
+    const cleanup = () => {
+      window.removeEventListener('pointermove', handlePointerMove);
+      window.removeEventListener('pointerup', handlePointerEnd);
+      window.removeEventListener('pointercancel', handlePointerEnd);
+      chatDragStateRef.current = null;
+      chatDragCleanupRef.current = null;
+    };
+
+    const handlePointerEnd = () => {
+      cleanup();
+    };
+
+    if (chatDragCleanupRef.current) {
+      chatDragCleanupRef.current();
+    }
+
+    window.addEventListener('pointermove', handlePointerMove);
+    window.addEventListener('pointerup', handlePointerEnd);
+    window.addEventListener('pointercancel', handlePointerEnd);
+    chatDragCleanupRef.current = cleanup;
+  };
+
+  useEffect(() => {
+    if (!chatPosition) return;
+
+    const keepChatInViewport = () => {
+      setChatPosition((previous) => {
+        if (!previous) return previous;
+        const clamped = clampChatPosition(previous.x, previous.y);
+        if (clamped.x === previous.x && clamped.y === previous.y) return previous;
+        return clamped;
+      });
+    };
+
+    const frameId = window.requestAnimationFrame(keepChatInViewport);
+    const handleResize = () => window.requestAnimationFrame(keepChatInViewport);
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [isChatOpen, chatPosition?.x, chatPosition?.y]);
 
   const selectedStepIsPractice = Boolean(selectedStep && isPracticeStep(selectedStep.type));
   const showUpNextFooter = !selectedStepIsPractice || Boolean(completedPracticeSteps[selectedStepIndex]);
@@ -422,6 +575,111 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
           )}
         </div>
 
+      </div>
+
+      <div
+        ref={chatFloatingRef}
+        className="fixed z-40"
+        style={
+          chatPosition
+            ? { left: `${chatPosition.x}px`, top: `${chatPosition.y}px` }
+            : {
+                right: 'calc(var(--student-plan-footer-right) + 1rem)',
+                bottom: '6rem',
+              }
+        }
+      >
+        <div className="flex flex-col items-end gap-3">
+          {isChatOpen && (
+            <div className="w-[460px] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
+              <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2">
+                <p className="text-sm font-semibold text-slate-800">Plan Chat</p>
+                <div className="inline-flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onPointerDown={startChatDrag}
+                    className="inline-flex h-7 w-7 cursor-grab items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 active:cursor-grabbing"
+                    aria-label="Drag plan chat window"
+                    title="Drag"
+                  >
+                    <GripHorizontal className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsChatOpen(false)}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100"
+                    aria-label="Close plan chat"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+              <div className="h-[300px] max-h-[52vh] space-y-2 overflow-y-auto px-3 py-3">
+                {chatMessages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={`flex ${message.sender === 'student' ? 'justify-end' : 'justify-start'}`}
+                  >
+                    <div
+                      className={`max-w-[88%] rounded-lg px-3 py-2 text-sm ${
+                        message.sender === 'student'
+                          ? 'bg-blue-600 text-white'
+                          : 'border border-slate-200 bg-slate-50 text-slate-700'
+                      }`}
+                    >
+                      {message.text}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="border-t border-slate-200 p-3">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={chatInput}
+                    onChange={(event) => setChatInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && !event.shiftKey) {
+                        event.preventDefault();
+                        sendChatMessage();
+                      }
+                    }}
+                    placeholder="Type a message..."
+                    className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-blue-500 focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={sendChatMessage}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-blue-600 text-white hover:bg-blue-700"
+                    aria-label="Send message"
+                  >
+                    <Send className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-2 shadow-sm">
+            <button
+              type="button"
+              onPointerDown={startChatDrag}
+              className="inline-flex h-8 w-8 cursor-grab items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 active:cursor-grabbing"
+              aria-label="Drag chat button"
+              title="Drag"
+            >
+              <GripHorizontal className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsChatOpen((previous) => !previous)}
+              className="inline-flex items-center gap-2 rounded-md bg-white px-1.5 py-1 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              <MessageCircle className="h-4 w-4" />
+              {isChatOpen ? 'Hide chat' : 'Open chat'}
+            </button>
+          </div>
+        </div>
       </div>
 
       {showUpNextFooter && (

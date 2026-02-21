@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertCircle,
   Calendar,
+  ChevronsLeft,
+  ChevronsRight,
   CheckCircle,
   Clock,
   Eye,
@@ -197,6 +199,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
 
   const [assessmentTab, setAssessmentTab] = useState<AssessmentTabKey>('attempt');
   const [selectedReviewEntryId, setSelectedReviewEntryId] = useState<string | null>(null);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStatus, setSelectedStatus] = useState<StatusFilterKey>('all');
@@ -629,24 +632,43 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
 
   return (
     <div className="border border-slate-200 bg-white overflow-hidden">
-      <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] min-h-[680px]">
-        <aside className="border-b lg:border-b-0 lg:border-r border-slate-200 bg-slate-50 p-4 sm:p-5 space-y-4">
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-semibold">Assessments</p>
-          </div>
+      <div className={`grid grid-cols-1 min-h-[680px] ${isSidebarCollapsed ? 'lg:grid-cols-[88px_1fr]' : 'lg:grid-cols-[280px_1fr]'}`}>
+        <aside className="relative border-b lg:border-b-0 lg:border-r border-slate-200 bg-slate-50 p-4 sm:p-5 space-y-4">
+          <button
+            type="button"
+            onClick={() => setIsSidebarCollapsed((prev) => !prev)}
+            className="hidden lg:inline-flex absolute top-1/2 -translate-y-1/2 -right-4 z-10 h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-600 shadow-sm hover:bg-slate-50"
+            aria-label={isSidebarCollapsed ? 'Expand assessments panel' : 'Collapse assessments panel'}
+          >
+            {isSidebarCollapsed ? <ChevronsRight className="w-4 h-4" /> : <ChevronsLeft className="w-4 h-4" />}
+          </button>
 
-          <nav className="-mx-4 sm:-mx-5 border-t border-slate-200">
+          <p
+            className={`text-[11px] uppercase tracking-[0.18em] text-slate-500 font-semibold transition-[max-width,opacity,transform] duration-200 ${
+              isSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-1 overflow-hidden' : 'max-w-[180px] opacity-100 translate-x-0'
+            }`}
+          >
+            Assessments
+          </p>
+
+          <nav className={`${isSidebarCollapsed ? '-mx-4 sm:-mx-5 border-y border-slate-200 bg-white overflow-hidden' : '-mx-4 sm:-mx-5 border-t border-slate-200'}`}>
             <button
               type="button"
               onClick={() => setAssessmentTab('attempt')}
-              className={`w-full inline-flex items-center justify-between rounded-none border-b border-slate-200 px-4 sm:px-5 py-2.5 text-sm transition ${
+              className={`w-full inline-flex items-center text-sm transition ${
+                isSidebarCollapsed
+                  ? 'justify-center h-11 border-b border-slate-200'
+                  : 'justify-between rounded-none border-b border-slate-200 px-4 sm:px-5 py-2.5'
+              } ${
                 assessmentTab === 'attempt'
-                  ? 'bg-blue-50 border-l-4 border-l-blue-600 pl-2 text-blue-700 font-semibold'
+                  ? isSidebarCollapsed
+                    ? 'bg-blue-50 text-blue-700'
+                    : 'bg-blue-50 border-l-4 border-l-blue-600 pl-2 text-blue-700 font-semibold'
                   : 'text-slate-600 hover:bg-slate-100'
               }`}
               aria-current={assessmentTab === 'attempt' ? 'page' : undefined}
             >
-              <span className="inline-flex items-center gap-2 min-w-0">
+              <span className={`inline-flex items-center min-w-0 ${isSidebarCollapsed ? '' : 'gap-2'}`}>
                 <span
                   className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
                     assessmentTab === 'attempt'
@@ -654,23 +676,37 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                       : 'bg-white border border-slate-200 text-slate-600'
                   }`}
                 >
-                  <Upload className="w-4 h-4" />
+                    <Upload className="w-4 h-4" />
                 </span>
-                <span className="truncate">Attempt Assessment</span>
+                <span
+                  className={`truncate transition-[max-width,opacity,transform] duration-200 ${
+                    isSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-1 overflow-hidden' : 'max-w-[180px] opacity-100 translate-x-0'
+                  }`}
+                >
+                  Attempt Assessment
+                </span>
               </span>
-              <span className={`text-xs font-semibold ${assessmentTab === 'attempt' ? 'text-blue-700' : 'text-slate-500'}`}>{pendingCount}</span>
+              {!isSidebarCollapsed && (
+                <span className={`text-xs font-semibold ${assessmentTab === 'attempt' ? 'text-blue-700' : 'text-slate-500'}`}>{pendingCount}</span>
+              )}
             </button>
             <button
               type="button"
               onClick={() => setAssessmentTab('list')}
-              className={`w-full inline-flex items-center justify-between rounded-none border-b border-slate-200 px-4 sm:px-5 py-2.5 text-sm transition ${
+              className={`w-full inline-flex items-center text-sm transition ${
+                isSidebarCollapsed
+                  ? 'justify-center h-11 border-b border-slate-200'
+                  : 'justify-between rounded-none border-b border-slate-200 px-4 sm:px-5 py-2.5'
+              } ${
                 assessmentTab === 'list'
-                  ? 'bg-blue-50 border-l-4 border-l-blue-600 pl-2 text-blue-700 font-semibold'
+                  ? isSidebarCollapsed
+                    ? 'bg-blue-50 text-blue-700'
+                    : 'bg-blue-50 border-l-4 border-l-blue-600 pl-2 text-blue-700 font-semibold'
                   : 'text-slate-600 hover:bg-slate-100'
               }`}
               aria-current={assessmentTab === 'list' ? 'page' : undefined}
             >
-              <span className="inline-flex items-center gap-2 min-w-0">
+              <span className={`inline-flex items-center min-w-0 ${isSidebarCollapsed ? '' : 'gap-2'}`}>
                 <span
                   className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
                     assessmentTab === 'list'
@@ -680,21 +716,35 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                 >
                   <FileText className="w-4 h-4" />
                 </span>
-                <span className="truncate">Assessment List</span>
+                <span
+                  className={`truncate transition-[max-width,opacity,transform] duration-200 ${
+                    isSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-1 overflow-hidden' : 'max-w-[180px] opacity-100 translate-x-0'
+                  }`}
+                >
+                  Assessment List
+                </span>
               </span>
-              <span className={`text-xs font-semibold ${assessmentTab === 'list' ? 'text-blue-700' : 'text-slate-500'}`}>{entries.length}</span>
+              {!isSidebarCollapsed && (
+                <span className={`text-xs font-semibold ${assessmentTab === 'list' ? 'text-blue-700' : 'text-slate-500'}`}>{entries.length}</span>
+              )}
             </button>
             <button
               type="button"
               onClick={() => setAssessmentTab('review')}
-              className={`w-full inline-flex items-center justify-between rounded-none border-b border-slate-200 px-4 sm:px-5 py-2.5 text-sm transition ${
+              className={`w-full inline-flex items-center text-sm transition ${
+                isSidebarCollapsed
+                  ? 'justify-center h-11 border-b border-slate-200'
+                  : 'justify-between rounded-none border-b border-slate-200 px-4 sm:px-5 py-2.5'
+              } ${
                 assessmentTab === 'review'
-                  ? 'bg-blue-50 border-l-4 border-l-blue-600 pl-2 text-blue-700 font-semibold'
+                  ? isSidebarCollapsed
+                    ? 'bg-blue-50 text-blue-700'
+                    : 'bg-blue-50 border-l-4 border-l-blue-600 pl-2 text-blue-700 font-semibold'
                   : 'text-slate-600 hover:bg-slate-100'
               }`}
               aria-current={assessmentTab === 'review' ? 'page' : undefined}
             >
-              <span className="inline-flex items-center gap-2 min-w-0">
+              <span className={`inline-flex items-center min-w-0 ${isSidebarCollapsed ? '' : 'gap-2'}`}>
                 <span
                   className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
                     assessmentTab === 'review'
@@ -704,44 +754,20 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                 >
                   <Eye className="w-4 h-4" />
                 </span>
-                <span className="truncate">Assessment Review</span>
+                <span
+                  className={`truncate transition-[max-width,opacity,transform] duration-200 ${
+                    isSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-1 overflow-hidden' : 'max-w-[180px] opacity-100 translate-x-0'
+                  }`}
+                >
+                  Assessment Review
+                </span>
               </span>
-              <span className={`text-xs font-semibold ${assessmentTab === 'review' ? 'text-blue-700' : 'text-slate-500'}`}>{reviewedCount}</span>
+              {!isSidebarCollapsed && (
+                <span className={`text-xs font-semibold ${assessmentTab === 'review' ? 'text-blue-700' : 'text-slate-500'}`}>{reviewedCount}</span>
+              )}
             </button>
           </nav>
 
-          <div className="rounded-md border border-slate-200 bg-white p-3.5">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">Overview</p>
-              <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
-                {reviewedPercent}% reviewed
-              </span>
-            </div>
-
-            <div className="mt-3 space-y-2">
-              <div className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-                <span className="text-sm text-slate-600">Total assessments</span>
-                <span className="text-sm font-semibold text-slate-900">{entries.length}</span>
-              </div>
-              <div className="flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
-                <span className="text-sm text-amber-800">Pending action</span>
-                <span className="text-sm font-semibold text-amber-800">{pendingCount}</span>
-              </div>
-              <div className="flex items-center justify-between rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
-                <span className="text-sm text-emerald-800">Reviewed</span>
-                <span className="text-sm font-semibold text-emerald-800">{reviewedCount}</span>
-              </div>
-            </div>
-
-            <div className="mt-3 space-y-1.5">
-              <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
-                <div className="h-1.5 rounded-full bg-blue-500 transition-all duration-300" style={{ width: `${reviewedPercent}%` }} />
-              </div>
-              <p className="text-[11px] text-slate-500">
-                {reviewedCount} of {entries.length} assessments reviewed
-              </p>
-            </div>
-          </div>
         </aside>
 
         <section className="p-4 sm:p-6 space-y-4">
@@ -965,14 +991,15 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
             <>
               <div className="rounded-lg border border-slate-200 bg-white p-4">
                 <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-                  <div className="text-sm text-slate-600">Filters</div>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="w-full lg:max-w-sm">
                     <input
                       value={searchQuery}
                       onChange={(event) => setSearchQuery(event.target.value)}
                       placeholder="Search assessments"
-                      className="px-3 py-2 text-sm border border-slate-200 rounded-md"
+                      className="w-full px-3 py-2 text-sm border border-slate-200 rounded-md"
                     />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
                     <select
                       value={selectedType}
                       onChange={(event) => setSelectedType(event.target.value)}
@@ -1000,55 +1027,112 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                 </div>
               </div>
 
-              <div className="space-y-3">
-                {filteredEntries.map((entry) => {
-                  const dueDate = asDate(entry.dueTime);
-                  return (
-                    <button
-                      key={entry.id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedReviewEntryId(entry.id);
-                        setAssessmentTab('review');
-                      }}
-                      className="w-full rounded-lg border border-slate-200 bg-white p-4 text-left hover:border-blue-300 hover:bg-blue-50/40 transition"
-                    >
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-lg font-semibold text-slate-900 truncate">{entry.assessmentName}</p>
-                          <p className="mt-1 text-sm text-slate-600 line-clamp-2">{entry.assessment?.description || 'Assessment available for review.'}</p>
-                        </div>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium flex items-center gap-1 ${getStatusPillClass(entry.status)}`}>
-                          {getStatusIcon(entry.status)}
-                          {getStatusLabel(entry.status)}
-                        </span>
-                      </div>
+              <div className="rounded-md border border-slate-200 bg-white p-4 sm:p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500 font-semibold">Overview</p>
+                    <p className="mt-1 text-xs text-slate-500">Review progress across your filtered assessments.</p>
+                  </div>
+                  <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
+                    {reviewedPercent}% reviewed
+                  </span>
+                </div>
 
-                      <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-slate-500">
-                        <span>Due: {dueDate ? dueDate.toLocaleDateString() : 'Not set'}</span>
-                        <span>Max Score: {Math.round(Number(entry.assessment?.maxScore || 0)) || 'N/A'}</span>
-                        <span>Weight: {Math.round(Number(entry.assessment?.weightPct || 0)) || 0}%</span>
-                        <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">
-                          {formatAssessmentType(entry.assessment)}
-                        </span>
-                        {typeof entry.result?.actualMark === 'number' && typeof entry.assessment?.maxScore === 'number' && entry.assessment.maxScore > 0 && (
-                          <span className="font-semibold text-emerald-700">
-                            Score: {Math.round((entry.result.actualMark / entry.assessment.maxScore) * 100)}%
-                          </span>
-                        )}
-                      </div>
-                    </button>
-                  );
-                })}
+                <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-3">
+                    <p className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold">Total assessments</p>
+                    <p className="mt-1 text-xl font-bold text-slate-900">{entries.length}</p>
+                  </div>
+                  <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-3">
+                    <p className="text-[11px] uppercase tracking-wide text-amber-700 font-semibold">Pending action</p>
+                    <p className="mt-1 text-xl font-bold text-amber-800">{pendingCount}</p>
+                  </div>
+                  <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-3">
+                    <p className="text-[11px] uppercase tracking-wide text-emerald-700 font-semibold">Reviewed</p>
+                    <p className="mt-1 text-xl font-bold text-emerald-800">{reviewedCount}</p>
+                  </div>
+                </div>
+
+                <div className="mt-4">
+                  <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
+                    <div className="h-2 rounded-full bg-blue-500 transition-all duration-300" style={{ width: `${reviewedPercent}%` }} />
+                  </div>
+                  <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
+                    <span>{reviewedCount} reviewed</span>
+                    <span>{entries.length} total</span>
+                  </div>
+                </div>
               </div>
 
-              {filteredEntries.length === 0 && !loading && (
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-8 text-center">
-                  <FileText className="w-12 h-12 text-slate-400 mx-auto mb-3" />
-                  <h3 className="text-lg font-semibold text-slate-700">No Assessments</h3>
-                  <p className="text-sm text-slate-500">No assessments match the selected filters.</p>
-                </div>
-              )}
+              <div className="rounded-lg border border-slate-200 bg-white overflow-x-auto">
+                <table className="w-full min-w-[920px]">
+                  <thead className="bg-slate-50 text-slate-700 text-xs uppercase tracking-wide">
+                    <tr>
+                      <th className="text-left font-semibold px-4 py-3">Assessment</th>
+                      <th className="text-left font-semibold px-4 py-3">Status</th>
+                      <th className="text-left font-semibold px-4 py-3">Due Date</th>
+                      <th className="text-left font-semibold px-4 py-3">Type</th>
+                      <th className="text-right font-semibold px-4 py-3">Max Score</th>
+                      <th className="text-right font-semibold px-4 py-3">Score %</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredEntries.length > 0 ? (
+                      filteredEntries.map((entry) => {
+                        const dueDate = asDate(entry.dueTime);
+                        const scorePercent =
+                          typeof entry.result?.actualMark === 'number' &&
+                          typeof entry.assessment?.maxScore === 'number' &&
+                          entry.assessment.maxScore > 0
+                            ? Math.round((entry.result.actualMark / entry.assessment.maxScore) * 100)
+                            : null;
+
+                        return (
+                          <tr
+                            key={entry.id}
+                            onClick={() => {
+                              setSelectedReviewEntryId(entry.id);
+                              setAssessmentTab('review');
+                            }}
+                            className="border-t border-slate-200 text-sm text-slate-800 hover:bg-blue-50/40 cursor-pointer"
+                          >
+                            <td className="px-4 py-3">
+                              <p className="font-semibold text-slate-900 truncate max-w-[320px]">{entry.assessmentName}</p>
+                              <p className="text-xs text-slate-500 truncate max-w-[320px]">
+                                {entry.assessment?.description || 'Assessment available for review.'}
+                              </p>
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={`px-2 py-1 rounded-full text-xs font-medium inline-flex items-center gap-1 ${getStatusPillClass(entry.status)}`}>
+                                {getStatusIcon(entry.status)}
+                                {getStatusLabel(entry.status)}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3">{dueDate ? dueDate.toLocaleDateString() : 'Not set'}</td>
+                            <td className="px-4 py-3">{formatAssessmentType(entry.assessment)}</td>
+                            <td className="px-4 py-3 text-right">{Math.round(Number(entry.assessment?.maxScore || 0)) || 'N/A'}</td>
+                            <td className="px-4 py-3 text-right font-semibold">
+                              {scorePercent !== null ? (
+                                <span className="text-emerald-700">{scorePercent}%</span>
+                              ) : (
+                                <span className="text-slate-400">-</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr className="border-t border-slate-200">
+                        <td colSpan={6} className="px-4 py-10 text-center">
+                          <FileText className="w-10 h-10 text-slate-300 mx-auto mb-2" />
+                          <p className="text-sm font-semibold text-slate-700">No Assessments</p>
+                          <p className="text-xs text-slate-500 mt-1">No assessments match the selected filters.</p>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </>
           )}
 
