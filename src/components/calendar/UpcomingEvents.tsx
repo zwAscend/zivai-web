@@ -7,8 +7,8 @@ import {
   BookOpen, 
   AlertCircle,
   ChevronRight,
-  Filter,
-  Plus
+  Plus,
+  RefreshCw,
 } from 'lucide-react';
 import { CalendarEvent, EventType } from '../../types/calendar';
 import { Badge } from '../ui/badge';

@@ -1,14 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent } from '../ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
-import { Badge } from '@/components/ui/badge';
 import { 
   Loader2, 
   ChevronRight, 
   ChevronLeft, 
   X, 
-  FileText, 
   Sparkles,
   CheckCircle,
   Download,
@@ -45,7 +42,7 @@ export function AIAssessmentModal({
   isOpen, 
   onClose, 
   subjectId, 
-  onAssessmentCreated,
+  onAssessmentCreated: _onAssessmentCreated,
   assessmentToEdit,
   inline = false,
   forceExpanded,

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   Calendar,
@@ -10,10 +10,14 @@ import {
   Upload,
 } from 'lucide-react';
 import {
-  assessmentEnrollmentService,
   assessmentService,
+  studentService,
   submissionService,
 } from '../../services/api';
+import { ApiError } from '../../services/http';
+import type { SubmissionReviewDetail, SubmissionReviewQuestionDetail } from '../../services/submissionService';
+import type { StudentAssessmentDetail, StudentAssessmentHistoryItem } from '../../services/studentService';
+import { toast } from 'sonner';
 
 interface StudentAssignmentsProps {
   studentId: string;
@@ -87,6 +91,11 @@ const asDate = (value?: string | null): Date | null => {
   return Number.isNaN(date.getTime()) ? null : date;
 };
 
+const formatMark = (value?: number | null) => {
+  if (typeof value !== 'number' || Number.isNaN(value)) return 'N/A';
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+};
+
 const formatAssessmentType = (assessment?: AssessmentWithQuestionsItem | null) => {
   const raw = String(assessment?.assessmentType || 'Assessment').trim();
   if (!raw) return 'Assessment';
@@ -105,6 +114,38 @@ const getEntryStatus = (entry: {
   const dueDate = asDate(entry.dueTime);
   if (dueDate && dueDate.getTime() < Date.now()) return 'overdue';
   return 'pending';
+};
+
+const normalizeStatus = (value?: string | null): AssignmentStatusKey | null => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'graded' || normalized === 'submitted' || normalized === 'overdue' || normalized === 'pending') {
+    return normalized;
+  }
+  if (normalized === 'reviewed') return 'graded';
+  if (normalized === 'assigned') return 'pending';
+  return null;
+};
+
+const toResultItem = (item: StudentAssessmentHistoryItem): ResultItem | null => {
+  const hasResult =
+    typeof item.expectedMark === 'number' ||
+    typeof item.actualMark === 'number' ||
+    typeof item.score === 'number' ||
+    !!item.grade ||
+    !!item.feedback;
+
+  if (!hasResult) {
+    return null;
+  }
+
+  return {
+    id: item.assignmentId,
+    expectedMark: item.expectedMark ?? undefined,
+    actualMark: item.actualMark ?? item.score ?? undefined,
+    grade: item.grade ?? undefined,
+    feedback: item.feedback ?? undefined,
+    submittedDate: item.gradedAt || item.submittedAt || undefined,
+  };
 };
 
 const getStatusPillClass = (status: AssignmentStatusKey) => {
@@ -167,11 +208,32 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
   const [textSubmission, setTextSubmission] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [submittingEntryId, setSubmittingEntryId] = useState<string | null>(null);
+  const [loadingAttemptEntryId, setLoadingAttemptEntryId] = useState<string | null>(null);
 
-  const [reviewSubmissionDetail, setReviewSubmissionDetail] = useState<any>(null);
+  const [reviewSubmissionDetail, setReviewSubmissionDetail] = useState<SubmissionReviewDetail | null>(null);
   const [loadingReviewDetail, setLoadingReviewDetail] = useState(false);
+  const reviewDetailCacheRef = useRef<Record<string, SubmissionReviewDetail>>({});
+  const [selectedAssessmentDetail, setSelectedAssessmentDetail] = useState<StudentAssessmentDetail | null>(null);
+  const [loadingAssessmentDetail, setLoadingAssessmentDetail] = useState(false);
+  const assessmentDetailCacheRef = useRef<Record<string, StudentAssessmentDetail>>({});
 
-  const fetchWorkspace = useCallback(async () => {
+  const mergeAssessmentIntoEntries = useCallback((assessmentId: string, patch: Partial<AssessmentWithQuestionsItem>) => {
+    setEntries((previous) =>
+      previous.map((entry) => {
+        if (entry.assessmentId !== assessmentId) return entry;
+        return {
+          ...entry,
+          assessment: {
+            id: assessmentId,
+            ...(entry.assessment || {}),
+            ...patch,
+          },
+        };
+      })
+    );
+  }, []);
+
+  const fetchWorkspace = useCallback(async (options: { forceRefresh?: boolean } = {}) => {
     if (!studentId) {
       setEntries([]);
       setLoading(false);
@@ -182,79 +244,41 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
     setError(null);
 
     try {
-      const [enrollmentsRaw, submissionsRaw] = await Promise.all([
-        assessmentEnrollmentService.getSummary({ studentId }).catch(() => []),
-        submissionService.getStudentSubmissions(studentId).catch(() => []),
-      ]);
-
-      const enrollments = enrollmentsRaw || [];
-      const submissions = (submissionsRaw || []) as SubmissionSummaryItem[];
-
-      const assessmentIds = Array.from(
-        new Set(enrollments.map((item) => item.assessmentId).filter(Boolean))
+      const subjectFilter = selectedSubjectId && selectedSubjectId !== 'all' ? selectedSubjectId : undefined;
+      const history = await studentService.getAssessmentHistory(
+        studentId,
+        { subjectId: subjectFilter },
+        { forceRefresh: !!options.forceRefresh }
       );
 
-      const assessmentEntries = await Promise.all(
-        assessmentIds.map(async (assessmentId) => {
-          try {
-            const assessment = await assessmentService.getAssessmentWithQuestions(assessmentId);
-            return [assessmentId, assessment as AssessmentWithQuestionsItem] as const;
-          } catch {
-            return [assessmentId, null] as const;
-          }
-        })
-      );
-      const assessmentsById = new Map<string, AssessmentWithQuestionsItem | null>(assessmentEntries);
-
-      const filteredEnrollments =
-        selectedSubjectId && selectedSubjectId !== 'all'
-          ? enrollments.filter((item) => assessmentsById.get(item.assessmentId)?.subjectId === selectedSubjectId)
-          : enrollments;
-
-      const resultEntries = await Promise.all(
-        Array.from(new Set(filteredEnrollments.map((item) => item.assessmentId))).map(async (assessmentId) => {
-          try {
-            const results = (await assessmentService.getResults(assessmentId, studentId)) as ResultItem[];
-            return [assessmentId, results?.[0] || null] as const;
-          } catch {
-            return [assessmentId, null] as const;
-          }
-        })
-      );
-      const resultsByAssessmentId = new Map<string, ResultItem | null>(resultEntries);
-
-      const latestSubmissionByAssessmentId = new Map<string, SubmissionSummaryItem>();
-      submissions.forEach((submission) => {
-        const assessmentId = String(submission.assessment || '').trim();
-        if (!assessmentId) return;
-
-        const existing = latestSubmissionByAssessmentId.get(assessmentId);
-        if (!existing) {
-          latestSubmissionByAssessmentId.set(assessmentId, submission);
-          return;
-        }
-
-        const existingTime = asDate(existing.submittedAt)?.getTime() || 0;
-        const nextTime = asDate(submission.submittedAt)?.getTime() || 0;
-        if (nextTime >= existingTime) {
-          latestSubmissionByAssessmentId.set(assessmentId, submission);
-        }
-      });
-
-      const mappedEntries: AssignmentEntry[] = filteredEnrollments
-        .map((summary) => {
-          const assessment = assessmentsById.get(summary.assessmentId) || null;
-          const submission = latestSubmissionByAssessmentId.get(summary.assessmentId) || null;
-          const result = resultsByAssessmentId.get(summary.assessmentId) || null;
-          const status = getEntryStatus({ submission, result, dueTime: summary.dueTime || null });
+      const mappedEntries: AssignmentEntry[] = history
+        .map((item) => {
+          const assessment: AssessmentWithQuestionsItem = {
+            id: item.assessmentId,
+            subjectId: item.subjectId || undefined,
+            name: item.assessmentName,
+            assessmentType: item.assessmentType || undefined,
+            maxScore: item.maxScore ?? undefined,
+          };
+          const submission: SubmissionSummaryItem | null = item.submissionId
+            ? {
+                id: item.submissionId,
+                assessment: item.assessmentId,
+                submittedAt: item.submittedAt || undefined,
+                status: item.status || undefined,
+              }
+            : null;
+          const result = toResultItem(item);
+          const status =
+            normalizeStatus(item.status) || getEntryStatus({ submission, result, dueTime: item.dueTime || null });
 
           return {
-            id: summary.id,
-            assignmentId: summary.assignmentId,
-            assessmentId: summary.assessmentId,
-            assessmentName: summary.assessmentName,
-            dueTime: summary.dueTime || null,
-            published: summary.published,
+            id: item.enrollmentId,
+            assignmentId: item.assignmentId,
+            assessmentId: item.assessmentId,
+            assessmentName: item.assessmentName,
+            dueTime: item.dueTime || null,
+            published: item.published,
             assessment,
             submission,
             result,
@@ -270,7 +294,11 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
       setEntries(mappedEntries);
     } catch (err: any) {
       setEntries([]);
-      setError(err?.message || 'Failed to load assessments');
+      if (err instanceof ApiError && err.status === 404) {
+        setError(null);
+      } else {
+        setError('Unable to load assessments right now. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -301,10 +329,101 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
     [entries, selectedReviewEntryId]
   );
 
+  const ensureAssessmentWithQuestions = useCallback(
+    async (entry: AssignmentEntry): Promise<AssessmentWithQuestionsItem | null> => {
+      const existingQuestions = entry.assessment?.questions || [];
+      if (existingQuestions.length > 0) {
+        return entry.assessment;
+      }
+
+      const raw = (await assessmentService.getAssessmentWithQuestions(entry.assessmentId)) as AssessmentWithQuestionsItem;
+      const normalizedQuestions = (raw?.questions || []).map((question) => ({
+        ...question,
+        id: question.id || question.assessmentQuestionId || question.questionId || `${entry.assessmentId}-q`,
+      }));
+      const mergedAssessment: AssessmentWithQuestionsItem = {
+        ...(entry.assessment || {}),
+        ...(raw || {}),
+        id: entry.assessmentId,
+        questions: normalizedQuestions,
+      };
+      mergeAssessmentIntoEntries(entry.assessmentId, mergedAssessment);
+      return mergedAssessment;
+    },
+    [mergeAssessmentIntoEntries]
+  );
+
+  useEffect(() => {
+    const assessmentId = selectedReviewEntry?.assessmentId;
+    if (!assessmentId || !studentId) {
+      setSelectedAssessmentDetail(null);
+      setLoadingAssessmentDetail(false);
+      return;
+    }
+
+    const cacheKey = `${studentId}:${assessmentId}`;
+    const cached = assessmentDetailCacheRef.current[cacheKey];
+    if (cached) {
+      setSelectedAssessmentDetail(cached);
+      setLoadingAssessmentDetail(false);
+      mergeAssessmentIntoEntries(assessmentId, {
+        description: cached.description || undefined,
+        maxScore: cached.maxScore ?? undefined,
+        assessmentType: cached.assessmentType || undefined,
+      });
+      return;
+    }
+
+    setSelectedAssessmentDetail(null);
+    let cancelled = false;
+
+    const fetchAssessmentDetail = async () => {
+      setLoadingAssessmentDetail(true);
+      try {
+        const detail = await studentService.getAssessmentDetail(studentId, assessmentId);
+        if (!cancelled) {
+          assessmentDetailCacheRef.current[cacheKey] = detail;
+          setSelectedAssessmentDetail(detail);
+          mergeAssessmentIntoEntries(assessmentId, {
+            description: detail.description || undefined,
+            maxScore: detail.maxScore ?? undefined,
+            assessmentType: detail.assessmentType || undefined,
+          });
+        }
+      } catch {
+        if (!cancelled) {
+          setSelectedAssessmentDetail(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingAssessmentDetail(false);
+        }
+      }
+    };
+
+    fetchAssessmentDetail();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [studentId, selectedReviewEntry?.assessmentId, mergeAssessmentIntoEntries]);
+
+  const reviewQuestions = useMemo(() => {
+    const questions = reviewSubmissionDetail?.questions || [];
+    return [...questions].sort((a, b) => (a.order || 0) - (b.order || 0));
+  }, [reviewSubmissionDetail]);
+
   useEffect(() => {
     const submissionId = selectedReviewEntry?.submission?.id;
     if (!submissionId) {
       setReviewSubmissionDetail(null);
+      setLoadingReviewDetail(false);
+      return;
+    }
+
+    const cachedDetail = reviewDetailCacheRef.current[submissionId];
+    if (cachedDetail) {
+      setReviewSubmissionDetail(cachedDetail);
       setLoadingReviewDetail(false);
       return;
     }
@@ -314,8 +433,9 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
     const fetchReviewSubmissionDetail = async () => {
       setLoadingReviewDetail(true);
       try {
-        const detail = await submissionService.getSubmissionDetails(submissionId);
+        const detail = await submissionService.getSubmissionReviewDetail(submissionId);
         if (!cancelled) {
+          reviewDetailCacheRef.current[submissionId] = detail;
           setReviewSubmissionDetail(detail);
         }
       } catch {
@@ -363,6 +483,9 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
     () => filteredEntries.filter((entry) => entry.status === 'pending' || entry.status === 'overdue'),
     [filteredEntries]
   );
+  const pendingCount = entries.filter((item) => item.status === 'pending' || item.status === 'overdue').length;
+  const reviewedCount = entries.filter((item) => item.status === 'graded').length;
+  const reviewedPercent = entries.length > 0 ? Math.round((reviewedCount / entries.length) * 100) : 0;
 
   const setAnswerDraft = (assessmentId: string, questionId: string, value: string) => {
     const key = `${assessmentId}:${questionId}`;
@@ -402,7 +525,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
       });
 
       setActiveAttemptEntryId(null);
-      await fetchWorkspace();
+      await fetchWorkspace({ forceRefresh: true });
     } catch (err: any) {
       const message = String(err?.message || 'Failed to submit answers.');
       const needsFallback =
@@ -428,7 +551,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
             textContent: fallbackText,
           });
           setActiveAttemptEntryId(null);
-          await fetchWorkspace();
+          await fetchWorkspace({ forceRefresh: true });
         } catch (fallbackError: any) {
           alert(fallbackError?.message || message);
         }
@@ -464,7 +587,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
       setTextSubmission('');
       setSelectedFile(null);
       setActiveAttemptEntryId(null);
-      await fetchWorkspace();
+      await fetchWorkspace({ forceRefresh: true });
     } catch (err: any) {
       alert(err?.message || 'Failed to submit assessment.');
     } finally {
@@ -474,82 +597,150 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
 
   if (loading) {
     return (
-      <div className="bg-white rounded-lg shadow p-6">
-        <div className="space-y-4">
-          <div className="h-7 w-40 bg-blue-100 rounded animate-pulse" />
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="bg-blue-50 rounded-lg p-4 space-y-2">
-              <div className="h-5 w-52 bg-blue-100 rounded animate-pulse" />
-              <div className="h-4 w-full bg-blue-100 rounded animate-pulse" />
-              <div className="grid grid-cols-3 gap-3">
-                <div className="h-4 bg-blue-100 rounded animate-pulse" />
-                <div className="h-4 bg-blue-100 rounded animate-pulse" />
-                <div className="h-4 bg-blue-100 rounded animate-pulse" />
-              </div>
+      <div className="border border-slate-200 bg-white overflow-hidden animate-pulse">
+        <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] min-h-[680px]">
+          <aside className="border-b lg:border-b-0 lg:border-r border-slate-200 bg-slate-50 p-4 sm:p-5 space-y-4">
+            <div className="h-3 w-24 rounded bg-slate-200" />
+            <div className="-mx-4 sm:-mx-5 border-t border-slate-200">
+              <div className="h-10 border-b border-slate-200 bg-slate-100" />
+              <div className="h-10 border-b border-slate-200 bg-slate-100" />
+              <div className="h-10 border-b border-slate-200 bg-slate-100" />
             </div>
-          ))}
+            <div className="rounded-md border border-slate-200 bg-white p-3.5 space-y-2">
+              <div className="h-3 w-20 rounded bg-slate-200" />
+              <div className="h-9 rounded-md bg-slate-100" />
+              <div className="h-9 rounded-md bg-slate-100" />
+              <div className="h-9 rounded-md bg-slate-100" />
+              <div className="h-1.5 rounded-full bg-slate-200 mt-2" />
+            </div>
+          </aside>
+          <section className="p-4 sm:p-6 space-y-4">
+            <div className="h-16 rounded-lg border border-slate-200 bg-slate-50" />
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="h-36 rounded-lg border border-slate-200 bg-white" />
+            ))}
+            <div className="h-16 rounded-lg border border-slate-200 bg-slate-50" />
+            <div className="h-36 rounded-lg border border-slate-200 bg-white" />
+          </section>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
-      <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] min-h-[680px]">
-        <aside className="border-b lg:border-b-0 lg:border-r border-slate-200 bg-slate-50 p-4 sm:p-5">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-semibold">Assessments</p>
-          <nav className="mt-3 space-y-2">
+    <div className="border border-slate-200 bg-white overflow-hidden">
+      <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] min-h-[680px]">
+        <aside className="border-b lg:border-b-0 lg:border-r border-slate-200 bg-slate-50 p-4 sm:p-5 space-y-4">
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 font-semibold">Assessments</p>
+          </div>
+
+          <nav className="-mx-4 sm:-mx-5 border-t border-slate-200">
             <button
               type="button"
               onClick={() => setAssessmentTab('attempt')}
-              className={`w-full inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition ${
+              className={`w-full inline-flex items-center justify-between rounded-none border-b border-slate-200 px-4 sm:px-5 py-2.5 text-sm transition ${
                 assessmentTab === 'attempt'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-100'
+                  ? 'bg-blue-50 border-l-4 border-l-blue-600 pl-2 text-blue-700 font-semibold'
+                  : 'text-slate-600 hover:bg-slate-100'
               }`}
+              aria-current={assessmentTab === 'attempt' ? 'page' : undefined}
             >
-              <Upload className="w-4 h-4 shrink-0" />
-              <span>Attempt Assessment</span>
+              <span className="inline-flex items-center gap-2 min-w-0">
+                <span
+                  className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
+                    assessmentTab === 'attempt'
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'bg-white border border-slate-200 text-slate-600'
+                  }`}
+                >
+                  <Upload className="w-4 h-4" />
+                </span>
+                <span className="truncate">Attempt Assessment</span>
+              </span>
+              <span className={`text-xs font-semibold ${assessmentTab === 'attempt' ? 'text-blue-700' : 'text-slate-500'}`}>{pendingCount}</span>
             </button>
             <button
               type="button"
               onClick={() => setAssessmentTab('list')}
-              className={`w-full inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition ${
+              className={`w-full inline-flex items-center justify-between rounded-none border-b border-slate-200 px-4 sm:px-5 py-2.5 text-sm transition ${
                 assessmentTab === 'list'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-100'
+                  ? 'bg-blue-50 border-l-4 border-l-blue-600 pl-2 text-blue-700 font-semibold'
+                  : 'text-slate-600 hover:bg-slate-100'
               }`}
+              aria-current={assessmentTab === 'list' ? 'page' : undefined}
             >
-              <FileText className="w-4 h-4 shrink-0" />
-              <span>Assessment List</span>
+              <span className="inline-flex items-center gap-2 min-w-0">
+                <span
+                  className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
+                    assessmentTab === 'list'
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'bg-white border border-slate-200 text-slate-600'
+                  }`}
+                >
+                  <FileText className="w-4 h-4" />
+                </span>
+                <span className="truncate">Assessment List</span>
+              </span>
+              <span className={`text-xs font-semibold ${assessmentTab === 'list' ? 'text-blue-700' : 'text-slate-500'}`}>{entries.length}</span>
             </button>
             <button
               type="button"
               onClick={() => setAssessmentTab('review')}
-              className={`w-full inline-flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition ${
+              className={`w-full inline-flex items-center justify-between rounded-none border-b border-slate-200 px-4 sm:px-5 py-2.5 text-sm transition ${
                 assessmentTab === 'review'
-                  ? 'bg-blue-600 text-white shadow-sm'
-                  : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-100'
+                  ? 'bg-blue-50 border-l-4 border-l-blue-600 pl-2 text-blue-700 font-semibold'
+                  : 'text-slate-600 hover:bg-slate-100'
               }`}
+              aria-current={assessmentTab === 'review' ? 'page' : undefined}
             >
-              <Eye className="w-4 h-4 shrink-0" />
-              <span>Assessment Review</span>
+              <span className="inline-flex items-center gap-2 min-w-0">
+                <span
+                  className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
+                    assessmentTab === 'review'
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'bg-white border border-slate-200 text-slate-600'
+                  }`}
+                >
+                  <Eye className="w-4 h-4" />
+                </span>
+                <span className="truncate">Assessment Review</span>
+              </span>
+              <span className={`text-xs font-semibold ${assessmentTab === 'review' ? 'text-blue-700' : 'text-slate-500'}`}>{reviewedCount}</span>
             </button>
           </nav>
 
-          <div className="mt-5 space-y-2 rounded-md border border-slate-200 bg-white p-3 text-sm">
-            <p className="flex items-center justify-between text-slate-600">
-              <span>Total</span>
-              <span className="font-semibold text-slate-900">{entries.length}</span>
-            </p>
-            <p className="flex items-center justify-between text-slate-600">
-              <span>Pending</span>
-              <span className="font-semibold text-slate-900">{entries.filter((item) => item.status === 'pending' || item.status === 'overdue').length}</span>
-            </p>
-            <p className="flex items-center justify-between text-slate-600">
-              <span>Reviewed</span>
-              <span className="font-semibold text-slate-900">{entries.filter((item) => item.status === 'graded').length}</span>
-            </p>
+          <div className="rounded-md border border-slate-200 bg-white p-3.5">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">Overview</p>
+              <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                {reviewedPercent}% reviewed
+              </span>
+            </div>
+
+            <div className="mt-3 space-y-2">
+              <div className="flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                <span className="text-sm text-slate-600">Total assessments</span>
+                <span className="text-sm font-semibold text-slate-900">{entries.length}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-3 py-2">
+                <span className="text-sm text-amber-800">Pending action</span>
+                <span className="text-sm font-semibold text-amber-800">{pendingCount}</span>
+              </div>
+              <div className="flex items-center justify-between rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
+                <span className="text-sm text-emerald-800">Reviewed</span>
+                <span className="text-sm font-semibold text-emerald-800">{reviewedCount}</span>
+              </div>
+            </div>
+
+            <div className="mt-3 space-y-1.5">
+              <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                <div className="h-1.5 rounded-full bg-blue-500 transition-all duration-300" style={{ width: `${reviewedPercent}%` }} />
+              </div>
+              <p className="text-[11px] text-slate-500">
+                {reviewedCount} of {entries.length} assessments reviewed
+              </p>
+            </div>
           </div>
         </aside>
 
@@ -595,13 +786,24 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                     {!isActive ? (
                       <button
                         type="button"
-                        onClick={() => {
-                          setActiveAttemptEntryId(entry.id);
-                          setSubmissionMode(hasQuestions ? 'questions' : 'text');
+                        onClick={async () => {
+                          setLoadingAttemptEntryId(entry.id);
+                          try {
+                            const hydratedAssessment = await ensureAssessmentWithQuestions(entry);
+                            const questionCount = hydratedAssessment?.questions?.length || 0;
+                            setActiveAttemptEntryId(entry.id);
+                            setSubmissionMode(questionCount > 0 ? 'questions' : 'text');
+                          } catch {
+                            toast.error('Unable to load assessment questions right now.');
+                          } finally {
+                            setLoadingAttemptEntryId(null);
+                          }
                         }}
-                        className="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                        disabled={loadingAttemptEntryId === entry.id}
+                        className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
                       >
-                        Start attempt
+                        {loadingAttemptEntryId === entry.id ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                        {loadingAttemptEntryId === entry.id ? 'Loading...' : 'Start attempt'}
                       </button>
                     ) : (
                       <div className="border-t border-slate-200 pt-4 space-y-4">
@@ -864,7 +1066,9 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <div>
                         <h3 className="text-2xl font-bold text-slate-900">{selectedReviewEntry.assessmentName}</h3>
-                        <p className="mt-1 text-sm text-slate-600">{selectedReviewEntry.assessment?.description || 'Assessment review detail'}</p>
+                        <p className="mt-1 text-sm text-slate-600">
+                          {selectedAssessmentDetail?.description || selectedReviewEntry.assessment?.description || 'Assessment review detail'}
+                        </p>
                       </div>
                       <button
                         type="button"
@@ -880,7 +1084,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                         <p className="text-xs text-slate-500">Outcome</p>
                         <p className="text-base font-semibold text-slate-800">
                           {typeof selectedReviewEntry.result?.actualMark === 'number'
-                            ? `${selectedReviewEntry.result.actualMark}/${Math.round(Number(selectedReviewEntry.assessment?.maxScore || 0)) || 'N/A'}`
+                            ? `${selectedReviewEntry.result.actualMark}/${Math.round(Number(selectedAssessmentDetail?.maxScore ?? selectedReviewEntry.assessment?.maxScore ?? 0)) || 'N/A'}`
                             : 'Not graded'}
                         </p>
                       </div>
@@ -895,11 +1099,14 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                         <p className="text-base font-semibold text-slate-800">{getStatusLabel(selectedReviewEntry.status)}</p>
                       </div>
                     </div>
+                    {loadingAssessmentDetail && (
+                      <p className="mt-3 text-xs text-slate-500">Loading assessment detail...</p>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                     <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-4">
-                      <h4 className="text-lg font-semibold text-slate-900">Student Attempt</h4>
+                      <h4 className="text-lg font-semibold text-slate-900">My Attempt</h4>
 
                       {!selectedReviewEntry.submission ? (
                         <p className="text-sm text-slate-500">No submission has been made for this assessment yet.</p>
@@ -915,39 +1122,78 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
 
                           {loadingReviewDetail ? (
                             <p className="text-sm text-slate-500">Loading submission detail...</p>
-                          ) : reviewSubmissionDetail?.submissionContent ? (
-                            <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                              <p className="font-semibold mb-2">Submitted response</p>
-                              <pre className="whitespace-pre-wrap break-words">{String(reviewSubmissionDetail.submissionContent)}</pre>
+                          ) : reviewQuestions.length > 0 ? (
+                            <div className="space-y-3">
+                              {reviewQuestions.map((question: SubmissionReviewQuestionDetail, index) => (
+                                <article
+                                  key={question.assessmentQuestionId || `${question.order || index}-${index}`}
+                                  className="rounded-md border border-slate-200 bg-slate-50 p-3 space-y-2"
+                                >
+                                  <p className="text-sm font-semibold text-slate-900">Question {question.order || index + 1}</p>
+                                  <p className="text-sm text-slate-700">{question.prompt || 'Prompt not available.'}</p>
+                                  <div className="rounded-md border border-slate-200 bg-white p-2 text-sm text-slate-700">
+                                    {question.studentAnswer ? (
+                                      <pre className="whitespace-pre-wrap break-words font-sans">{question.studentAnswer}</pre>
+                                    ) : (
+                                      <p className="text-slate-500">No answer submitted for this question.</p>
+                                    )}
+                                  </div>
+                                </article>
+                              ))}
                             </div>
                           ) : (
                             <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                              Submission content is not available for this attempt.
+                              Per-question attempt detail is not available for this submission.
                             </div>
                           )}
                         </>
                       )}
-
-                      {!!selectedReviewEntry.assessment?.questions?.length && (
-                        <div className="rounded-md border border-slate-200 bg-slate-50 p-3">
-                          <p className="text-sm font-semibold text-slate-800 mb-2">Assessment Questions</p>
-                          <ol className="space-y-2 list-decimal ml-5 text-sm text-slate-700">
-                            {selectedReviewEntry.assessment.questions
-                              ?.slice()
-                              .sort((a, b) => (a.sequenceIndex || 0) - (b.sequenceIndex || 0))
-                              .map((question) => (
-                                <li key={question.id}>{question.stem}</li>
-                              ))}
-                          </ol>
-                        </div>
-                      )}
                     </div>
 
                     <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-3">
-                      <h4 className="text-lg font-semibold text-slate-900">Feedback and Outcome</h4>
-                      {!selectedReviewEntry.result ? (
-                        <p className="text-sm text-slate-500">Feedback will appear once this assessment has been graded.</p>
+                      <h4 className="text-lg font-semibold text-slate-900">Feedback and Marking</h4>
+
+                      {loadingReviewDetail ? (
+                        <p className="text-sm text-slate-500">Loading feedback...</p>
+                      ) : reviewQuestions.length > 0 ? (
+                        <div className="space-y-3">
+                          {reviewQuestions.map((question: SubmissionReviewQuestionDetail, index) => (
+                            <article
+                              key={`${question.assessmentQuestionId || question.order || index}-feedback`}
+                              className="rounded-md border border-slate-200 bg-slate-50 p-3 space-y-2"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-sm font-semibold text-slate-900">Question {question.order || index + 1}</p>
+                                <p className="text-xs font-semibold text-slate-600">
+                                  {formatMark(question.awardedMarks)} / {formatMark(question.maxMarks)}
+                                </p>
+                              </div>
+
+                              <div className="rounded-md border border-slate-200 bg-white p-2">
+                                <p className="text-xs uppercase tracking-wide text-slate-500 font-semibold">Expected Marking Points</p>
+                                {question.expectedMarkingPoints && question.expectedMarkingPoints.length > 0 ? (
+                                  <ul className="mt-1 list-disc pl-5 space-y-1 text-sm text-slate-700">
+                                    {question.expectedMarkingPoints.map((point, pointIndex) => (
+                                      <li key={`${question.assessmentQuestionId || index}-${pointIndex}`}>{point}</li>
+                                    ))}
+                                  </ul>
+                                ) : (
+                                  <p className="mt-1 text-sm text-slate-500">No expected points were provided.</p>
+                                )}
+                              </div>
+
+                              <div className="rounded-md border border-blue-200 bg-blue-50 p-2 text-sm text-blue-900">
+                                <p className="font-semibold">Feedback</p>
+                                <p className="mt-1">{question.feedback || 'No per-question feedback yet.'}</p>
+                              </div>
+                            </article>
+                          ))}
+                        </div>
                       ) : (
+                        <p className="text-sm text-slate-500">Feedback will appear once this assessment has been graded.</p>
+                      )}
+
+                      {!!selectedReviewEntry.result && (
                         <>
                           <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 space-y-1">
                             <p>
@@ -961,29 +1207,24 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                             </p>
                           </div>
                           <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
-                            <p className="font-semibold">Feedback</p>
+                            <p className="font-semibold">Overall Feedback</p>
                             <p className="mt-1">{selectedReviewEntry.result.feedback || 'No feedback provided.'}</p>
                           </div>
-                          {reviewSubmissionDetail?.autoGrading?.result?.feedback && (
-                            <div className="rounded-md border border-slate-200 bg-white p-3 text-sm text-slate-700">
-                              <p className="font-semibold">Auto-grading notes</p>
-                              <p className="mt-1">{reviewSubmissionDetail.autoGrading.result.feedback}</p>
-                            </div>
-                          )}
-                          {onOpenTutor && (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                onOpenTutor(
-                                  `Review my performance on "${selectedReviewEntry.assessmentName}". Feedback: ${selectedReviewEntry.result?.feedback || 'No feedback provided'}. Help me fix the gaps.`
-                                )
-                              }
-                              className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-                            >
-                              Review with AI Coach
-                            </button>
-                          )}
                         </>
+                      )}
+
+                      {onOpenTutor && selectedReviewEntry.result && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onOpenTutor(
+                              `Review my performance on "${selectedReviewEntry.assessmentName}". Feedback: ${selectedReviewEntry.result?.feedback || 'No feedback provided'}. Help me fix the gaps.`
+                            )
+                          }
+                          className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                        >
+                          Review with AI Coach
+                        </button>
                       )}
                     </div>
                   </div>

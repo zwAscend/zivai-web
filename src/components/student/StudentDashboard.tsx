@@ -45,7 +45,7 @@ import {
   getProgressTotalLearningMinutes,
 } from './dashboard/progress';
 import HomeTeachersPanel from './dashboard/HomeTeachersPanel';
-import { reportService, StudentReportResponse } from '../../services/reportService';
+import { reportService, StudentReportCardResponse } from '../../services/reportService';
 import { NotificationItem } from '../../services/notificationService';
 import { CalendarEvent } from '../../types/calendar';
 import { MasterySignalsSummary, StudentStreakSummary } from '../../services/developmentService';
@@ -171,7 +171,7 @@ const StudentDashboard: React.FC = () => {
   const [teachers, setTeachers] = useState<StudentTeacher[]>([]);
   const [teachersLoading, setTeachersLoading] = useState(false);
   const [teachersError, setTeachersError] = useState<string | null>(null);
-  const [subjectReportsBySubjectId, setSubjectReportsBySubjectId] = useState<Record<string, StudentReportResponse | null>>({});
+  const [studentReportCard, setStudentReportCard] = useState<StudentReportCardResponse | null>(null);
   const [homeNotifications, setHomeNotifications] = useState<NotificationItem[]>([]);
   const [homeUnreadNotificationCount, setHomeUnreadNotificationCount] = useState(0);
   const [homeUpcomingEvents, setHomeUpcomingEvents] = useState<CalendarEvent[]>([]);
@@ -182,7 +182,6 @@ const StudentDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<NavItemKey>(initialRouteView);
-  const [tutorPrefill, setTutorPrefill] = useState<string>('');
   const [resultsTab, setResultsTab] = useState<'analytics' | 'results' | 'report-card'>('analytics');
   const [isResultsSidebarCollapsed, setIsResultsSidebarCollapsed] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
@@ -230,27 +229,6 @@ const StudentDashboard: React.FC = () => {
     const candidate = currentUser?.id;
     return candidate ? String(candidate) : undefined;
   }, []);
-
-  const viewMeta = useMemo(() => {
-    switch (activeView) {
-      case 'plan':
-        return { title: 'My Development Plan', subtitle: 'Guided practice and reasoning checkpoints for each step.' };
-      case 'subjects':
-        return { title: 'My Subjects', subtitle: 'Track curriculum coverage, mastery, and recommended resources.' };
-      case 'assessments':
-        return { title: 'Assessments', subtitle: 'Complete tasks independently and reflect on feedback.' };
-      case 'results':
-        return { title: 'My Report', subtitle: 'See performance trends, feedback, and next steps.' };
-      case 'tutor':
-        return { title: 'AI Study Coach', subtitle: 'Collaborate in a guided workspace: plan, reason, and reflect.' };
-      case 'peer-study':
-        return { title: 'Peer Study', subtitle: 'Collaborate with classmates on weak topics.' };
-      case 'profile':
-        return { title: 'Profile & Settings', subtitle: 'Update your details, avatar, and preferences.' };
-      default:
-        return { title: `Welcome back, ${student?.firstName || ''}!`, subtitle: 'My subjects and development plans.' };
-    }
-  }, [activeView, student?.firstName]);
 
   const realPlanBySubjectId = useMemo(() => {
     const planMap = new Map<string, DevelopmentPlan>();
@@ -313,27 +291,25 @@ const StudentDashboard: React.FC = () => {
   };
 
   const reportCardRows = useMemo(
-    () =>
-      displaySubjects.map((subject) => {
-        const report = subjectReportsBySubjectId[subject.id];
-        const reportAverage = typeof report?.averagePercent === 'number' ? report.averagePercent : null;
-        const baseMastery = reportAverage ?? displayPlanBySubjectId.get(subject.id)?.currentProgress ?? 0;
-        const masteryPercent = Math.max(0, Math.min(100, Math.round(baseMastery)));
-        const predictedPercent = Math.max(
-          0,
-          Math.min(100, masteryPercent + (masteryPercent >= 70 ? 3 : masteryPercent >= 50 ? 6 : 8))
-        );
-        const predictedGrade = String(report?.predictedGrade || '').trim();
+    () => {
+      const subjectById = new Map(displaySubjects.map((subject) => [subject.id, subject]));
+      return (studentReportCard?.subjects || []).map((row) => {
+        const subjectMeta = subjectById.get(row.subjectId);
+        const masteryPercent = Math.max(0, Math.min(100, Math.round(row.masteryPercent || 0)));
+        const currentGrade = String(row.currentGrade || '').trim();
+        const predictedGrade = String(row.predictedZimsecGrade || '').trim();
+
         return {
-          subjectId: subject.id,
-          subjectCode: subject.code,
-          subjectName: subject.name,
+          subjectId: row.subjectId,
+          subjectCode: String(row.subjectCode || subjectMeta?.code || '-'),
+          subjectName: String(row.subjectName || subjectMeta?.name || 'Subject'),
           masteryPercent,
-          currentGrade: getGradeFromPercent(masteryPercent),
-          predictedZimsecGrade: predictedGrade || getGradeFromPercent(predictedPercent),
+          currentGrade: currentGrade || getGradeFromPercent(masteryPercent),
+          predictedZimsecGrade: predictedGrade || currentGrade || getGradeFromPercent(masteryPercent),
         };
-      }),
-    [displaySubjects, displayPlanBySubjectId, subjectReportsBySubjectId]
+      });
+    },
+    [displaySubjects, studentReportCard]
   );
 
   const homeMasteryBySubject = useMemo(
@@ -528,36 +504,32 @@ const StudentDashboard: React.FC = () => {
   }, [student?.id]);
 
   useEffect(() => {
-    if (!student?.id || displaySubjects.length === 0) {
-      setSubjectReportsBySubjectId({});
+    if (!student?.id) {
+      setStudentReportCard(null);
       return;
     }
 
     let cancelled = false;
 
-    const fetchSubjectReports = async () => {
-      const entries = await Promise.all(
-        displaySubjects.map(async (subject) => {
-          try {
-            const report = await reportService.getStudentReport(student.id, subject.id);
-            return [subject.id, report] as const;
-          } catch {
-            return [subject.id, null] as const;
-          }
-        })
-      );
-
-      if (!cancelled) {
-        setSubjectReportsBySubjectId(Object.fromEntries(entries));
+    const fetchReportCard = async () => {
+      try {
+        const response = await reportService.getStudentReportCard(student.id);
+        if (!cancelled) {
+          setStudentReportCard(response || null);
+        }
+      } catch {
+        if (!cancelled) {
+          setStudentReportCard(null);
+        }
       }
     };
 
-    fetchSubjectReports();
+    void fetchReportCard();
 
     return () => {
       cancelled = true;
     };
-  }, [student?.id, displaySubjects]);
+  }, [student?.id]);
 
   useEffect(() => {
     if (!student?.id) {
@@ -839,9 +811,7 @@ const StudentDashboard: React.FC = () => {
   };
 
   const handleOpenTutor = (prompt?: string) => {
-    if (prompt) {
-      setTutorPrefill(prompt);
-    }
+    void prompt;
     setViewWithTransition('tutor');
   };
 
@@ -1377,16 +1347,18 @@ const StudentDashboard: React.FC = () => {
     if (view === 'overview') {
       return (
         <div className="space-y-4 animate-pulse">
-          <section className="h-24 rounded-xl border border-slate-200 bg-slate-100" />
-          <section className="grid grid-cols-1 lg:grid-cols-[220px_1fr] min-h-[560px] rounded-xl border border-slate-200 bg-white overflow-hidden">
-            <aside className="hidden lg:block border-r border-slate-200 p-5 space-y-3">
-              <div className="h-3 w-20 rounded bg-slate-200" />
-              <div className="h-10 w-full rounded bg-slate-200" />
-              <div className="h-3 w-24 rounded bg-slate-200 mt-5" />
-              <div className="h-9 w-full rounded bg-slate-200" />
-              <div className="h-9 w-full rounded bg-slate-200" />
-            </aside>
-            <div className="p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-2 gap-8">
+          <section className="h-24 border border-slate-200 bg-slate-100" />
+          <section className="border border-slate-200 bg-white overflow-hidden">
+            <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] min-h-[640px]">
+              <aside className="hidden lg:block border-r border-slate-200 bg-slate-50 p-5">
+                <div className="h-3 w-20 rounded bg-slate-200" />
+                <div className="mt-3 border-t border-slate-200">
+                  {Array.from({ length: 4 }).map((_, index) => (
+                    <div key={index} className="h-10 border-b border-slate-200 bg-slate-100" />
+                  ))}
+                </div>
+              </aside>
+              <div className="p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-2 gap-8">
               {Array.from({ length: 2 }).map((_, cardIdx) => (
                 <div key={cardIdx} className="space-y-4">
                   <div className="h-7 w-40 rounded bg-slate-200" />
@@ -1404,6 +1376,7 @@ const StudentDashboard: React.FC = () => {
                   ))}
                 </div>
               ))}
+              </div>
             </div>
           </section>
         </div>
@@ -1412,18 +1385,28 @@ const StudentDashboard: React.FC = () => {
 
     if (view === 'plan') {
       return (
-        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden animate-pulse">
-          <div className="grid grid-cols-1 md:grid-cols-[340px_1fr] min-h-[640px]">
-            <aside className="hidden md:block border-r border-slate-200 p-4 space-y-3">
-              <div className="h-6 w-44 rounded bg-slate-200" />
-              {Array.from({ length: 5 }).map((_, i) => (
-                <div key={i} className="h-16 w-full rounded bg-slate-100" />
-              ))}
+        <div className="border border-slate-200 bg-white overflow-hidden animate-pulse">
+          <div className="grid grid-cols-1 md:grid-cols-[340px_1fr] min-h-[760px]">
+            <aside className="hidden md:flex border-r border-slate-200 bg-slate-50 flex-col">
+              <div className="border-b border-slate-200 px-5 py-4 space-y-3">
+                <div className="h-6 w-44 rounded bg-slate-200" />
+                <div className="h-1.5 w-full rounded bg-slate-200" />
+              </div>
+              <div>
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="h-[72px] w-full border-b border-slate-200 bg-slate-100" />
+                ))}
+              </div>
             </aside>
-            <div className="p-6 space-y-4">
+            <div className="border-l border-slate-200 md:border-l-0 bg-white">
+              <div className="h-[74px] border-b border-slate-200 px-6 py-5">
+                <div className="h-9 w-72 rounded bg-slate-200" />
+              </div>
+              <div className="p-6 space-y-4">
               <div className="h-9 w-72 rounded bg-slate-200" />
               <div className="h-28 w-full rounded bg-slate-100" />
               <div className="h-28 w-full rounded bg-slate-100" />
+              </div>
             </div>
           </div>
         </div>
@@ -1432,12 +1415,14 @@ const StudentDashboard: React.FC = () => {
 
     if (view === 'subjects') {
       return (
-        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden animate-pulse">
+        <div className="border border-slate-200 bg-white overflow-hidden animate-pulse">
           <div className="grid grid-cols-1 xl:grid-cols-[320px_1fr] min-h-[640px]">
-            <aside className="hidden xl:block border-r border-slate-200 p-4 space-y-3">
+            <aside className="hidden xl:block border-r border-slate-200 bg-slate-50 p-4">
+              <div className="border-t border-slate-200">
               {Array.from({ length: 6 }).map((_, i) => (
-                <div key={i} className="h-16 w-full rounded bg-slate-100" />
+                <div key={i} className="h-16 w-full border-b border-slate-200 bg-slate-100" />
               ))}
+              </div>
             </aside>
             <div className="p-6 space-y-4">
               <div className="h-8 w-80 rounded bg-slate-200" />
@@ -1453,13 +1438,15 @@ const StudentDashboard: React.FC = () => {
 
     if (view === 'assessments') {
       return (
-        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden animate-pulse">
-          <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] min-h-[680px]">
+        <div className="border border-slate-200 bg-white overflow-hidden animate-pulse">
+          <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] min-h-[680px]">
             <aside className="border-b lg:border-b-0 lg:border-r border-slate-200 bg-slate-50 p-5 space-y-3">
               <div className="h-3 w-24 rounded bg-slate-200" />
-              <div className="h-10 w-full rounded bg-slate-200" />
-              <div className="h-10 w-full rounded bg-slate-200" />
-              <div className="h-10 w-full rounded bg-slate-200" />
+              <div className="border-t border-slate-200">
+                <div className="h-10 w-full border-b border-slate-200 bg-slate-100" />
+                <div className="h-10 w-full border-b border-slate-200 bg-slate-100" />
+                <div className="h-10 w-full border-b border-slate-200 bg-slate-100" />
+              </div>
               <div className="mt-5 space-y-2 rounded-md border border-slate-200 bg-white p-3">
                 <div className="h-3 w-full rounded bg-slate-200" />
                 <div className="h-3 w-full rounded bg-slate-200" />
@@ -1479,21 +1466,23 @@ const StudentDashboard: React.FC = () => {
 
     if (view === 'results') {
       return (
-        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden animate-pulse">
-          <div className="grid grid-cols-1 lg:grid-cols-[250px_1fr] min-h-[640px]">
+        <div className="border border-slate-200 bg-white overflow-hidden animate-pulse">
+          <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] min-h-[680px]">
             <aside className="border-b lg:border-b-0 lg:border-r border-slate-200 bg-slate-50 p-5 space-y-3">
               <div className="h-3 w-20 rounded bg-slate-200" />
-              <div className="h-10 w-full rounded bg-slate-200" />
-              <div className="h-10 w-full rounded bg-slate-200" />
-              <div className="h-10 w-full rounded bg-slate-200" />
+              <div className="border-t border-slate-200">
+                <div className="h-10 w-full border-b border-slate-200 bg-slate-100" />
+                <div className="h-10 w-full border-b border-slate-200 bg-slate-100" />
+                <div className="h-10 w-full border-b border-slate-200 bg-slate-100" />
+              </div>
             </aside>
             <div className="p-6 space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {Array.from({ length: 3 }).map((_, i) => (
-                  <div key={i} className="h-28 rounded-xl border border-slate-200 bg-white" />
+                  <div key={i} className="h-28 rounded-lg border border-slate-200 bg-white" />
                 ))}
               </div>
-              <div className="h-72 rounded-xl border border-slate-200 bg-white" />
+              <div className="h-72 rounded-lg border border-slate-200 bg-white" />
             </div>
           </div>
         </div>
@@ -1502,12 +1491,14 @@ const StudentDashboard: React.FC = () => {
 
     if (view === 'peer-study') {
       return (
-        <div className="rounded-xl border border-slate-200 bg-white overflow-hidden animate-pulse">
+        <div className="border border-slate-200 bg-white overflow-hidden animate-pulse">
           <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] min-h-[640px]">
             <aside className="border-b lg:border-b-0 lg:border-r border-slate-200 bg-slate-50 p-5 space-y-3">
               <div className="h-3 w-20 rounded bg-slate-200" />
-              <div className="h-10 w-full rounded bg-slate-200" />
-              <div className="h-10 w-full rounded bg-slate-200" />
+              <div className="border-t border-slate-200">
+                <div className="h-10 w-full border-b border-slate-200 bg-slate-100" />
+                <div className="h-10 w-full border-b border-slate-200 bg-slate-100" />
+              </div>
             </aside>
             <div className="p-6 space-y-4">
               <div className="h-16 rounded-lg border border-slate-200 bg-slate-50" />
@@ -1529,14 +1520,14 @@ const StudentDashboard: React.FC = () => {
         <div className="space-y-4 animate-pulse">
           <div className="h-8 w-56 rounded bg-slate-200" />
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="h-72 rounded-xl border border-slate-200 bg-white" />
-            <div className="h-72 rounded-xl border border-slate-200 bg-white" />
+            <div className="h-72 border border-slate-200 bg-white" />
+            <div className="h-72 border border-slate-200 bg-white" />
           </div>
         </div>
       );
     }
 
-    return <div className="h-64 rounded-xl border border-slate-200 bg-white animate-pulse" />;
+    return <div className="h-64 border border-slate-200 bg-white animate-pulse" />;
   };
 
   const renderContent = () => {
@@ -1571,10 +1562,14 @@ const StudentDashboard: React.FC = () => {
           />
         );
       case 'results':
+        const reportSubjectsCount = reportCardRows.length;
+        const reportStrongSubjectsCount = reportCardRows.filter((row) => row.masteryPercent >= 70).length;
+        const reportNeedsAttentionCount = reportCardRows.filter((row) => row.masteryPercent < 50).length;
+
         return (
-          <section className="rounded-xl border border-slate-200 bg-white overflow-hidden">
-            <div className={`grid grid-cols-1 min-h-[640px] ${isResultsSidebarCollapsed ? 'lg:grid-cols-[88px_1fr]' : 'lg:grid-cols-[250px_1fr]'}`}>
-              <aside className="relative border-b lg:border-b-0 lg:border-r border-slate-200 bg-slate-50 p-4 sm:p-5">
+          <section className="border border-slate-200 bg-white overflow-hidden">
+            <div className={`grid grid-cols-1 min-h-[680px] ${isResultsSidebarCollapsed ? 'lg:grid-cols-[88px_1fr]' : 'lg:grid-cols-[280px_1fr]'}`}>
+              <aside className="relative border-b lg:border-b-0 lg:border-r border-slate-200 bg-slate-50 p-4 sm:p-5 space-y-4">
                 <button
                   type="button"
                   onClick={() => setIsResultsSidebarCollapsed((prev) => !prev)}
@@ -1590,76 +1585,134 @@ const StudentDashboard: React.FC = () => {
                 >
                   My Report
                 </p>
-                <nav className="mt-3 space-y-2">
+                <nav className={`${isResultsSidebarCollapsed ? '-mx-4 sm:-mx-5 border-y border-slate-200 bg-white overflow-hidden' : '-mx-4 sm:-mx-5 border-t border-slate-200'}`}>
                   <button
                     type="button"
                     onClick={() => setResultsTab('analytics')}
                     aria-current={resultsTab === 'analytics' ? 'page' : undefined}
                     title="Performance Analytics"
-                    className={`w-full inline-flex items-center rounded-md py-2 text-sm font-medium transition ${
-                      isResultsSidebarCollapsed ? 'justify-center px-2' : 'gap-2 px-3'
+                    className={`w-full inline-flex items-center text-sm transition ${
+                      isResultsSidebarCollapsed
+                        ? 'justify-center h-11 border-b border-slate-200'
+                        : 'justify-between rounded-none border-b border-slate-200 px-4 sm:px-5 py-2.5'
                     } ${
                       resultsTab === 'analytics'
-                        ? 'bg-blue-50 border border-blue-100 text-slate-900'
-                        : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-100'
+                        ? isResultsSidebarCollapsed
+                          ? 'bg-blue-50 text-blue-700'
+                          : 'bg-blue-50 border-l-4 border-l-blue-600 pl-2 text-blue-700 font-semibold'
+                        : 'text-slate-600 hover:bg-slate-100'
                     }`}
                   >
-                    <BarChart2 className="w-4 h-4 shrink-0" />
-                    <span
-                      className={`truncate transition-[max-width,opacity,transform] duration-200 ${
-                        isResultsSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-1 overflow-hidden' : 'max-w-[180px] opacity-100 translate-x-0'
-                      }`}
-                    >
-                      Performance Analytics
+                    <span className={`inline-flex items-center min-w-0 ${isResultsSidebarCollapsed ? '' : 'gap-2'}`}>
+                      <span
+                        className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
+                          resultsTab === 'analytics'
+                            ? 'bg-blue-100 text-blue-700'
+                            : 'bg-white border border-slate-200 text-slate-600'
+                        }`}
+                      >
+                        <BarChart2 className="w-4 h-4" />
+                      </span>
+                      <span
+                        className={`truncate transition-[max-width,opacity,transform] duration-200 ${
+                          isResultsSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-1 overflow-hidden' : 'max-w-[180px] opacity-100 translate-x-0'
+                        }`}
+                      >
+                        Performance Analytics
+                      </span>
                     </span>
+                    {!isResultsSidebarCollapsed && (
+                      <span className={`text-xs font-semibold ${resultsTab === 'analytics' ? 'text-blue-700' : 'text-slate-500'}`}>
+                        {reportSubjectsCount}
+                      </span>
+                    )}
                   </button>
                   <button
                     type="button"
                     onClick={() => setResultsTab('results')}
                     aria-current={resultsTab === 'results' ? 'page' : undefined}
                     title="Assessment Results"
-                    className={`w-full inline-flex items-center rounded-md py-2 text-sm font-medium transition ${
-                      isResultsSidebarCollapsed ? 'justify-center px-2' : 'gap-2 px-3'
+                    className={`w-full inline-flex items-center text-sm transition ${
+                      isResultsSidebarCollapsed
+                        ? 'justify-center h-11 border-b border-slate-200'
+                        : 'justify-between rounded-none border-b border-slate-200 px-4 sm:px-5 py-2.5'
                     } ${
                       resultsTab === 'results'
-                        ? 'bg-blue-50 border border-blue-100 text-slate-900'
-                        : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-100'
+                        ? isResultsSidebarCollapsed
+                          ? 'bg-blue-50 text-blue-700'
+                          : 'bg-blue-50 border-l-4 border-l-blue-600 pl-2 text-blue-700 font-semibold'
+                        : 'text-slate-600 hover:bg-slate-100'
                     }`}
                   >
-                    <FileText className="w-4 h-4 shrink-0" />
-                    <span
-                      className={`truncate transition-[max-width,opacity,transform] duration-200 ${
-                        isResultsSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-1 overflow-hidden' : 'max-w-[180px] opacity-100 translate-x-0'
-                      }`}
-                    >
-                      Assessment Results
+                    <span className={`inline-flex items-center min-w-0 ${isResultsSidebarCollapsed ? '' : 'gap-2'}`}>
+                      <span
+                        className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
+                          resultsTab === 'results'
+                            ? 'bg-blue-100 text-blue-700'
+                            : 'bg-white border border-slate-200 text-slate-600'
+                        }`}
+                      >
+                        <FileText className="w-4 h-4" />
+                      </span>
+                      <span
+                        className={`truncate transition-[max-width,opacity,transform] duration-200 ${
+                          isResultsSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-1 overflow-hidden' : 'max-w-[180px] opacity-100 translate-x-0'
+                        }`}
+                      >
+                        Assessment Results
+                      </span>
                     </span>
+                    {!isResultsSidebarCollapsed && (
+                      <span className={`text-xs font-semibold ${resultsTab === 'results' ? 'text-blue-700' : 'text-slate-500'}`}>
+                        {reportStrongSubjectsCount}
+                      </span>
+                    )}
                   </button>
                   <button
                     type="button"
                     onClick={() => setResultsTab('report-card')}
                     aria-current={resultsTab === 'report-card' ? 'page' : undefined}
                     title="Report Card"
-                    className={`w-full inline-flex items-center rounded-md py-2 text-sm font-medium transition ${
-                      isResultsSidebarCollapsed ? 'justify-center px-2' : 'gap-2 px-3'
+                    className={`w-full inline-flex items-center text-sm transition ${
+                      isResultsSidebarCollapsed
+                        ? 'justify-center h-11'
+                        : 'justify-between rounded-none border-b border-slate-200 px-4 sm:px-5 py-2.5'
                     } ${
                       resultsTab === 'report-card'
-                        ? 'bg-blue-50 border border-blue-100 text-slate-900'
-                        : 'border border-slate-200 bg-white text-slate-700 hover:bg-slate-100'
+                        ? isResultsSidebarCollapsed
+                          ? 'bg-blue-50 text-blue-700'
+                          : 'bg-blue-50 border-l-4 border-l-blue-600 pl-2 text-blue-700 font-semibold'
+                        : 'text-slate-600 hover:bg-slate-100'
                     }`}
                   >
-                    <GraduationCap className="w-4 h-4 shrink-0" />
-                    <span
-                      className={`truncate transition-[max-width,opacity,transform] duration-200 ${
-                        isResultsSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-1 overflow-hidden' : 'max-w-[180px] opacity-100 translate-x-0'
-                      }`}
-                    >
-                      Report Card
+                    <span className={`inline-flex items-center min-w-0 ${isResultsSidebarCollapsed ? '' : 'gap-2'}`}>
+                      <span
+                        className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${
+                          resultsTab === 'report-card'
+                            ? 'bg-blue-100 text-blue-700'
+                            : 'bg-white border border-slate-200 text-slate-600'
+                        }`}
+                      >
+                        <GraduationCap className="w-4 h-4" />
+                      </span>
+                      <span
+                        className={`truncate transition-[max-width,opacity,transform] duration-200 ${
+                          isResultsSidebarCollapsed ? 'max-w-0 opacity-0 -translate-x-1 overflow-hidden' : 'max-w-[180px] opacity-100 translate-x-0'
+                        }`}
+                      >
+                        Report Card
+                      </span>
                     </span>
+                    {!isResultsSidebarCollapsed && (
+                      <span className={`text-xs font-semibold ${resultsTab === 'report-card' ? 'text-blue-700' : 'text-slate-500'}`}>
+                        {reportNeedsAttentionCount}
+                      </span>
+                    )}
                   </button>
                 </nav>
+
               </aside>
-              <div className="p-4 sm:p-6">
+              <div className="p-4 sm:p-6 bg-white">
                 {resultsTab === 'analytics' ? (
                   <StudentStats student={student} selectedSubjectId={selectedSubjectId} />
                 ) : resultsTab === 'results' ? (
@@ -1687,6 +1740,7 @@ const StudentDashboard: React.FC = () => {
       case 'peer-study':
         return (
           <StudentPeerStudy
+            studentId={student.id}
             selectedSubjectId={selectedSubjectId}
             subjects={subjects}
           />

@@ -1,96 +1,64 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { developmentService, studentService, subjectService } from '../services/api';
+import { teacherService } from '../services/teacherService';
+import { authService } from '../services/authService';
 import { useAuth } from '../context/AuthContext';
-import { Student, Subject } from '../types';
 import DevelopmentLayout from '../components/development/DevelopmentLayout';
 
 const DevelopmentPlansPage: React.FC = () => {
   const { selectedSubject } = useAuth();
   const navigate = useNavigate();
-  const [students, setStudents] = useState<Student[]>([]);
-  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const teacherId = authService.getCurrentUserId();
+
+  const [students, setStudents] = useState<any[]>([]);
+  const [subjects, setSubjects] = useState<Array<{ id: string; name: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [performanceFilter, setPerformanceFilter] = useState('all');
   const [planFilter, setPlanFilter] = useState('all');
   const [subjectFilter, setSubjectFilter] = useState('');
 
-  const normalizePlanStatus = (status?: string) => {
-    if (!status) return status;
-    const cleaned = status.replace(/_/g, ' ').toLowerCase();
-    if (cleaned === 'active') return 'Active';
-    if (cleaned === 'completed') return 'Completed';
-    if (cleaned === 'on hold') return 'On Hold';
-    if (cleaned === 'cancelled') return 'Cancelled';
-    return status;
-  };
-
   useEffect(() => {
     const loadSubjects = async () => {
+      if (!teacherId) {
+        setSubjects([]);
+        return;
+      }
       try {
-        const data = await subjectService.getTeachingSubjects();
-        setSubjects(data || []);
+        const data = await teacherService.getMySubjects(teacherId);
+        const mapped = (data || []).map((subject) => ({ id: subject.subjectId, name: subject.subjectName }));
+        setSubjects(mapped);
         if (!subjectFilter && selectedSubject?.id) {
           setSubjectFilter(selectedSubject.id);
         }
       } catch (error) {
         console.error('Failed to load subjects:', error);
+        setSubjects([]);
       }
     };
     loadSubjects();
-  }, [selectedSubject?.id]);
+  }, [teacherId, selectedSubject?.id, subjectFilter]);
 
   useEffect(() => {
     const loadStudents = async () => {
+      if (!teacherId) {
+        setStudents([]);
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       try {
-        const [studentData, planPage] = await Promise.all([
-          studentService.getStudents(subjectFilter || undefined),
-          developmentService.listStudentPlans({
-            subjectId: subjectFilter || undefined,
-            size: 200,
-          }),
-        ]);
-
-        const planItems = Array.isArray(planPage?.items) ? planPage.items : [];
-        const planByStudent = new Map<string, typeof planItems[number]>();
-
-        planItems.forEach((plan) => {
-          const studentId = plan.student;
-          if (!studentId) return;
-          const normalizedStatus = normalizePlanStatus(plan.status as string);
-          const normalizedPlan = normalizedStatus ? { ...plan, status: normalizedStatus } : plan;
-          const existing = planByStudent.get(studentId);
-          if (!existing) {
-            planByStudent.set(studentId, normalizedPlan);
-            return;
-          }
-          const existingStatus = (existing.status || '').toString().toLowerCase();
-          const newStatus = (normalizedPlan.status || '').toString().toLowerCase();
-          const existingIsActive = existingStatus === 'active';
-          const newIsActive = newStatus === 'active';
-          if (!existingIsActive && newIsActive) {
-            planByStudent.set(studentId, normalizedPlan);
-            return;
-          }
-          if (existingIsActive && !newIsActive) {
-            return;
-          }
-          const existingTime = Date.parse((existing.updatedAt as string) || (existing.createdAt as string) || '') || 0;
-          const newTime = Date.parse((normalizedPlan.updatedAt as string) || (normalizedPlan.createdAt as string) || '') || 0;
-          if (newTime > existingTime) {
-            planByStudent.set(studentId, normalizedPlan);
-          }
+        const response = await teacherService.getStudentsSummary(teacherId, {
+          subjectId: subjectFilter || undefined,
+          performance: performanceFilter === 'all' ? undefined : performanceFilter,
+          planStatus: planFilter === 'all' ? undefined : planFilter,
+          q: query.trim() || undefined,
+          page: 0,
+          size: 200,
         });
 
-        const studentsList = Array.isArray(studentData) ? studentData : [];
-        const mergedStudents = studentsList.map((student) => ({
-          ...student,
-          activePlan: planByStudent.get(student.id) ?? student.activePlan,
-        }));
-
-        setStudents(mergedStudents);
+        setStudents(Array.isArray(response?.items) ? response.items : []);
       } catch (error) {
         console.error('Failed to load students for development plans:', error);
         setStudents([]);
@@ -100,19 +68,7 @@ const DevelopmentPlansPage: React.FC = () => {
     };
 
     loadStudents();
-  }, [subjectFilter]);
-
-  const filteredStudents = useMemo(() => {
-    const search = query.trim().toLowerCase();
-    return students.filter((student) => {
-      const matchesQuery = !search || `${student.firstName} ${student.lastName}`.toLowerCase().includes(search);
-      const performance = (student.performance || '').toLowerCase();
-      const matchesPerformance = performanceFilter === 'all' || performance === performanceFilter;
-      const planStatus = (student.activePlan?.status || '').toLowerCase();
-      const matchesPlan = planFilter === 'all' || planStatus === planFilter;
-      return matchesQuery && matchesPerformance && matchesPlan;
-    });
-  }, [students, query, performanceFilter, planFilter]);
+  }, [teacherId, subjectFilter, performanceFilter, planFilter, query]);
 
   return (
     <DevelopmentLayout>
@@ -158,7 +114,7 @@ const DevelopmentPlansPage: React.FC = () => {
             <option value="excellent">Excellent</option>
             <option value="good">Good</option>
             <option value="average">Average</option>
-            <option value="needs improvement">Needs improvement</option>
+            <option value="needs-improvement">Needs improvement</option>
           </select>
           <select
             value={planFilter}
@@ -168,7 +124,7 @@ const DevelopmentPlansPage: React.FC = () => {
             <option value="all">All plans</option>
             <option value="active">Active</option>
             <option value="completed">Completed</option>
-            <option value="on hold">On Hold</option>
+            <option value="on-hold">On Hold</option>
             <option value="cancelled">Cancelled</option>
           </select>
         </div>
@@ -179,16 +135,16 @@ const DevelopmentPlansPage: React.FC = () => {
               <div key={index} className="h-36 bg-slate-200 rounded animate-pulse" />
             ))}
           </div>
-        ) : filteredStudents.length > 0 ? (
+        ) : students.length > 0 ? (
           <div className="space-y-3">
-            {filteredStudents.map((student) => {
+            {students.map((student) => {
               const initials = `${student.firstName?.[0] || ''}${student.lastName?.[0] || ''}`;
-              const progress = student.activePlan?.currentProgress ?? 0;
-              const status = student.activePlan?.status || 'Unassigned';
-              const planName = student.activePlan?.plan?.name || 'Plan not assigned';
+              const progress = student.planProgress ?? 0;
+              const status = student.planStatus || 'Unassigned';
+              const planName = student.activePlanName || 'Plan not assigned';
               return (
                 <div
-                  key={student.id}
+                  key={student.studentId}
                   className="bg-slate-50 rounded-lg border border-slate-200 p-3 text-left hover:border-blue-400 hover:shadow transition"
                 >
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -235,7 +191,7 @@ const DevelopmentPlansPage: React.FC = () => {
                     </div>
                     <div className="flex items-center justify-end">
                       <button
-                        onClick={() => navigate(`/development/${student.id}`)}
+                        onClick={() => navigate(`/development/${student.studentId}`)}
                         className="text-blue-600 hover:text-blue-700 font-medium"
                         type="button"
                       >

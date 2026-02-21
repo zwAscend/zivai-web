@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import { ChatMessage } from '../../types';
 import { Mic, Image, Smile } from 'lucide-react';
 
 interface StudentChatProps {
@@ -7,9 +6,17 @@ interface StudentChatProps {
   studentName: string;
 }
 
+interface StudentChatMessage {
+  id: string;
+  sender: string;
+  content: string;
+  timestamp: string;
+  isTeacher?: boolean;
+}
+
 const StudentChat: React.FC<StudentChatProps> = ({ studentId, studentName }) => {
   const [message, setMessage] = useState('');
-  const [messages, setMessages] = useState<ChatMessage[]>([
+  const [messages, setMessages] = useState<StudentChatMessage[]>([
     {
       id: '1',
       sender: studentName,
@@ -35,7 +42,7 @@ const StudentChat: React.FC<StudentChatProps> = ({ studentId, studentName }) => 
     e.preventDefault();
     if (!message.trim()) return;
 
-    const newMessage: ChatMessage = {
+    const newMessage: StudentChatMessage = {
       id: String(Date.now()),
       sender: 'Mr. Blank',
       content: message,
@@ -48,7 +55,7 @@ const StudentChat: React.FC<StudentChatProps> = ({ studentId, studentName }) => 
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-180px)] bg-white rounded-lg shadow-lg">
+    <div className="flex flex-col h-[calc(100vh-180px)] bg-white rounded-lg shadow-lg" data-student-id={studentId}>
       {/* Chat Header */}
       <div className="flex items-center justify-between p-4 border-b">
         <div className="flex items-center">

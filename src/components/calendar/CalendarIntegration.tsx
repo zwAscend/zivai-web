@@ -1,9 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
-import { Calendar, Download, Upload, Link, Settings, FolderSync as Sync, CheckCircle, AlertCircle, ExternalLink, X } from 'lucide-react';
+import React, { useState } from 'react';
+import { Calendar, Download, Upload, Link, Settings, FolderSync as Sync, CheckCircle, ExternalLink, X } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
-import { Label } from '../ui/label';
 import { Badge } from '../ui/badge';
 import { useToast } from '../ui/use-toast';
 

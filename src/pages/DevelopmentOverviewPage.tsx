@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { developmentService, studentService, subjectService } from '../services/api';
 import { useAuth } from '../context/AuthContext';
-import { Student, Subject } from '../types';
+import { PlanStatus, Student, Subject } from '../types';
 import DevelopmentLayout from '../components/development/DevelopmentLayout';
 import CreateDevelopmentPlanModal from '../components/resources/CreateDevelopmentPlanModal';
 import { ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
@@ -17,14 +17,20 @@ const DevelopmentOverviewPage: React.FC = () => {
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
 
-  const normalizePlanStatus = (status?: string) => {
-    if (!status) return status;
+  const normalizePlanStatus = (status?: string): PlanStatus | undefined => {
+    if (!status) return undefined;
     const cleaned = status.replace(/_/g, ' ').toLowerCase();
     if (cleaned === 'active') return 'Active';
     if (cleaned === 'completed') return 'Completed';
     if (cleaned === 'on hold') return 'On Hold';
     if (cleaned === 'cancelled') return 'Cancelled';
-    return status;
+    return undefined;
+  };
+
+  const toEpochMs = (value?: Date): number => {
+    if (!value) return 0;
+    const parsed = new Date(value).getTime();
+    return Number.isNaN(parsed) ? 0 : parsed;
   };
 
   useEffect(() => {
@@ -78,8 +84,8 @@ const DevelopmentOverviewPage: React.FC = () => {
           if (existingIsActive && !newIsActive) {
             return;
           }
-          const existingTime = Date.parse((existing.updatedAt as string) || (existing.createdAt as string) || '') || 0;
-          const newTime = Date.parse((normalizedPlan.updatedAt as string) || (normalizedPlan.createdAt as string) || '') || 0;
+          const existingTime = toEpochMs(existing.updatedAt) || toEpochMs(existing.createdAt);
+          const newTime = toEpochMs(normalizedPlan.updatedAt) || toEpochMs(normalizedPlan.createdAt);
           if (newTime > existingTime) {
             planByStudent.set(studentId, normalizedPlan);
           }
@@ -175,9 +181,17 @@ const DevelopmentOverviewPage: React.FC = () => {
   ), [students]);
 
   const totalStudents = students.length || 1;
-  const focusSubject = subjectFilter
-    ? subjects.find((subject) => subject.id === subjectFilter)?.name
-    : selectedSubject?.name || selectedSubject?.code;
+  
+  if (loading) {
+    return (
+      <DevelopmentLayout>
+        <div className="space-y-4">
+          <div className="h-36 rounded-lg bg-slate-100 animate-pulse" />
+          <div className="h-64 rounded-lg bg-slate-100 animate-pulse" />
+        </div>
+      </DevelopmentLayout>
+    );
+  }
 
   return (
     <DevelopmentLayout>

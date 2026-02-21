@@ -1,4 +1,4 @@
-import React, { useState, useEffect, ReactNode, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   FileText,
   FileImage,
@@ -104,7 +104,7 @@ const ResourcesView: React.FC<ResourcesViewProps> = ({
   className,
   classCode,
   onBack,
-  onUploadClick
+  onUploadClick: _onUploadClick
 }) => {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [searchQuery, setSearchQuery] = useState('');

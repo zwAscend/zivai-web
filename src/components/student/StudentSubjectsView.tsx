@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   ArrowLeft,
-  AlertCircle,
   BookOpen,
   ChevronRight,
   ChevronsLeft,
@@ -15,9 +14,12 @@ import {
 } from 'lucide-react';
 import { Question, Subject } from '../../types';
 import { aiService } from '../../services/aiService';
-import { curriculumService, CurriculumTopic as CurriculumTopicApi } from '../../services/curriculumService';
-import { resourceService, ResourceItem } from '../../services/resourceService';
-import { reportService, StudentReportResponse } from '../../services/reportService';
+import {
+  curriculumService,
+  CurriculumTopicWithResources as CurriculumTopicApi,
+  CurriculumTopicResource,
+} from '../../services/curriculumService';
+import { studentService, StudentSubjectOverview } from '../../services/studentService';
 import StudentPracticeRunner, { buildMockPracticeQuestions, PracticeQuestion, PracticeRunSummary } from './StudentPracticeRunner';
 
 type PracticeStatus = 'not-started' | 'in-progress' | 'mastered';
@@ -130,249 +132,25 @@ const getUpNextLabelForContentItem = (item: TopicContentItem) => {
   return 'article';
 };
 
-const buildMathUnits = (): CurriculumUnit[] => [
-  {
-    id: 'math-unit-1',
-    code: 'Unit 1',
-    title: 'Polynomial arithmetic',
-    masteryPercent: 64,
-    summary: 'Build fluency with polynomial expressions, factorization, and interpretation of structure.',
-    topics: [
-      {
-        id: 'math-u1-t1',
-        title: 'Interpreting polynomial terms',
-        masteryPercent: 72,
-        learn: [
-          { id: 'r1', title: 'Polynomials intro video', type: 'video' },
-          { id: 'r2', title: 'Reading polynomial structure notes', type: 'notes' },
-        ],
-        practice: [
-          { id: 'p1', title: 'Identify terms and degrees', status: 'in-progress', target: 'Get 3 of 4 correct' },
-          { id: 'p2', title: 'Classify polynomial expressions', status: 'not-started', target: 'Get 3 of 4 correct' },
-        ],
-      },
-      {
-        id: 'math-u1-t2',
-        title: 'Operations with polynomials',
-        masteryPercent: 58,
-        learn: [
-          { id: 'r3', title: 'Addition and subtraction walkthrough', type: 'article' },
-          { id: 'r4', title: 'Multiplication method notes', type: 'notes' },
-        ],
-        practice: [
-          { id: 'p3', title: 'Add and subtract polynomials', status: 'not-started', target: 'Get 3 of 4 correct' },
-          { id: 'p4', title: 'Multiply binomials', status: 'not-started', target: 'Get 3 of 4 correct' },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'math-unit-2',
-    code: 'Unit 2',
-    title: 'Exponential models',
-    masteryPercent: 41,
-    summary: 'Model growth and decay and interpret rate of change in real-world contexts.',
-    topics: [
-      {
-        id: 'math-u2-t1',
-        title: 'Interpreting rate of change',
-        masteryPercent: 46,
-        learn: [
-          { id: 'r5', title: 'Rate of change video', type: 'video' },
-          { id: 'r6', title: 'Worked examples notes', type: 'notes' },
-        ],
-        practice: [
-          { id: 'p5', title: 'Interpret growth scenarios', status: 'not-started', target: 'Get 3 of 4 correct' },
-          { id: 'p6', title: 'Interpret decay scenarios', status: 'not-started', target: 'Get 3 of 4 correct' },
-        ],
-      },
-      {
-        id: 'math-u2-t2',
-        title: 'Constructing exponential models',
-        masteryPercent: 36,
-        learn: [
-          { id: 'r7', title: 'Model construction article', type: 'article' },
-          { id: 'r8', title: 'Half-life and percent change notes', type: 'notes' },
-        ],
-        practice: [
-          { id: 'p7', title: 'Construct model from context', status: 'in-progress', target: 'Get 3 of 4 correct' },
-          { id: 'p8', title: 'Model validation practice', status: 'not-started', target: 'Get 3 of 4 correct' },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'math-unit-3',
-    code: 'Unit 3',
-    title: 'Transformations of functions',
-    masteryPercent: 29,
-    summary: 'Analyze translations, reflections, stretches, and combined transformations.',
-    topics: [
-      {
-        id: 'math-u3-t1',
-        title: 'Graph transformations',
-        masteryPercent: 32,
-        learn: [
-          { id: 'r9', title: 'Transformations video', type: 'video' },
-          { id: 'r10', title: 'Reference graph notes', type: 'notes' },
-        ],
-        practice: [
-          { id: 'p9', title: 'Apply graph shifts', status: 'not-started', target: 'Get 3 of 4 correct' },
-          { id: 'p10', title: 'Combined transformations', status: 'not-started', target: 'Get 3 of 4 correct' },
-        ],
-      },
-    ],
-  },
-];
-
-const buildEnglishUnits = (): CurriculumUnit[] => [
-  {
-    id: 'eng-unit-1',
-    code: 'Unit 1',
-    title: 'Reading comprehension',
-    masteryPercent: 68,
-    summary: 'Develop inference, synthesis, and evidence-based interpretation skills.',
-    topics: [
-      {
-        id: 'eng-u1-t1',
-        title: 'Main idea and supporting detail',
-        masteryPercent: 76,
-        learn: [
-          { id: 'er1', title: 'Main idea explainer video', type: 'video' },
-          { id: 'er2', title: 'Annotation notes', type: 'notes' },
-        ],
-        practice: [
-          { id: 'ep1', title: 'Identify central argument', status: 'mastered', target: 'Completed' },
-          { id: 'ep2', title: 'Evidence matching', status: 'in-progress', target: 'Get 3 of 4 correct' },
-        ],
-      },
-      {
-        id: 'eng-u1-t2',
-        title: 'Inference and interpretation',
-        masteryPercent: 61,
-        learn: [
-          { id: 'er3', title: 'Inference strategy guide', type: 'article' },
-          { id: 'er4', title: 'Text clue notes', type: 'notes' },
-        ],
-        practice: [
-          { id: 'ep3', title: 'Inference drills', status: 'not-started', target: 'Get 3 of 4 correct' },
-        ],
-      },
-    ],
-  },
-  {
-    id: 'eng-unit-2',
-    code: 'Unit 2',
-    title: 'Writing mechanics',
-    masteryPercent: 47,
-    summary: 'Improve grammar control, paragraph coherence, and argument structure.',
-    topics: [
-      {
-        id: 'eng-u2-t1',
-        title: 'Paragraph structure',
-        masteryPercent: 53,
-        learn: [
-          { id: 'er5', title: 'Paragraph model notes', type: 'notes' },
-          { id: 'er6', title: 'PEEL structure article', type: 'article' },
-        ],
-        practice: [
-          { id: 'ep4', title: 'Draft paragraph response', status: 'in-progress', target: 'Complete one draft' },
-        ],
-      },
-      {
-        id: 'eng-u2-t2',
-        title: 'Grammar and sentence control',
-        masteryPercent: 40,
-        learn: [
-          { id: 'er7', title: 'Grammar fundamentals video', type: 'video' },
-        ],
-        practice: [
-          { id: 'ep5', title: 'Sentence correction drills', status: 'not-started', target: 'Get 8 of 10 correct' },
-        ],
-      },
-    ],
-  },
-];
-
-const buildPhysicsUnits = (): CurriculumUnit[] => [
-  {
-    id: 'phy-unit-1',
-    code: 'Unit 1',
-    title: 'Kinematics',
-    masteryPercent: 55,
-    summary: 'Understand motion graphs, displacement, velocity, and acceleration.',
-    topics: [
-      {
-        id: 'phy-u1-t1',
-        title: 'Interpreting motion graphs',
-        masteryPercent: 62,
-        learn: [
-          { id: 'pr1', title: 'Motion graphs explainer', type: 'video' },
-          { id: 'pr2', title: 'Slope interpretation notes', type: 'notes' },
-        ],
-        practice: [
-          { id: 'pp1', title: 'Graph interpretation set', status: 'in-progress', target: 'Get 3 of 4 correct' },
-        ],
-      },
-      {
-        id: 'phy-u1-t2',
-        title: 'SUVAT equation selection',
-        masteryPercent: 48,
-        learn: [
-          { id: 'pr3', title: 'Equation selection guide', type: 'article' },
-        ],
-        practice: [
-          { id: 'pp2', title: 'Choose correct equation', status: 'not-started', target: 'Get 3 of 4 correct' },
-        ],
-      },
-    ],
-  },
-];
-
-const buildGenericUnits = (subjectName: string): CurriculumUnit[] => [
-  {
-    id: 'gen-unit-1',
-    code: 'Unit 1',
-    title: `${subjectName} foundations`,
-    masteryPercent: 52,
-    summary: `Core foundations and essential learning outcomes for ${subjectName}.`,
-    topics: [
-      {
-        id: 'gen-u1-t1',
-        title: 'Core concepts',
-        masteryPercent: 52,
-        learn: [
-          { id: 'gr1', title: 'Topic primer video', type: 'video' },
-          { id: 'gr2', title: 'Core concept notes', type: 'notes' },
-        ],
-        practice: [
-          { id: 'gp1', title: 'Concept checkpoint', status: 'in-progress', target: 'Get 3 of 4 correct' },
-        ],
-      },
-    ],
-  },
-];
-
-const getUnitsBySubject = (subjectName: string): CurriculumUnit[] => {
-  const normalized = subjectName.toLowerCase();
-  if (normalized.includes('math')) return buildMathUnits();
-  if (normalized.includes('english')) return buildEnglishUnits();
-  if (normalized.includes('physics')) return buildPhysicsUnits();
-  return buildGenericUnits(subjectName);
-};
-
 const normalizeText = (value: string | null | undefined) => String(value || '').trim().toLowerCase();
 
-const getTopicMasteryPercent = (topic: CurriculumTopicApi, report: StudentReportResponse | null): number => {
-  if (!report?.masteryGaps?.length) return 0;
-  const byId = report.masteryGaps.find((entry) => normalizeText(entry.topicId) === normalizeText(topic.id));
-  if (byId) return Math.max(0, Math.min(100, Math.round(byId.masteryPercent || 0)));
-  const byName = report.masteryGaps.find((entry) => normalizeText(entry.topicName) === normalizeText(topic.name));
-  if (byName) return Math.max(0, Math.min(100, Math.round(byName.masteryPercent || 0)));
-  return 0;
+const getQuestionOptionText = (option: unknown): string => {
+  if (typeof option === 'string') return option.trim();
+  if (option && typeof option === 'object' && 'text' in option) {
+    const text = (option as { text?: unknown }).text;
+    return typeof text === 'string' ? text.trim() : '';
+  }
+  return '';
 };
 
-const getResourceTypeFromItem = (resource: ResourceItem): ResourceType => {
+const isQuestionOptionCorrect = (option: unknown): boolean => {
+  if (!option || typeof option !== 'object' || !('isCorrect' in option)) return false;
+  return Boolean((option as { isCorrect?: unknown }).isCorrect);
+};
+
+const getResourceTypeFromItem = (
+  resource: Pick<CurriculumTopicResource, 'type' | 'mimeType' | 'contentType' | 'name' | 'originalName'>
+): ResourceType => {
   const normalizedType = normalizeText(resource.type);
   const normalizedMime = normalizeText(resource.mimeType);
   const normalizedContentType = normalizeText(resource.contentType);
@@ -403,94 +181,57 @@ const getResourceTypeFromItem = (resource: ResourceItem): ResourceType => {
   return 'article';
 };
 
-const getUnitNumber = (topic: CurriculumTopicApi): number => {
-  const source = `${topic.code || ''} ${topic.name || ''}`.toLowerCase();
-  const unitMatch = source.match(/unit[\s-]*(\d+)/i);
-  if (unitMatch?.[1]) return Number(unitMatch[1]);
-  const codeMatch = source.match(/^u[\s-]*(\d+)/i);
-  if (codeMatch?.[1]) return Number(codeMatch[1]);
-  return 1;
-};
-
-const mapApiCurriculumToUnits = (
+const mapSubjectOverviewToUnits = (
   subjectName: string,
-  topics: CurriculumTopicApi[],
-  resources: ResourceItem[],
-  report: StudentReportResponse | null
+  overview: StudentSubjectOverview,
+  topicsWithResources: CurriculumTopicApi[]
 ): CurriculumUnit[] => {
-  if (!topics.length) return [];
-
-  const sortedTopics = [...topics].sort((a, b) => (a.sequenceIndex || 0) - (b.sequenceIndex || 0));
-  const unitBuckets = new Map<number, CurriculumTopicApi[]>();
-
-  sortedTopics.forEach((topic) => {
-    const unitNumber = getUnitNumber(topic);
-    const current = unitBuckets.get(unitNumber) || [];
-    current.push(topic);
-    unitBuckets.set(unitNumber, current);
+  const resourcesByTopicId = new Map<string, CurriculumTopicResource[]>();
+  topicsWithResources.forEach((topic) => {
+    resourcesByTopicId.set(topic.id, topic.resources || []);
   });
 
-  return Array.from(unitBuckets.entries())
-    .sort(([a], [b]) => a - b)
-    .map(([unitNumber, unitTopics]) => {
-      const mappedTopics: CurriculumTopic[] = unitTopics.map((topic, topicIndex) => {
-        const topicName = topic.name || `Topic ${topicIndex + 1}`;
-        const topicNameToken = normalizeText(topicName);
+  return (overview.units || []).map((unit) => {
+    const mappedTopics: CurriculumTopic[] = (unit.topics || []).map((topic) => {
+      const topicResources = (resourcesByTopicId.get(topic.topicId) || []).slice(0, 4);
+      const learnResources: CurriculumResource[] = topicResources.slice(0, 2).map((resource) => ({
+        id: resource.id,
+        title: resource.name || resource.originalName || 'Learning resource',
+        type: getResourceTypeFromItem(resource),
+      }));
 
-        const matchedResources = resources
-          .filter((resource) => {
-            const haystack = `${resource.name || ''} ${resource.originalName || ''} ${(resource.tags || []).join(' ')} ${resource.contentBody || ''}`;
-            return normalizeText(haystack).includes(topicNameToken);
-          })
-          .slice(0, 4);
-
-        const fallbackResources = matchedResources.length > 0
-          ? matchedResources
-          : resources.slice(topicIndex * 2, topicIndex * 2 + 2);
-
-        const learnResources: CurriculumResource[] = fallbackResources.slice(0, 2).map((resource) => ({
-          id: resource.id,
-          title: resource.name || resource.originalName || 'Learning resource',
-          type: getResourceTypeFromItem(resource),
-        }));
-
-        const practiceItems: CurriculumPractice[] = [
-          {
-            id: `practice-${topic.id}`,
-            title: `AI guided practice: ${topicName}`,
-            status: 'not-started',
-            target: 'Complete 5 questions',
-          },
-        ];
-
-        return {
-          id: topic.id,
-          title: topicName,
-          masteryPercent: getTopicMasteryPercent(topic, report),
-          learn: learnResources,
-          practice: practiceItems,
-        };
-      });
-
-      const unitMastery = mappedTopics.length > 0
-        ? Math.round(mappedTopics.reduce((sum, topic) => sum + topic.masteryPercent, 0) / mappedTopics.length)
-        : 0;
-
-      const firstTopic = unitTopics[0];
-      const titleFromTopic = firstTopic?.name ? `${firstTopic.name}` : `${subjectName} foundations`;
+      const practiceCount = Math.max(1, Math.min(12, Number(topic.questionCount || 0)));
+      const practiceItems: CurriculumPractice[] = [
+        {
+          id: `practice-${topic.topicId}`,
+          title: `AI guided practice: ${topic.name}`,
+          status: 'not-started',
+          target: `Complete ${practiceCount} question${practiceCount === 1 ? '' : 's'}`,
+        },
+      ];
 
       return {
-        id: `${normalizeText(subjectName).replace(/\s+/g, '-')}-unit-${unitNumber}`,
-        code: `Unit ${unitNumber}`,
-        title: titleFromTopic,
-        summary:
-          firstTopic?.description ||
-          firstTopic?.objectives ||
-          `Core ${subjectName} learning outcomes for Unit ${unitNumber}.`,
-        masteryPercent: unitMastery,
-        topics: mappedTopics,
+        id: topic.topicId,
+        title: topic.name,
+        masteryPercent: Math.max(0, Math.min(100, Math.round(topic.masteryPercent || 0))),
+        learn: learnResources,
+        practice: practiceItems,
       };
     });
+
+    const topicCount = Number(unit.topicCount || mappedTopics.length || 0);
+    const questionCount = Number(unit.questionCount || 0);
+    const summary = `Covers ${topicCount} topic${topicCount === 1 ? '' : 's'} with ${questionCount} published question${questionCount === 1 ? '' : 's'}.`;
+
+    return {
+      id: unit.unitId,
+      code: unit.code || `Unit ${unit.unitNumber}`,
+      title: unit.title || `${subjectName} unit ${unit.unitNumber}`,
+      summary,
+      masteryPercent: Math.max(0, Math.min(100, Math.round(unit.masteryPercent || 0))),
+      topics: mappedTopics,
+    };
+  });
 };
 
 const buildUnitChallengeQuestions = (unit: CurriculumUnit, targetCount = DEFAULT_UNIT_CHALLENGE_COUNT): PracticeQuestion[] => {
@@ -578,21 +319,14 @@ const mapAiQuestionsToPractice = (
 ): PracticeQuestion[] => {
   const mappedQuestions: PracticeQuestion[] = aiQuestions.map((question, index) => {
     const prompt = (question.text || `Question ${index + 1}`).trim();
+    const questionOptions = Array.isArray(question.options) ? (question.options as unknown[]) : [];
 
-    const optionTexts = Array.isArray(question.options)
-      ? question.options
-          .map((option) => {
-            if (typeof option === 'string') return option.trim();
-            return option?.text?.trim() || '';
-          })
-          .filter((option): option is string => option.length > 0)
-      : [];
+    const optionTexts = questionOptions.map((option) => getQuestionOptionText(option)).filter((option): option is string => option.length > 0);
 
     if ((question.type === 'multiple_choice' || question.type === 'true_false') && optionTexts.length >= 2) {
-      const correctIndexesFromFlags = (question.options || [])
+      const correctIndexesFromFlags = questionOptions
         .map((option, optionIndex) => {
-          if (typeof option === 'string') return null;
-          return option?.isCorrect ? optionIndex : null;
+          return isQuestionOptionCorrect(option) ? optionIndex : null;
         })
         .filter((value): value is number => typeof value === 'number');
 
@@ -655,10 +389,12 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isSubjectOverviewActive, setIsSubjectOverviewActive] = useState(false);
   const [selectedUnitIndex, setSelectedUnitIndex] = useState(0);
-  const [backendUnits, setBackendUnits] = useState<CurriculumUnit[] | null>(null);
+  const [backendUnits, setBackendUnits] = useState<CurriculumUnit[]>([]);
+  const [subjectOverview, setSubjectOverview] = useState<StudentSubjectOverview | null>(null);
   const [isCurriculumLoading, setIsCurriculumLoading] = useState(false);
-  const [curriculumError, setCurriculumError] = useState<string | null>(null);
+  const [, setCurriculumError] = useState<string | null>(null);
   const [practiceStatusOverrides, setPracticeStatusOverrides] = useState<Record<string, PracticeStatus>>({});
+  const [collapsedTopicIds, setCollapsedTopicIds] = useState<Record<string, boolean>>({});
   const [detailState, setDetailState] = useState<{ unitId: string; topicId: string; contentItemId: string } | null>(null);
   const [unitChallengeState, setUnitChallengeState] = useState<{
     unitId: string;
@@ -680,13 +416,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
     return subjects.find((subject) => subject.id === selectedSubjectId) || subjects[0];
   }, [selectedSubjectId, subjects]);
 
-  const fallbackUnits = useMemo(() => (
-    activeSubject ? getUnitsBySubject(activeSubject.name) : []
-  ), [activeSubject]);
-
-  const units = useMemo(() => (
-    backendUnits && backendUnits.length > 0 ? backendUnits : fallbackUnits
-  ), [backendUnits, fallbackUnits]);
+  const units = useMemo(() => backendUnits, [backendUnits]);
 
   const selectedUnit = units[selectedUnitIndex] || units[0];
   const nextUnit = selectedUnitIndex < units.length - 1 ? units[selectedUnitIndex + 1] : null;
@@ -715,11 +445,17 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
     : selectedSubjectChallengeConfig.questionCount;
   const unitChallengeEstimatedMinutes = Math.max(15, unitChallengeQuestionTotal * 2);
   const subjectChallengeEstimatedMinutes = Math.max(20, subjectChallengeQuestionTotal * 2);
+  const subjectChallengeEligibility = subjectOverview?.challengeEligibility || null;
+  const isSubjectChallengeEligible = subjectChallengeEligibility ? subjectChallengeEligibility.eligible : true;
+  const subjectChallengeBlockedReason = !isSubjectChallengeEligible
+    ? subjectChallengeEligibility?.reason || 'Subject challenge is currently unavailable.'
+    : null;
 
   useEffect(() => {
     const loadCurriculum = async () => {
-      if (!activeSubject?.id) {
-        setBackendUnits(null);
+      if (!activeSubject?.id || !studentId) {
+        setBackendUnits([]);
+        setSubjectOverview(null);
         setCurriculumError(null);
         return;
       }
@@ -728,20 +464,32 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
       setCurriculumError(null);
 
       try {
-        const [topics, resources, report] = await Promise.all([
-          curriculumService.listTopics(activeSubject.id).catch(() => []),
-          resourceService.listBySubject(activeSubject.id).catch(() => []),
-          studentId ? reportService.getStudentReport(studentId, activeSubject.id).catch(() => null) : Promise.resolve(null),
+        const [overview, topics] = await Promise.all([
+          studentService.getSubjectOverview(studentId, activeSubject.id).catch(() => null),
+          curriculumService.listTopicsWithResources(activeSubject.id).catch(() => []),
         ]);
 
-        const mappedUnits = mapApiCurriculumToUnits(activeSubject.name, topics, resources, report);
-        setBackendUnits(mappedUnits.length > 0 ? mappedUnits : null);
+        if (!overview) {
+          setSubjectOverview(null);
+          setBackendUnits([]);
+          setCurriculumError('Unable to load subject overview from backend right now.');
+          return;
+        }
 
-        if (topics.length === 0) {
-          setCurriculumError('No teacher-published curriculum found yet. Showing starter structure.');
+        const mappedUnits = mapSubjectOverviewToUnits(activeSubject.name, overview, topics);
+        setSubjectOverview(overview);
+        setBackendUnits(mappedUnits);
+
+        if (mappedUnits.length === 0) {
+          setCurriculumError('No teacher-published curriculum found yet.');
+        } else if (!overview.challengeEligibility?.eligible) {
+          setCurriculumError(overview.challengeEligibility.reason || null);
+        } else {
+          setCurriculumError(null);
         }
       } catch (loadError: any) {
-        setBackendUnits(null);
+        setBackendUnits([]);
+        setSubjectOverview(null);
         setCurriculumError(loadError?.message || 'Unable to load curriculum from backend right now.');
       } finally {
         setIsCurriculumLoading(false);
@@ -755,6 +503,8 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
     setSelectedUnitIndex(0);
     setDetailState(null);
     setPracticeStatusOverrides({});
+    setCollapsedTopicIds({});
+    setSubjectOverview(null);
     setUnitChallengeState(null);
     setSubjectChallengeState(null);
     setUnitChallengeStep(1);
@@ -869,6 +619,13 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
 
   const generateSubjectChallengeWithAi = async () => {
     if (!activeSubject) return;
+    if (!isSubjectChallengeEligible) {
+      updateSubjectChallengeConfig((current) => ({
+        ...current,
+        error: subjectChallengeBlockedReason || 'Subject challenge is currently unavailable.',
+      }));
+      return;
+    }
 
     const currentConfig = selectedSubjectChallengeConfig;
     updateSubjectChallengeConfig((current) => ({ ...current, isGenerating: true, error: null }));
@@ -973,6 +730,13 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
     });
   };
 
+  const toggleTopicCollapsed = (topicId: string) => {
+    setCollapsedTopicIds((previous) => ({
+      ...previous,
+      [topicId]: !previous[topicId],
+    }));
+  };
+
   const openUnitChallenge = () => {
     setIsSidebarCollapsed(false);
     setIsSubjectOverviewActive(false);
@@ -1016,6 +780,14 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
   };
 
   const openSubjectChallenge = () => {
+    if (!isSubjectChallengeEligible) {
+      updateSubjectChallengeConfig((current) => ({
+        ...current,
+        error: subjectChallengeBlockedReason || 'Subject challenge is currently unavailable.',
+      }));
+      setIsSubjectOverviewActive(true);
+      return;
+    }
     setIsSidebarCollapsed(false);
     setDetailState(null);
     setUnitChallengeState(null);
@@ -1028,6 +800,13 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
   };
 
   const startSubjectChallenge = () => {
+    if (!isSubjectChallengeEligible) {
+      updateSubjectChallengeConfig((current) => ({
+        ...current,
+        error: subjectChallengeBlockedReason || 'Subject challenge is currently unavailable.',
+      }));
+      return;
+    }
     if (!selectedSubjectChallengeConfig.questions.length) {
       updateSubjectChallengeConfig((current) => ({
         ...current,
@@ -1103,8 +882,71 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
 
   if (isCurriculumLoading && units.length === 0) {
     return (
-      <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500">
-        Loading curriculum and resources...
+      <div className="bg-white rounded-xl overflow-hidden">
+        <div className="grid grid-cols-1 xl:grid-cols-[320px_minmax(0,1fr)]">
+          <aside className="border-r border-slate-200 bg-slate-50 min-h-[760px] p-4 space-y-3">
+            <div className="rounded-md border border-slate-200 bg-white p-4 space-y-3">
+              <div className="h-10 w-10 rounded-lg bg-slate-200 animate-pulse" />
+              <div className="h-4 w-3/4 rounded-md bg-slate-200 animate-pulse" />
+              <div className="h-3 w-1/2 rounded-md bg-slate-200 animate-pulse" />
+              <div className="h-1.5 w-full rounded-full bg-slate-200 animate-pulse" />
+            </div>
+
+            {Array.from({ length: 5 }).map((_, index) => (
+              <div key={index} className="rounded-md border border-slate-200 bg-white p-3 space-y-2">
+                <div className="h-3 w-16 rounded-md bg-slate-200 animate-pulse" />
+                <div className="h-4 w-5/6 rounded-md bg-slate-200 animate-pulse" />
+                <div className="h-3 w-20 rounded-md bg-slate-200 animate-pulse" />
+              </div>
+            ))}
+          </aside>
+
+          <section className="min-w-0 border border-slate-200 bg-white">
+            <header className="px-6 py-5 border-b border-slate-200 space-y-4">
+              <div className="h-8 w-2/3 rounded-md bg-slate-200 animate-pulse" />
+              <div className="h-4 w-4/5 rounded-md bg-slate-200 animate-pulse" />
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {Array.from({ length: 3 }).map((_, index) => (
+                  <div key={index} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 space-y-2">
+                    <div className="h-3 w-20 rounded-md bg-slate-200 animate-pulse" />
+                    <div className="h-5 w-24 rounded-md bg-slate-200 animate-pulse" />
+                  </div>
+                ))}
+              </div>
+            </header>
+
+            <div className="p-6 pb-28 space-y-4">
+              {Array.from({ length: 2 }).map((_, sectionIndex) => (
+                <section key={sectionIndex} className="border border-slate-200 rounded-lg p-5 space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="h-7 w-2/5 rounded-md bg-slate-200 animate-pulse" />
+                    <div className="h-7 w-28 rounded-md bg-slate-200 animate-pulse" />
+                  </div>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                    <div className="space-y-2">
+                      <div className="h-4 w-20 rounded-md bg-slate-200 animate-pulse" />
+                      {Array.from({ length: 2 }).map((__, rowIndex) => (
+                        <div key={rowIndex} className="h-10 w-full rounded-md bg-slate-200 animate-pulse" />
+                      ))}
+                    </div>
+                    <div className="space-y-2">
+                      <div className="h-4 w-20 rounded-md bg-slate-200 animate-pulse" />
+                      {Array.from({ length: 2 }).map((__, rowIndex) => (
+                        <div key={rowIndex} className="h-16 w-full rounded-md bg-slate-200 animate-pulse" />
+                      ))}
+                    </div>
+                  </div>
+                </section>
+              ))}
+
+              <section className="border border-slate-200 rounded-lg p-5 bg-slate-50 space-y-3">
+                <div className="h-5 w-40 rounded-md bg-slate-200 animate-pulse" />
+                <div className="h-4 w-3/5 rounded-md bg-slate-200 animate-pulse" />
+                <div className="h-9 w-44 rounded-md bg-slate-200 animate-pulse" />
+              </section>
+            </div>
+          </section>
+        </div>
       </div>
     );
   }
@@ -1522,14 +1364,6 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
             <section className={`min-w-0 rounded-none border border-slate-200 bg-white overflow-hidden xl:will-change-[margin] xl:transition-[margin] xl:duration-300 xl:ease-in-out ${contentDesktopOffset} ${
               isUnitChallengeActive || isSubjectChallengeActive ? 'min-h-[calc(100vh-var(--student-header-offset)-1.5rem)]' : ''
             }`}>
-              {curriculumError && (
-                <div className="mx-6 mt-6 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                  <div className="inline-flex items-center gap-2">
-                    <AlertCircle className="h-4 w-4" />
-                    <span>{curriculumError}</span>
-                  </div>
-                </div>
-              )}
               {!isUnitChallengeActive && !isSubjectChallengeActive && !isSubjectOverviewActive && (
                 <header className="px-6 py-5 border-b border-slate-200">
                   <h1 className="text-3xl font-bold text-slate-900">{selectedUnit.code}: {selectedUnit.title}</h1>
@@ -1577,11 +1411,16 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                       <button
                         type="button"
                         onClick={generateSubjectChallengeWithAi}
-                        disabled={selectedSubjectChallengeConfig.isGenerating}
+                        disabled={selectedSubjectChallengeConfig.isGenerating || !isSubjectChallengeEligible}
                         className="w-full rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-400"
                       >
                         {selectedSubjectChallengeConfig.isGenerating ? 'Generating...' : 'Generate with AI'}
                       </button>
+                      {!isSubjectChallengeEligible && (
+                        <p className="text-xs text-amber-700">
+                          {subjectChallengeBlockedReason}
+                        </p>
+                      )}
                       {selectedSubjectChallengeConfig.questions.length > 0 && (
                         <p className="text-xs text-emerald-700">
                           {selectedSubjectChallengeConfig.questions.length} questions ready.
@@ -1613,7 +1452,9 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                           <p className="text-xs uppercase tracking-[0.2em] text-blue-200">Step 2 of 2</p>
                           <h3 className="mt-3 text-4xl font-bold">Attempt subject challenge</h3>
                           <p className="mt-3 text-lg text-blue-100">
-                            {selectedSubjectChallengeConfig.questions.length > 0
+                            {!isSubjectChallengeEligible
+                              ? `${subjectChallengeBlockedReason}`
+                              : selectedSubjectChallengeConfig.questions.length > 0
                               ? `Your AI challenge is ready. Test your skills across all units and topics in ${activeSubject.name}.`
                               : `Return to Step 1 and generate questions first.`}
                           </p>
@@ -1681,10 +1522,14 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                       Subject challenge
                     </div>
                     <p className="text-sm text-slate-600 mt-2">Take one challenge that spans all units in this subject.</p>
+                    {!isSubjectChallengeEligible && (
+                      <p className="mt-2 text-xs text-amber-700">{subjectChallengeBlockedReason}</p>
+                    )}
                     <button
                       type="button"
                       onClick={openSubjectChallenge}
-                      className="mt-3 inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white text-slate-700 px-4 py-2 text-sm font-semibold hover:bg-slate-100"
+                      disabled={!isSubjectChallengeEligible}
+                      className="mt-3 inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white text-slate-700 px-4 py-2 text-sm font-semibold hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <ChevronRight className="w-4 h-4" />
                       Start subject challenge
@@ -1762,13 +1607,17 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                     )
                   ) : (
                     <>
-                      {selectedUnit.topics.map((topic) => (
+                      {selectedUnit.topics.map((topic) => {
+                        const isTopicCollapsed = Boolean(collapsedTopicIds[topic.id]);
+
+                        return (
                         <section key={topic.id} className="border border-slate-200 rounded-lg p-5 space-y-4">
                           <div className="flex flex-wrap items-center justify-between gap-3">
                             <button
                               type="button"
-                              onClick={() => openTopicDetail(selectedUnit, topic)}
+                              onClick={() => toggleTopicCollapsed(topic.id)}
                               className="text-left text-2xl font-semibold text-slate-900 hover:text-blue-700"
+                              aria-expanded={!isTopicCollapsed}
                             >
                               {topic.title}
                             </button>
@@ -1788,6 +1637,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                             </div>
                           </div>
 
+                          {!isTopicCollapsed && (
                           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                             <div>
                               <p className="text-sm font-semibold text-slate-700 mb-2">Learn</p>
@@ -1842,8 +1692,9 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                               </div>
                             </div>
                           </div>
+                          )}
                         </section>
-                      ))}
+                      )})}
 
                       <div className="border border-slate-200 rounded-lg p-5 bg-slate-50">
                         <div className="flex items-center gap-2 text-slate-700 font-semibold">

@@ -239,7 +239,7 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5 }}
     >
-      <aside className={`border-r border-slate-200 bg-slate-50 flex flex-col min-h-[760px] md:fixed md:top-[var(--student-header-offset)] md:left-[max(1rem,calc((100vw-1400px)/2+1rem))] md:h-auto md:max-h-[calc(100vh-var(--student-header-offset)-0.75rem)] md:min-h-0 md:z-20 md:overflow-visible md:will-change-[width] md:transition-[width] md:duration-300 md:ease-in-out ${sidebarDesktopWidth}`}>
+      <aside className={`border-b border-slate-200 md:border-b-0 bg-slate-50 flex flex-col min-h-[760px] md:fixed md:top-[calc(var(--student-header-offset)+0.75rem)] md:left-[max(1rem,calc((100vw-1400px)/2+1rem))] md:h-auto md:max-h-[calc(100vh-var(--student-header-offset)-1.5rem)] md:min-h-0 md:z-20 md:overflow-visible md:will-change-[width] md:transition-[width] md:duration-300 md:ease-in-out ${sidebarDesktopWidth}`}>
         <button
           type="button"
           onClick={() => setIsSidebarCollapsed((prev) => !prev)}
@@ -328,7 +328,7 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
         </div>
       </aside>
 
-      <div className={`min-w-0 flex flex-col min-h-[760px] md:will-change-[margin] md:transition-[margin] md:duration-300 md:ease-in-out ${contentDesktopOffset}`}>
+      <div className={`min-w-0 flex flex-col min-h-[760px] border border-slate-200 md:border-l md:border-l-slate-200 md:border-r md:border-r-slate-200 bg-white md:will-change-[margin] md:transition-[margin] md:duration-300 md:ease-in-out ${contentDesktopOffset}`}>
         <header className="px-6 py-5 border-b border-slate-200 bg-white">
           <div className="flex justify-center text-center">
             <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mt-1">{selectedStep?.title || plan.plan.name}</h1>

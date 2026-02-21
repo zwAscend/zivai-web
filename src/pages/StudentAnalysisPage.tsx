@@ -171,7 +171,6 @@ const StudentAnalysisPage: React.FC = () => {
     const attempted = rows.length;
     const allAttempts = rows.flatMap((row) => row.attempts);
     const totalScore = allAttempts.reduce((sum, attempt) => sum + (attempt.actualMark || 0), 0);
-    const totalExpected = allAttempts.reduce((sum, attempt) => sum + (attempt.expectedMark || 0), 0);
     const attemptCount = allAttempts.length;
     const averageScore = attempted > 0 ? totalScore / attempted : 0;
     const passed = allAttempts.filter((attempt) => {

@@ -4,6 +4,7 @@ import ReportLayout from '../components/report/ReportLayout';
 import { submissionService } from '../services/api';
 import { reportService, StudentReportResponse } from '../services/reportService';
 import { useAuth } from '../context/AuthContext';
+import { authService } from '../services/authService';
 
 interface PendingSubmission {
   id: string;
@@ -43,6 +44,7 @@ interface AssessmentRow {
 
 const ReportSubmissionsPage: React.FC = () => {
   const { selectedSubject } = useAuth();
+  const teacherId = authService.getCurrentUserId();
   const [pendingSubmissions, setPendingSubmissions] = useState<PendingSubmission[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingReport, setLoadingReport] = useState(false);
@@ -52,14 +54,14 @@ const ReportSubmissionsPage: React.FC = () => {
   const [assessmentQuery, setAssessmentQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
   const fetchData = async () => {
     try {
       setLoading(true);
-      const submissionsData = await submissionService.getPendingSubmissions();
+      const submissionsData = await submissionService.getPendingSubmissions({
+        teacherId: teacherId || undefined,
+        subjectId: selectedSubject?.id,
+        size: 500,
+      });
       setPendingSubmissions(submissionsData);
     } catch (error) {
       console.error('Error fetching submissions:', error);
@@ -67,6 +69,10 @@ const ReportSubmissionsPage: React.FC = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchData();
+  }, [teacherId, selectedSubject?.id]);
 
 
   const gradeFromPercent = (percent: number) => {

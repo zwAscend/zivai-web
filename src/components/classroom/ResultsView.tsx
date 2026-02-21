@@ -1,17 +1,17 @@
 import React, { useEffect, useState } from 'react';
 // Assuming Student, Assessment, and the new StudentAssessmentResult types are defined in '../../types'
-import { Student, StudentAssessmentResult } from '../../types';
+import { Student } from '../../types';
 import { User } from 'lucide-react';
 // Correctly import the service function
-import { assessmentService } from '../../services/api';
+import { studentService, type StudentAssessmentHistoryItem } from '../../services/studentService';
 
 interface ResultsViewProps {
   student: Student;
 }
 
 const ResultsView: React.FC<ResultsViewProps> = ({ student }) => {
-  // Now, results will be an array of StudentAssessmentResult
-  const [results, setResults] = useState<StudentAssessmentResult[] | null>(null);
+  // Results are loaded from student assessment history endpoint.
+  const [results, setResults] = useState<StudentAssessmentHistoryItem[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -27,8 +27,7 @@ const ResultsView: React.FC<ResultsViewProps> = ({ student }) => {
   useEffect(() => {
     const fetchResults = async () => {
       try {
-        // Call the new service function
-        const fetchedAssessmentsAndResults = await assessmentService.getStudentAssessmentsAndResults(student.id);
+        const fetchedAssessmentsAndResults = await studentService.getAssessmentHistory(student.id);
         setResults(fetchedAssessmentsAndResults);
 
         // Calculate overall stats if results are available
@@ -37,13 +36,15 @@ const ResultsView: React.FC<ResultsViewProps> = ({ student }) => {
           let totalWeightedActual = 0;
           let totalWeight = 0;
 
-          fetchedAssessmentsAndResults.forEach(item => {
-            const assessmentMaxScore = item.assessment.maxScore;
-            const assessmentWeight = item.assessment.weight; // Assuming weight is 0-100 as per your model
+          fetchedAssessmentsAndResults.forEach((item) => {
+            const assessmentMaxScore = item.maxScore ?? 100;
+            const assessmentWeight = 1;
+            const expectedMark = item.expectedMark ?? 0;
+            const actualMark = item.actualMark ?? item.score ?? 0;
 
             // Convert marks to be out of 100 for consistent calculation
-            const expectedPercentage = (item.result.expectedMark / assessmentMaxScore) * 100;
-            const actualPercentage = (item.result.actualMark / assessmentMaxScore) * 100;
+            const expectedPercentage = (expectedMark / assessmentMaxScore) * 100;
+            const actualPercentage = (actualMark / assessmentMaxScore) * 100;
 
             totalWeightedExpected += expectedPercentage * assessmentWeight;
             totalWeightedActual += actualPercentage * assessmentWeight;
@@ -159,16 +160,18 @@ const ResultsView: React.FC<ResultsViewProps> = ({ student }) => {
           </thead>
           <tbody>
             {results.map((item, index) => {
-              // Now `item` has both `assessment` and `result` properties
-              const difference = item.result.actualMark - item.result.expectedMark;
+              const expectedMark = item.expectedMark ?? 0;
+              const actualMark = item.actualMark ?? item.score ?? 0;
+              const grade = item.grade ?? 'N/A';
+              const difference = actualMark - expectedMark;
               return (
-                <tr key={item.assessment.id || index} className="border-t border-gray-200">
+                <tr key={item.assessmentId || index} className="border-t border-gray-200">
                   {/* 4. Reduced cell padding to py-1.5 */}
-                  <td className="py-1.5 px-2">{item.assessment.name}</td>
-                  <td className="py-1.5 px-2">{item.result.expectedMark}</td>
+                  <td className="py-1.5 px-2">{item.assessmentName}</td>
+                  <td className="py-1.5 px-2">{expectedMark}</td>
                   <td className="py-1.5 px-2">
                     <div className="flex items-center">
-                      {item.result.actualMark}
+                      {actualMark}
                       <span
                         className={`ml-1 ${difference > 0 ? 'text-green-500' : 'text-red-500'}`}
                       >
@@ -178,7 +181,7 @@ const ResultsView: React.FC<ResultsViewProps> = ({ student }) => {
                       </span>
                     </div>
                   </td>
-                  <td className="py-1.5 px-2">{item.result.grade}</td>
+                  <td className="py-1.5 px-2">{grade}</td>
                 </tr>
               );
             })}

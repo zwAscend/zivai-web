@@ -1,4 +1,3 @@
-import React from 'react';
 import { BookOpen, Edit, FileText, Video } from 'lucide-react';
 import { StepType } from '../../../types';
 

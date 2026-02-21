@@ -11,15 +11,10 @@ type StudentMasteryGapsProps = {
 
 const StudentMasteryGaps: React.FC<StudentMasteryGapsProps> = ({
   selectedSubjectId,
-  subjects,
+  subjects: _subjects,
   activePlan,
   onOpenTutor,
 }) => {
-  const selectedSubject = useMemo(
-    () => subjects.find((subject) => subject.id === selectedSubjectId),
-    [subjects, selectedSubjectId]
-  );
-
   const planForSubject = useMemo(() => {
     if (!activePlan || !activePlan.plan?.subjectId) {
       return null;
