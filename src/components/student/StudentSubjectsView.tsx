@@ -452,8 +452,8 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
   const selectedUnit = units[selectedUnitIndex] || units[0];
   const nextUnit = selectedUnitIndex < units.length - 1 ? units[selectedUnitIndex + 1] : null;
   const sidebarDesktopWidth = isSidebarCollapsed ? 'xl:w-[88px]' : 'xl:w-[320px]';
-  const contentDesktopOffset = isSidebarCollapsed ? 'xl:ml-[89px]' : 'xl:ml-[321px]';
-  const desktopSidebarWidthPx = isSidebarCollapsed ? 89 : 321;
+  const contentDesktopOffset = isSidebarCollapsed ? 'xl:ml-[88px]' : 'xl:ml-[320px]';
+  const desktopSidebarWidthPx = isSidebarCollapsed ? 88 : 320;
   const desktopContainerInset = 'max(1rem, calc((100vw - 1400px)/2 + 1rem))';
   const activeUnitChallenge = unitChallengeState && unitChallengeState.unitId === selectedUnit?.id ? unitChallengeState : null;
   const isUnitChallengeActive = Boolean(activeUnitChallenge);
@@ -822,6 +822,31 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
       x: Math.min(Math.max(margin, x), window.innerWidth - width - margin),
       y: Math.min(Math.max(margin, y), window.innerHeight - height - margin),
     };
+  };
+
+  const setSubjectsChatOpenWithAnchor = (nextOpen: boolean) => {
+    if (nextOpen === isSubjectsChatOpen) return;
+
+    const floatingNode = subjectsChatFloatingRef.current;
+    const previousRect = floatingNode?.getBoundingClientRect() || null;
+
+    setIsSubjectsChatOpen(nextOpen);
+
+    if (!previousRect) return;
+
+    window.requestAnimationFrame(() => {
+      const updatedNode = subjectsChatFloatingRef.current;
+      if (!updatedNode) return;
+      const nextRect = updatedNode.getBoundingClientRect();
+
+      setSubjectsChatPosition((previous) => {
+        const base = previous || { x: previousRect.left, y: previousRect.top };
+        return clampSubjectsChatPosition(
+          base.x + (previousRect.width - nextRect.width),
+          base.y + (previousRect.height - nextRect.height)
+        );
+      });
+    });
   };
 
   const startSubjectsChatDrag = (event: React.PointerEvent<HTMLElement>) => {
@@ -2103,7 +2128,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                     </button>
                     <button
                       type="button"
-                      onClick={() => setIsSubjectsChatOpen(false)}
+                      onClick={() => setSubjectsChatOpenWithAnchor(false)}
                       className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100"
                       aria-label="Close topic chat"
                     >
@@ -2169,7 +2194,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
               </button>
               <button
                 type="button"
-                onClick={() => setIsSubjectsChatOpen((previous) => !previous)}
+                onClick={() => setSubjectsChatOpenWithAnchor(!isSubjectsChatOpen)}
                 className="inline-flex items-center gap-2 rounded-md bg-white px-1.5 py-1 text-sm font-semibold text-slate-700 hover:bg-slate-50"
               >
                 <MessageCircle className="h-4 w-4" />

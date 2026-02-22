@@ -304,6 +304,31 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
     };
   };
 
+  const setChatOpenWithAnchor = (nextOpen: boolean) => {
+    if (nextOpen === isChatOpen) return;
+
+    const floatingNode = chatFloatingRef.current;
+    const previousRect = floatingNode?.getBoundingClientRect() || null;
+
+    setIsChatOpen(nextOpen);
+
+    if (!previousRect) return;
+
+    window.requestAnimationFrame(() => {
+      const updatedNode = chatFloatingRef.current;
+      if (!updatedNode) return;
+      const nextRect = updatedNode.getBoundingClientRect();
+
+      setChatPosition((previous) => {
+        const base = previous || { x: previousRect.left, y: previousRect.top };
+        return clampChatPosition(
+          base.x + (previousRect.width - nextRect.width),
+          base.y + (previousRect.height - nextRect.height)
+        );
+      });
+    });
+  };
+
   const startChatDrag = (event: React.PointerEvent<HTMLElement>) => {
     if (event.pointerType === 'mouse' && event.button !== 0) return;
 
@@ -606,7 +631,7 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
                   </button>
                   <button
                     type="button"
-                    onClick={() => setIsChatOpen(false)}
+                    onClick={() => setChatOpenWithAnchor(false)}
                     className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100"
                     aria-label="Close plan chat"
                   >
@@ -672,7 +697,7 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
             </button>
             <button
               type="button"
-              onClick={() => setIsChatOpen((previous) => !previous)}
+              onClick={() => setChatOpenWithAnchor(!isChatOpen)}
               className="inline-flex items-center gap-2 rounded-md bg-white px-1.5 py-1 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             >
               <MessageCircle className="h-4 w-4" />
