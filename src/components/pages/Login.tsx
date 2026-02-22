@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { authService } from '../../services/api';
+import { clearAuthSessionStorage } from '../../services/authSession';
 
 const loginSchema = z.object({
   email: z.string().email('Please enter a valid email address'),
@@ -18,6 +19,7 @@ interface LoginProps {
 const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [selectedPortal, setSelectedPortal] = useState<'staff' | 'student'>('student');
   const navigate = useNavigate();
 
   const {
@@ -34,13 +36,40 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
       const response = await authService.login(data.email, data.password);
       const userPayload: any = response?.user;
 
+      const primaryRole = String(userPayload?.role || '').toLowerCase();
+      const roleList = Array.isArray(userPayload?.roles)
+        ? userPayload.roles
+            .map((role: unknown) =>
+              typeof role === 'string'
+                ? role.toLowerCase()
+                : String((role as any)?.code || (role as any)?.name || '').toLowerCase()
+            )
+            .filter(Boolean)
+        : [];
+
+      const hasRole = (role: 'admin' | 'teacher' | 'student') =>
+        primaryRole === role || roleList.includes(role);
+
+      const isAdmin = !!userPayload?.isAdmin || hasRole('admin');
+      const isTeacher = !!userPayload?.isTeacher || hasRole('teacher');
+      const isStudent = hasRole('student') && !!userPayload?.studentId;
+      const isStaff = isAdmin || isTeacher;
+
+      if (selectedPortal === 'student' && !isStudent) {
+        clearAuthSessionStorage();
+        setError('This account is a staff account. Switch to Staff and sign in again.');
+        return;
+      }
+
+      if (selectedPortal === 'staff' && !isStaff) {
+        clearAuthSessionStorage();
+        setError('This account is a student account. Switch to Student and sign in again.');
+        return;
+      }
+
       onLogin();
 
-      const isAdmin = !!userPayload?.isAdmin;
-      const isTeacher = !!userPayload?.isTeacher;
-      const isStudent = userPayload?.role === 'student' && !!userPayload?.studentId;
-
-      if (isAdmin || isTeacher) {
+      if (isStaff) {
         navigate('/dashboard', { replace: true });
       } else if (isStudent) {
         navigate('/student/home', { replace: true });
@@ -66,73 +95,83 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
         <div className="pointer-events-none absolute -top-24 -right-28 h-72 w-72 rounded-full bg-blue-200/40 blur-3xl" />
         <div className="pointer-events-none absolute -bottom-24 -left-24 h-72 w-72 rounded-full bg-emerald-200/40 blur-3xl" />
 
-        <div className="relative mx-auto flex min-h-screen w-full max-w-6xl items-center px-6 py-12 lg:py-16">
-          <div className="grid w-full gap-10 lg:grid-cols-[1.1fr_0.9fr] lg:items-center">
-            <div className="flex h-full flex-col justify-center text-center lg:text-left">
-              <div className="mb-8 flex justify-center lg:mb-0 lg:justify-start">
-                <div className="rounded-2xl px-7 py-4 text-center">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">Learning Platform</p>
-                  <p className="mt-1 text-3xl font-black tracking-tight text-slate-900">
-                    ziv<span className="text-blue-600">AI</span>
-                  </p>
+        <div className="relative mx-auto flex min-h-screen w-full max-w-7xl items-center justify-center px-6 py-10 lg:py-14">
+          <section className="w-full max-w-[430px]">
+            <div className="mx-auto mb-5 w-[220px]">
+              <p className="text-center text-4xl font-black tracking-tight text-slate-900">
+                ziv<span className="text-blue-600">AI</span>
+              </p>
+            </div>
+            <div className="rounded-3xl border border-slate-200 bg-white p-8 shadow-xl lg:p-10">
+              <div className="flex h-full flex-col justify-center">
+                <div className="mb-8 space-y-2 text-center">
+                  <h2 className="text-3xl font-bold text-slate-900">Welcome back</h2>
+                  <div className="mt-3 flex w-full rounded-xl border border-slate-200 bg-slate-50 p-1">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPortal('staff')}
+                      className={`flex-1 rounded-lg px-4 py-1.5 text-center text-sm font-semibold transition ${
+                        selectedPortal === 'staff'
+                          ? 'bg-white text-blue-700 shadow-sm'
+                          : 'text-slate-600 hover:text-slate-800'
+                      }`}
+                    >
+                      Staff
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedPortal('student')}
+                      className={`flex-1 rounded-lg px-4 py-1.5 text-center text-sm font-semibold transition ${
+                        selectedPortal === 'student'
+                          ? 'bg-white text-blue-700 shadow-sm'
+                          : 'text-slate-600 hover:text-slate-800'
+                      }`}
+                    >
+                      Student
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <div className="space-y-3">
-                <h1 className="text-4xl font-bold text-slate-900 lg:text-5xl">
-                  A platform for learners and teachers.
-                </h1>
-                <p className="text-base text-slate-600 lg:text-lg">
-                  Strengthen classroom learning with guided practice, clear insights, and AI support that builds real
-                  understanding.
-                </p>
+
+                {error && (
+                  <div className="mb-4 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600">
+                    {error}
+                  </div>
+                )}
+
+                <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700">Email</label>
+                    <input
+                      type="email"
+                      {...register('email')}
+                      placeholder="Enter your email"
+                      className="mt-2 block w-full rounded-xl border border-slate-200 px-4 py-3.5 text-base text-slate-700 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                    />
+                    {errors.email && <p className="mt-1 text-sm text-red-600">{errors.email.message}</p>}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-semibold text-slate-700">Password</label>
+                    <input
+                      type="password"
+                      {...register('password')}
+                      placeholder="Enter your password"
+                      className="mt-2 block w-full rounded-xl border border-slate-200 px-4 py-3.5 text-base text-slate-700 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                    />
+                    {errors.password && <p className="mt-1 text-sm text-red-600">{errors.password.message}</p>}
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full rounded-xl bg-blue-600 py-3 text-base font-semibold text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                    disabled={loading}
+                  >
+                    {loading ? 'Signing In...' : 'Sign In'}
+                  </button>
+                </form>
               </div>
             </div>
-
-            <div className="rounded-3xl border border-slate-200 bg-white p-10 shadow-xl">
-              <div className="mb-8 space-y-2">
-                <h2 className="text-3xl font-bold text-slate-900">Welcome back</h2>
-                <p className="text-base text-slate-500">Sign in to access your learner or teacher workspace.</p>
-              </div>
-
-              {error && (
-                <div className="mb-4 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-600">
-                  {error}
-                </div>
-              )}
-
-              <form onSubmit={handleSubmit(onSubmit)} className="space-y-5">
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700">Email</label>
-                  <input
-                    type="email"
-                    {...register('email')}
-                    placeholder="Enter your email"
-                    className="mt-2 block w-full rounded-xl border border-slate-200 px-4 py-3.5 text-base text-slate-700 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                  />
-                  {errors.email && <p className="mt-1 text-sm text-red-600">{errors.email.message}</p>}
-                </div>
-
-                <div>
-                  <label className="block text-sm font-semibold text-slate-700">Password</label>
-                  <input
-                    type="password"
-                    {...register('password')}
-                    placeholder="Enter your password"
-                    className="mt-2 block w-full rounded-xl border border-slate-200 px-4 py-3.5 text-base text-slate-700 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                  />
-                  {errors.password && <p className="mt-1 text-sm text-red-600">{errors.password.message}</p>}
-                </div>
-
-                <button
-                  type="submit"
-                  className="w-full rounded-xl bg-blue-600 py-3 text-base font-semibold text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                  disabled={loading}
-                >
-                  {loading ? 'Signing In...' : 'Sign In'}
-                </button>
-              </form>
-            </div>
-          </div>
+          </section>
         </div>
       </div>
     </div>
