@@ -18,8 +18,10 @@ const StudentsLayout: React.FC<StudentsLayoutProps> = ({ children }) => {
   return (
     <div className="flex h-full bg-slate-50 text-slate-900 overflow-hidden">
       <Sidebar
-        mode="students"
+        mode="classroom"
         activeAction={getActiveAction(location.pathname)}
+        onClassroomStatus={() => navigate('/classroom?tab=status')}
+        onClassroomDevelopment={() => navigate('/classroom?tab=development')}
         onStudentsDirectory={() => navigate('/students')}
         onStudentsProfile={() => navigate('/students/profile')}
         recentUploads={[]}

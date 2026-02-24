@@ -4,7 +4,6 @@ import { studentService, developmentService } from '../../services/api';
 import { Student } from '../../types';
 import StudentChat from './StudentChat';
 import DevelopmentAttributesView from './DevelopmentAttributesView';
-import ResultsView from './ResultsView';
 import ClassroomLayout from './ClassroomLayout';
 
 type StudentWithPlan = Student & { planName?: string };
@@ -28,13 +27,12 @@ const ClassroomView: React.FC = () => {
   const queryTab = useMemo(() => {
     const params = new URLSearchParams(location.search);
     const tab = params.get('tab');
-    return tab === 'results' || tab === 'development' ? tab : 'status';
+    return tab === 'development' ? tab : 'status';
   }, [location.search]);
   const [activeTab, setActiveTab] = useState(queryTab);
   const [students, setStudents] = useState<StudentWithPlan[]>([]);
   const [selectedStudent, setSelectedStudent] = useState<StudentWithPlan | null>(null);
   const [showChat, setShowChat] = useState(false);
-  const [selectedForResults, setSelectedForResults] = useState(false);
   const [selectedForDevelopment, setSelectedForDevelopment] = useState(false);
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -104,7 +102,6 @@ const ClassroomView: React.FC = () => {
   useEffect(() => {
     if (queryTab !== activeTab) {
       setActiveTab(queryTab);
-      setSelectedForResults(false);
       setSelectedForDevelopment(false);
       setShowChat(false);
     }
@@ -128,15 +125,12 @@ const ClassroomView: React.FC = () => {
   const handleViewStudent = (student: StudentWithPlan) => {
     setSelectedStudent(student);
     setShowChat(false);
-    if (activeTab === 'results') {
-      setSelectedForResults(true);
-    } else if (activeTab === 'development') {
+    if (activeTab === 'development') {
       setSelectedForDevelopment(true);
     }
   };
 
   const handleClosePane = () => {
-    setSelectedForResults(false);
     setSelectedForDevelopment(false);
   };
 
@@ -171,13 +165,11 @@ const ClassroomView: React.FC = () => {
         ) : (
           <>
 
-          {(activeTab === 'results' || activeTab === 'development') ? (
+          {activeTab === 'development' ? (
             <div className="flex gap-6 transition-all duration-500 ease-in-out">
               <div
                 className={`transition-all duration-500 ${
-                  (activeTab === 'results' && selectedForResults) || (activeTab === 'development' && selectedForDevelopment)
-                    ? 'w-1/2'
-                    : 'w-full'
+                  selectedForDevelopment ? 'w-1/2' : 'w-full'
                 } bg-white rounded-lg shadow p-2`}
               >
                 <div className="bg-white rounded-lg shadow p-4 mb-3">
@@ -220,17 +212,8 @@ const ClassroomView: React.FC = () => {
                     <thead className="sticky top-0 bg-gray-50 z-10">
                       <tr>
                         <th className="px-4 py-1.5 border-b text-left">Full Name</th>
-                        {activeTab === 'results' ? (
-                          <>
-                            <th className="px-4 py-1.5 border-b text-left">Attendance</th>
-                            <th className="px-4 py-1.5 border-b text-left">Assessments</th>
-                          </>
-                        ) : (
-                          <>
-                            <th className="px-4 py-1.5 border-b text-left">Overall</th>
-                            <th className="px-4 py-1.5 border-b text-left">Plan</th>
-                          </>
-                        )}
+                        <th className="px-4 py-1.5 border-b text-left">Overall</th>
+                        <th className="px-4 py-1.5 border-b text-left">Plan</th>
                         <th className="px-4 py-1.5 border-b text-left">Performance</th>
                       </tr>
                     </thead>
@@ -253,24 +236,15 @@ const ClassroomView: React.FC = () => {
                             <td className="px-4 py-1.5 border-b text-sm">
                               {student.firstName} {student.lastName}
                             </td>
-                            {activeTab === 'results' ? (
-                              <>
-                                <td className="px-4 py-1.5 border-b text-sm">{student.engagement}</td>
-                                <td className="px-4 py-1.5 border-b text-sm">5</td>
-                              </>
-                            ) : (
-                              <>
-                                <td className="px-4 py-1.5 border-b text-sm">{student.overall}</td>
-                                <td className="px-4 py-1.5 border-b text-sm">
-                                  <button
-                                    className="text-blue-600 underline hover:text-blue-800"
-                                    onClick={(e) => handlePlanClick(e, student.id)}
-                                  >
-                                    {student.planName || 'View Plan'}
-                                  </button>
-                                </td>
-                              </>
-                            )}
+                            <td className="px-4 py-1.5 border-b text-sm">{student.overall}</td>
+                            <td className="px-4 py-1.5 border-b text-sm">
+                              <button
+                                className="text-blue-600 underline hover:text-blue-800"
+                                onClick={(e) => handlePlanClick(e, student.id)}
+                              >
+                                {student.planName || 'View Plan'}
+                              </button>
+                            </td>
                             <td className="px-4 py-1.5 border-b text-sm">{student.performance}</td>
                           </tr>
                         ))}
@@ -280,19 +254,7 @@ const ClassroomView: React.FC = () => {
                 </div>
               </div>
 
-              {activeTab === 'results' && selectedForResults && selectedStudent && (
-                <div className="w-1/2 bg-white rounded-lg shadow p-4 relative">
-                  <button
-                    onClick={handleClosePane}
-                    className="absolute top-2 right-2 text-sm text-gray-500 hover:text-red-500"
-                  >
-                    ✕
-                  </button>
-                  <ResultsView student={selectedStudent} />
-                </div>
-              )}
-
-              {activeTab === 'development' && selectedForDevelopment && selectedStudent && (
+              {selectedForDevelopment && selectedStudent && (
                 <div className="w-1/2 bg-white rounded-lg shadow p-4 relative">
                   <button
                     onClick={handleClosePane}

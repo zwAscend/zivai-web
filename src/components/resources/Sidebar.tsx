@@ -36,7 +36,6 @@ interface SidebarProps {
   onPerformanceOverview?: () => void;
   onPerformanceStudent?: () => void;
   onClassroomStatus?: () => void;
-  onClassroomResults?: () => void;
   onClassroomDevelopment?: () => void;
   onStudentsDirectory?: () => void;
   onStudentsProfile?: () => void;
@@ -80,7 +79,6 @@ const Sidebar: React.FC<SidebarProps> = ({
   onPerformanceOverview,
   onPerformanceStudent,
   onClassroomStatus,
-  onClassroomResults,
   onClassroomDevelopment,
   onStudentsDirectory,
   onStudentsProfile,
@@ -121,8 +119,9 @@ const Sidebar: React.FC<SidebarProps> = ({
         : mode === 'classroom'
           ? [
               { id: 'classroom-status', label: 'Class Status', icon: LayoutGrid, onClick: onClassroomStatus },
-              { id: 'classroom-results', label: 'Results View', icon: BarChart3, onClick: onClassroomResults },
               { id: 'classroom-development', label: 'Development View', icon: Target, onClick: onClassroomDevelopment },
+              { id: 'students-directory', label: 'Student Directory', icon: Users, onClick: onStudentsDirectory },
+              { id: 'students-profile', label: 'Student Profile', icon: User, onClick: onStudentsProfile },
             ]
           : mode === 'students'
             ? [

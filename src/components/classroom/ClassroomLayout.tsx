@@ -8,8 +8,6 @@ interface ClassroomLayoutProps {
 
 const getActiveAction = (tab: string) => {
   switch (tab) {
-    case 'results':
-      return 'classroom-results';
     case 'development':
       return 'classroom-development';
     default:
@@ -29,8 +27,9 @@ const ClassroomLayout: React.FC<ClassroomLayoutProps> = ({ children }) => {
         mode="classroom"
         activeAction={getActiveAction(tab)}
         onClassroomStatus={() => navigate('/classroom?tab=status')}
-        onClassroomResults={() => navigate('/classroom?tab=results')}
         onClassroomDevelopment={() => navigate('/classroom?tab=development')}
+        onStudentsDirectory={() => navigate('/students')}
+        onStudentsProfile={() => navigate('/students/profile')}
         recentUploads={[]}
       />
       <main className="flex-1 min-h-0 overflow-y-auto p-6">

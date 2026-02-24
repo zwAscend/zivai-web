@@ -151,7 +151,6 @@ const Header: React.FC<HeaderProps> = ({ activeTab: _activeTab, setActiveTab, po
     ? [
         { name: 'Home', path: '/dashboard', key: 'dashboard', icon: 'home' },
         { name: 'Classroom', path: '/classroom', key: 'classroom', icon: 'grid' },
-        { name: 'Students', path: '/students', key: 'students', icon: 'students' },
         { name: 'Resources', path: '/resources', key: 'resources', icon: 'resources' },
         { name: 'Assessments', path: '/assessments/create', key: 'assessments', icon: 'assessment' },
         { name: 'Development', path: '/development/profile', key: 'development', icon: 'development' },
@@ -172,6 +171,14 @@ const Header: React.FC<HeaderProps> = ({ activeTab: _activeTab, setActiveTab, po
 
   const isLinkActive = (path: string) => {
     if (path === '/dashboard') return location.pathname === '/dashboard' || location.pathname === '/';
+    if (path === '/classroom') {
+      return (
+        location.pathname === '/classroom' ||
+        location.pathname.startsWith('/classroom/') ||
+        location.pathname === '/students' ||
+        location.pathname.startsWith('/students/')
+      );
+    }
     if (path.startsWith('/admin')) {
       return location.pathname === path || location.pathname.startsWith(`${path}/`);
     }

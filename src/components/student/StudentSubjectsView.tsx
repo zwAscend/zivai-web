@@ -1317,11 +1317,11 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
               <div
                 className="hidden xl:block fixed bottom-3 z-30"
                 style={{
-                  left: 'calc(var(--subjects-footer-left) - 3px)',
-                  right: 'calc(var(--subjects-footer-right) - 3px)',
+                  left: 'var(--subjects-footer-left)',
+                  right: 'var(--subjects-footer-right)',
                 }}
               >
-                <footer className="border-t border-slate-200 bg-white px-6 py-4">
+                <footer className="box-border border-t border-l border-r border-slate-200 bg-white px-6 py-4">
                   <div className="flex justify-end">
                     <button
                       type="button"
@@ -1627,8 +1627,8 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                         questions={selectedSubjectChallengeConfig.questions}
                         contentWrapperClassName="px-6 py-6 pb-8 space-y-6 md:pb-12"
                         fixedFooterStyle={{
-                          left: 'calc(var(--subjects-footer-left) - 3px)',
-                          right: 'calc(var(--subjects-footer-right) - 3px)',
+                          left: 'var(--subjects-footer-left)',
+                          right: 'var(--subjects-footer-right)',
                           bottom: '0.75rem',
                         }}
                         onComplete={completeSubjectChallenge}
@@ -1771,8 +1771,8 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                         questions={selectedUnitChallengeConfig.questions}
                         contentWrapperClassName="px-6 py-6 pb-8 space-y-6 md:pb-12"
                         fixedFooterStyle={{
-                          left: 'calc(var(--subjects-footer-left) - 3px)',
-                          right: 'calc(var(--subjects-footer-right) - 3px)',
+                          left: 'var(--subjects-footer-left)',
+                          right: 'var(--subjects-footer-right)',
                           bottom: '0.75rem',
                         }}
                         onComplete={completeUnitChallenge}
@@ -1923,11 +1923,11 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
               <div
                 className="hidden xl:block fixed bottom-3 z-30"
                 style={{
-                  left: 'calc(var(--subjects-footer-left) - 3px)',
-                  right: 'calc(var(--subjects-footer-right) - 3px)',
+                  left: 'var(--subjects-footer-left)',
+                  right: 'var(--subjects-footer-right)',
                 }}
               >
-                <footer className="border-t border-slate-200 bg-white px-6 py-4">
+                <footer className="box-border border-t border-l border-r border-slate-200 bg-white px-6 py-4">
                   <div className="flex justify-end">
                     <button
                       type="button"
@@ -1965,11 +1965,11 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
               <div
                 className="hidden xl:block fixed bottom-3 z-30"
                 style={{
-                  left: 'calc(var(--subjects-footer-left) - 3px)',
-                  right: 'calc(var(--subjects-footer-right) - 3px)',
+                  left: 'var(--subjects-footer-left)',
+                  right: 'var(--subjects-footer-right)',
                 }}
               >
-                <footer className="border-t border-slate-200 bg-white px-6 py-4">
+                <footer className="box-border border-t border-l border-r border-slate-200 bg-white px-6 py-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     {activeUnitChallenge?.stage === 'completed' && activeUnitChallenge.summary ? (
                       <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
@@ -2033,11 +2033,11 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
               <div
                 className="hidden xl:block fixed bottom-3 z-30"
                 style={{
-                  left: 'calc(var(--subjects-footer-left) - 3px)',
-                  right: 'calc(var(--subjects-footer-right) - 3px)',
+                  left: 'var(--subjects-footer-left)',
+                  right: 'var(--subjects-footer-right)',
                 }}
               >
-                <footer className="border-t border-slate-200 bg-white px-6 py-4">
+                <footer className="box-border border-t border-l border-r border-slate-200 bg-white px-6 py-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     {subjectChallengeState?.stage === 'completed' && subjectChallengeState.summary ? (
                       <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">

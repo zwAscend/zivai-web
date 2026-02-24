@@ -587,8 +587,8 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
               subtitle="Practice questions are delivered one at a time. Check each answer before moving on."
               questions={buildMockPracticeQuestions(selectedStep.title, selectedStep.type === 'assignment' ? 'assignment' : 'quiz')}
               fixedFooterStyle={{
-                left: 'var(--student-plan-footer-left)',
-                right: 'var(--student-plan-footer-right)',
+                left: 'calc(var(--student-plan-footer-left) - 3px)',
+                right: 'calc(var(--student-plan-footer-right) - 3px)',
               }}
               onComplete={() =>
                 setCompletedPracticeSteps((previous) => ({
@@ -712,11 +712,11 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
           <div
             className="hidden md:block fixed bottom-0 z-30"
             style={{
-              left: 'var(--student-plan-footer-left)',
-              right: 'var(--student-plan-footer-right)',
+              left: 'calc(var(--student-plan-footer-left) - 3px)',
+              right: 'calc(var(--student-plan-footer-right) - 3px)',
             }}
           >
-            <footer className="border-t border-slate-200 bg-white px-6 py-4">
+            <footer className="border-t border-l border-r border-slate-200 bg-white px-6 py-4">
               <div className="flex justify-end">
                 <button
                   type="button"
