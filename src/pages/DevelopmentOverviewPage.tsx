@@ -254,11 +254,8 @@ const DevelopmentOverviewPage: React.FC = () => {
               <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
                 <div>
                   <h3 className="text-lg font-semibold text-slate-900">Development Profile</h3>
-                  <p className="text-xs text-slate-500">
-                    Profile-level overview of plans and mastery signals for the selected subject.
-                  </p>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap">
                   <button
                     onClick={() => setIsPlanModalOpen(true)}
                     className="px-4 py-2 rounded-md text-sm font-medium bg-blue-600 text-white hover:bg-blue-700"

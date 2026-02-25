@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Search, Filter } from 'lucide-react';
 import { teacherService } from '../services/teacherService';
 import { authService } from '../services/authService';
+import { ApiError } from '../services/http';
 import Sidebar from '../components/resources/Sidebar';
 
 const normalizeType = (value?: string | null) => {
@@ -24,6 +25,8 @@ const AssessmentsDashboardPage: React.FC = () => {
   const [searchMode, setSearchMode] = useState<'assessment' | 'student'>('assessment');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStudentId, setSelectedStudentId] = useState('');
+  const [overviewError, setOverviewError] = useState<string | null>(null);
+  const [subjectOverviewFallback, setSubjectOverviewFallback] = useState(false);
 
   useEffect(() => {
     const loadSubjects = async () => {
@@ -101,29 +104,72 @@ const AssessmentsDashboardPage: React.FC = () => {
   }, [searchMode, searchQuery, matchingStudents]);
 
   useEffect(() => {
+    setSubjectOverviewFallback(false);
+    setOverviewError(null);
+  }, [selectedSubjectId]);
+
+  useEffect(() => {
     const loadOverview = async () => {
       setLoading(true);
+      setOverviewError(null);
+      const currentTeacherId = teacherId;
+      if (!currentTeacherId) {
+        setRows([]);
+        setOverviewError(null);
+        setLoading(false);
+        return;
+      }
+      if (subjects.length > 0 && !selectedSubjectId) {
+        setRows([]);
+        setOverviewError(null);
+        setLoading(false);
+        return;
+      }
       try {
-        if (!teacherId) {
-          setRows([]);
-          return;
-        }
-
         if (searchMode === 'student' && searchQuery.trim() && !selectedStudentId) {
           setRows([]);
+          setOverviewError(null);
           return;
         }
 
-        const data = await teacherService.getAssessmentsOverview(teacherId, {
-          subjectId: selectedSubjectId || undefined,
+        const filters = {
+          subjectId: subjectOverviewFallback ? undefined : (selectedSubjectId || undefined),
           status: selectedStatus !== 'all' ? selectedStatus : undefined,
           studentId: selectedStudentId || undefined,
           search: searchMode === 'assessment' && searchQuery.trim() ? searchQuery.trim() : undefined,
-        });
+        };
+
+        const data = await teacherService.getAssessmentsOverview(currentTeacherId, filters);
         setRows(data || []);
       } catch (error) {
-        console.error('Failed to load assessment overview:', error);
+        if (!subjectOverviewFallback && selectedSubjectId && error instanceof ApiError && error.status >= 500) {
+          try {
+            const fallbackData = await teacherService.getAssessmentsOverview(currentTeacherId, {
+              status: selectedStatus !== 'all' ? selectedStatus : undefined,
+              studentId: selectedStudentId || undefined,
+              search: searchMode === 'assessment' && searchQuery.trim() ? searchQuery.trim() : undefined,
+            });
+            setRows(fallbackData || []);
+            setSubjectOverviewFallback(true);
+            setOverviewError('Subject-specific overview is temporarily unavailable. Showing combined subjects.');
+            return;
+          } catch (fallbackError) {
+            setRows([]);
+            if (fallbackError instanceof ApiError) {
+              setOverviewError(fallbackError.message);
+            } else {
+              setOverviewError('Failed to load assessment overview.');
+            }
+            return;
+          }
+        }
+
         setRows([]);
+        if (error instanceof ApiError) {
+          setOverviewError(error.message);
+        } else {
+          setOverviewError('Failed to load assessment overview.');
+        }
       } finally {
         setLoading(false);
       }
@@ -132,11 +178,13 @@ const AssessmentsDashboardPage: React.FC = () => {
     loadOverview();
   }, [
     teacherId,
+    subjects.length,
     selectedSubjectId,
     selectedStatus,
     selectedStudentId,
     searchMode,
     searchQuery,
+    subjectOverviewFallback,
   ]);
 
   const filteredRows = useMemo(() => {
@@ -158,35 +206,37 @@ const AssessmentsDashboardPage: React.FC = () => {
       />
       <main className="flex-1 p-8 overflow-y-auto">
         <div className="bg-white rounded-lg shadow p-4 mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-            <div>
-              <label className="text-xs text-gray-500">Search by</label>
+          {overviewError && (
+            <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              {overviewError}
+            </div>
+          )}
+          <div className="mb-4">
+            <label className="text-xs text-gray-500">
+              {searchMode === 'assessment' ? 'Search assessment' : 'Search student'}
+            </label>
+            <div className="mt-1 flex flex-col sm:flex-row">
               <select
                 value={searchMode}
                 onChange={(e) => setSearchMode(e.target.value as 'assessment' | 'student')}
-                className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
+                className="w-full sm:w-[180px] border border-gray-200 rounded-md sm:rounded-r-none sm:border-r-0 px-3 py-2 text-sm"
               >
                 <option value="assessment">Assessment name</option>
                 <option value="student">Student</option>
               </select>
-            </div>
-            <div className="md:col-span-2">
-              <label className="text-xs text-gray-500">
-                {searchMode === 'assessment' ? 'Search assessment' : 'Search student'}
-              </label>
-              <div className="relative">
+              <div className="relative flex-1">
                 <Search className="h-4 w-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder={searchMode === 'assessment' ? 'Search assessment name' : 'Search student'}
-                  className="w-full border border-gray-200 rounded-md pl-9 pr-3 py-2 text-sm"
+                  className="w-full border border-gray-200 rounded-md sm:rounded-l-none pl-9 pr-3 py-2 text-sm sm:-ml-px"
                 />
               </div>
-              {searchMode === 'student' && (
-                <p className="text-[11px] text-gray-400 mt-1">Search will narrow to one student before loading student-specific marks.</p>
-              )}
             </div>
+            {searchMode === 'student' && (
+              <p className="text-[11px] text-gray-400 mt-1">Search will narrow to one student before loading student-specific marks.</p>
+            )}
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
@@ -300,7 +350,29 @@ const AssessmentsDashboardPage: React.FC = () => {
               ))}
             </div>
           ) : (
-            <div className="text-sm text-gray-500">No assessments found for the selected filters.</div>
+            <div className="overflow-x-auto rounded-lg border border-gray-200">
+              <table className="w-full min-w-[860px]">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Assessment</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Type</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Subject</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Due Date</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Average</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Pass Rate</th>
+                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-t border-gray-200">
+                    <td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-500">
+                      No assessments found for the selected filters.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           )}
         </div>
       </main>

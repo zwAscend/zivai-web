@@ -8,7 +8,7 @@ interface StudentsLayoutProps {
 
 const getActiveAction = (pathname: string) => {
   if (pathname.includes('/students/profile')) return 'students-profile';
-  return 'students-directory';
+  return 'classroom-status';
 };
 
 const StudentsLayout: React.FC<StudentsLayoutProps> = ({ children }) => {
@@ -18,9 +18,9 @@ const StudentsLayout: React.FC<StudentsLayoutProps> = ({ children }) => {
   return (
     <div className="flex h-full bg-slate-50 text-slate-900 overflow-hidden">
       <Sidebar
-        mode="students"
+        mode="classroom"
         activeAction={getActiveAction(location.pathname)}
-        onStudentsDirectory={() => navigate('/students')}
+        onClassroomStatus={() => navigate('/classroom?tab=status')}
         onStudentsProfile={() => navigate('/students/profile')}
         recentUploads={[]}
       />

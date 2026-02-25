@@ -456,7 +456,7 @@ const StudentPracticeRunner: React.FC<StudentPracticeRunnerProps> = ({
         className="hidden md:block fixed bottom-0 z-30"
         style={fixedFooterStyle}
       >
-        <footer className="border-t border-slate-200 bg-white px-6 py-4">
+        <footer className="border-t border-l border-r border-slate-200 bg-white px-6 py-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3 text-sm text-slate-700">
               <span className="font-semibold">

@@ -1,9 +1,8 @@
 // src/components/resources/ResourcesDashboard.tsx
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
-import { useNavigate } from 'react-router-dom';
 import { clsx } from 'clsx';
-import { ArrowLeft, ArrowUp, Folder, Search as SearchIcon, BarChart, Star, UploadCloud, Link as LinkIcon, Sparkles, BookOpen, CalendarDays, Send, Maximize2, Minimize2, GripVertical, Wand2, Paperclip, Settings2, X, type LucideIcon } from 'lucide-react';
+import { ArrowUp, Search as SearchIcon, UploadCloud, Sparkles, BookOpen, CalendarDays, Send, Maximize2, Minimize2, GripVertical, Wand2, Paperclip, Settings2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import Sidebar from './Sidebar';
 import UploadModal from './UploadModal';
@@ -26,13 +25,6 @@ export interface RecentUpload {
     subject: { id: string; name: string; code?: string; };
     uploadedBy: { id: string; firstName: string; lastName: string; };
 }
-export interface Analytics {
-    totalResources: number;
-    averageDownloads: number;
-    mostPopularResource: string;
-    topClassEngagement: string;
-}
-
 interface UploadModalSubject {
     id: string;
     name: string;
@@ -50,14 +42,12 @@ interface CollaboratorThreadEntry {
 
 // --- Component Starts ---
 const ResourcesDashboard: React.FC = () => {
-    const navigate = useNavigate();
-    
+
     // --- State Management ---
     const [subjects, setSubjects] = useState<Subject[]>([]);
     const [recentUploads, setRecentUploads] = useState<RecentUpload[]>([]);
     const [selectedClass, setSelectedClass] = useState<Subject | null>(null);
     const [loading, setLoading] = useState(true);
-    const [analytics, setAnalytics] = useState<Analytics>({ totalResources: 0, averageDownloads: 0, mostPopularResource: 'N/A', topClassEngagement: 'N/A' });
     const [activeAction, setActiveAction] = useState<'view-notes' | 'generate-notes' | 'lesson-plans' | 'drafts' | 'material'>('generate-notes');
     const [isContentGenerating, setIsContentGenerating] = useState(false);
     const [isContentExpanded, setIsContentExpanded] = useState(false);
@@ -172,19 +162,6 @@ const ResourcesDashboard: React.FC = () => {
         return () => window.removeEventListener('resize', onResize);
     }, []);
 
-    useMemo(() => {
-        if (subjects.length === 0) return;
-        const totalResources = subjects.reduce((sum, subject) => sum + subject.resourceCount, 0);
-        const topClass = subjects.reduce((prev, current) => (prev.resourceCount > current.resourceCount) ? prev : current, subjects[0]);
-        setAnalytics({
-            totalResources: totalResources,
-            averageDownloads: 0,
-            mostPopularResource: 'N/A',
-            topClassEngagement: topClass?.name || 'N/A',
-        });
-        // Quick access removed; analytics only for now.
-    }, [subjects]);
-
     // --- Event Handlers ---
     const handleUploadClick = (subject?: Subject) => {
         setSelectedSubjectForUpload(subject || null);
@@ -204,6 +181,31 @@ const ResourcesDashboard: React.FC = () => {
     const handleLessonPlans = () => {
         setSelectedClass(null);
         setActiveAction('lesson-plans');
+    };
+
+    const handleCreateLessonPlan = () => {
+        setSelectedClass(null);
+        setActiveAction('generate-notes');
+        setContentType('Lesson Summary');
+        setNoteForm((prev) => ({
+            ...prev,
+            title: prev.title || 'New Lesson Plan',
+            status: 'draft',
+        }));
+        toast.success('Lesson plan workspace is ready.');
+    };
+
+    const handleViewLessonPlan = (subject: Subject) => {
+        setSelectedClass(null);
+        setActiveAction('generate-notes');
+        setContentType('Lesson Summary');
+        setNoteForm((prev) => ({
+            ...prev,
+            subjectId: subject.id,
+            title: prev.title || `${subject.name} Lesson Plan`,
+            status: 'draft',
+        }));
+        toast.success(`Opened lesson plan for ${subject.name}.`);
     };
     
     const handleDrafts = () => {
@@ -315,6 +317,22 @@ const ResourcesDashboard: React.FC = () => {
         threadEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
     }, [aiThread, isContentGenerating, isAiPanelCollapsed]);
 
+    const resizeCollaboratorTextarea = useCallback(() => {
+        const textarea = collaboratorPromptRef.current;
+        if (!textarea) return;
+
+        const minHeight = 120;
+        const maxHeight = 260;
+        textarea.style.height = '0px';
+        const nextHeight = Math.min(maxHeight, Math.max(minHeight, textarea.scrollHeight));
+        textarea.style.height = `${nextHeight}px`;
+        textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+    }, []);
+
+    useEffect(() => {
+        resizeCollaboratorTextarea();
+    }, [noteForm.instructions, isAiPanelCollapsed, resizeCollaboratorTextarea]);
+
     const handleCollaboratorPromptChange = (value: string, cursorPosition: number) => {
         setNoteForm((prev) => ({ ...prev, instructions: value }));
         const beforeCursor = value.slice(0, cursorPosition);
@@ -353,6 +371,7 @@ const ResourcesDashboard: React.FC = () => {
             const nextCursor = nextBefore.length;
             textarea.focus();
             textarea.setSelectionRange(nextCursor, nextCursor);
+            resizeCollaboratorTextarea();
         });
     };
 
@@ -523,27 +542,9 @@ const ResourcesDashboard: React.FC = () => {
             <main className={`flex-1 p-8 ${activeAction === 'generate-notes' ? 'overflow-hidden flex flex-col' : 'overflow-y-auto'}`}>
                 {activeAction === 'view-notes' && (
                     <>
-                        <header className="flex justify-between items-center mb-8">
-                            <div className="flex items-center space-x-4">
-                                <button 
-                                    onClick={() => navigate('/dashboard')}
-                                    className="p-2 rounded-full hover:bg-gray-100 transition-colors duration-200"
-                                    aria-label="Back to dashboard"
-                                >
-                                    <ArrowLeft className="h-5 w-5" />
-                                </button>
-                                <h1 className="text-2xl font-bold">View Content</h1>
-                            </div>
-                            <div className="flex items-center gap-4">
-                                <button onClick={() => handleUploadClick()} className="bg-blue-600 text-white font-semibold px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2">
-                                   <UploadCloud size={18} /> Upload
-                                </button>
-                            </div>
-                        </header>
-
-                        <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
+                        <div className="grid grid-cols-1 gap-8">
                             {/* --- Left Column (Main Content) --- */}
-                            <div className="xl:col-span-2 space-y-6">
+                            <div className="space-y-6">
                                 <div className="bg-white border border-slate-200 rounded-lg p-4 flex flex-col lg:flex-row lg:items-center gap-4">
                                     <div className="relative flex-1">
                                         <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={18} />
@@ -568,41 +569,55 @@ const ResourcesDashboard: React.FC = () => {
                                             ))}
                                         </select>
                                     </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleUploadClick()}
+                                        className="bg-blue-600 text-white font-semibold px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
+                                    >
+                                        <UploadCloud size={18} /> Upload
+                                    </button>
                                 </div>
                                 <section className="space-y-4">
-                                    <h2 className="text-xl font-bold text-slate-700">Content Library</h2>
-                                    {filteredContent.length === 0 ? (
-                                        <div className="bg-white border border-dashed border-slate-200 rounded-lg p-8 text-center text-slate-500">
-                                            No content found. Generate content or upload material to get started.
+                                    <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full">
+                                                <thead className="bg-slate-50">
+                                                    <tr>
+                                                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Title</th>
+                                                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Subject</th>
+                                                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Uploaded By</th>
+                                                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Type</th>
+                                                        <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Actions</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {filteredContent.length === 0 ? (
+                                                        <tr>
+                                                            <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-500">
+                                                                No content found. Generate content or upload material to get started.
+                                                            </td>
+                                                        </tr>
+                                                    ) : (
+                                                        filteredContent.map((item) => (
+                                                            <tr key={item.id} className="border-t border-slate-200">
+                                                                <td className="px-4 py-3 text-sm text-slate-800">{item.name}</td>
+                                                                <td className="px-4 py-3 text-sm text-slate-700">{item.subject?.name || 'N/A'}</td>
+                                                                <td className="px-4 py-3 text-sm text-slate-700">
+                                                                    {item.uploadedBy?.firstName} {item.uploadedBy?.lastName}
+                                                                </td>
+                                                                <td className="px-4 py-3 text-sm text-slate-700 capitalize">{item.type || 'other'}</td>
+                                                                <td className="px-4 py-3 text-sm">
+                                                                    <div className="flex items-center gap-3">
+                                                                        <button className="text-blue-600 hover:text-blue-700">View</button>
+                                                                        <button className="text-slate-600 hover:text-slate-700">Download</button>
+                                                                    </div>
+                                                                </td>
+                                                            </tr>
+                                                        ))
+                                                    )}
+                                                </tbody>
+                                            </table>
                                         </div>
-                                    ) : (
-                                        <div className="space-y-3">
-                                            {filteredContent.map((item) => (
-                                                <div key={item.id} className="bg-white border border-slate-200 rounded-lg p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                                                    <div>
-                                                        <p className="font-semibold text-slate-800">{item.name}</p>
-                                                        <p className="text-xs text-slate-500">{item.subject?.name} • Uploaded by {item.uploadedBy?.firstName} {item.uploadedBy?.lastName}</p>
-                                                    </div>
-                                                    <div className="flex items-center gap-3">
-                                                        <button className="text-sm text-blue-600 hover:text-blue-700">View</button>
-                                                        <button className="text-sm text-slate-600 hover:text-slate-700">Download</button>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                </section>
-                            </div>
-
-                            {/* --- Right Column --- */}
-                            <div className="xl:col-span-1 space-y-8">
-                                <section>
-                                    <h2 className="text-xl font-bold text-slate-700 mb-4">Resource Analytics</h2>
-                                    <div className="space-y-4">
-                                       <StatCard icon={Folder} value={analytics.totalResources} label="Total Resources" color="blue" />
-                                       <StatCard icon={BarChart} value={analytics.averageDownloads} label="Avg. Downloads" color="green" />
-                                       <StatCard icon={LinkIcon} value={analytics.mostPopularResource} label="Most Popular" color="purple" isText />
-                                       <StatCard icon={Star} value={analytics.topClassEngagement} label="Top Class" color="amber" isText />
                                     </div>
                                 </section>
                             </div>
@@ -627,7 +642,7 @@ const ResourcesDashboard: React.FC = () => {
                                 <div className="flex items-center justify-between p-4 border-b border-slate-200 bg-slate-50">
                                     <div className="flex items-center gap-2 text-sm text-slate-600">
                                         <Wand2 className="w-4 h-4 text-blue-600" />
-                                        Unified teacher + AI authoring workspace
+                                        Resource Workspace
                                     </div>
                                     <button
                                         onClick={() => setIsContentExpanded((prev) => !prev)}
@@ -747,7 +762,7 @@ const ResourcesDashboard: React.FC = () => {
                                     )}
 
                                     <aside
-                                        className={`bg-slate-50 overflow-hidden border-t xl:border-t-0 xl:border-l border-slate-100 transition-all duration-200 ${isAiPanelCollapsed ? 'p-3' : 'p-6'} flex flex-col gap-4`}
+                                        className={`bg-slate-50 overflow-visible border-t xl:border-t-0 xl:border-l border-slate-100 transition-all duration-200 ${isAiPanelCollapsed ? 'p-3' : 'p-6'} flex flex-col gap-4`}
                                         style={isDesktop ? { width: isAiPanelCollapsed ? 56 : aiPanelWidth } : undefined}
                                     >
                                         <div className={`flex items-center ${isAiPanelCollapsed ? 'justify-center' : 'justify-between'} gap-2`}>
@@ -778,223 +793,229 @@ const ResourcesDashboard: React.FC = () => {
                                             </button>
                                         ) : (
                                             <>
-                                                <div className="flex-1 min-h-0 border border-slate-200 rounded-lg bg-white p-3 overflow-y-auto space-y-3">
-                                                    {aiThread.length === 0 && !isContentGenerating && (
-                                                        <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
-                                                            Prompts and AI completion summaries will appear here.
-                                                        </div>
-                                                    )}
-                                                    {aiThread.map((entry) => (
-                                                        <div
-                                                            key={entry.id}
-                                                            className={entry.role === 'user'
-                                                                ? 'ml-auto max-w-[92%] rounded-xl bg-blue-600 px-3 py-2 text-sm text-white'
-                                                                : clsx(
-                                                                    'mr-auto max-w-[95%] rounded-xl border px-3 py-2 text-sm',
-                                                                    entry.status === 'error' && 'border-rose-200 bg-rose-50 text-rose-700',
-                                                                    entry.status === 'success' && 'border-emerald-200 bg-emerald-50 text-emerald-700',
-                                                                    !entry.status && 'border-slate-200 bg-white text-slate-700'
-                                                                )}
-                                                        >
-                                                            {entry.role === 'assistant' && entry.type === 'summary' && (
-                                                                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide opacity-80">Completion summary</div>
-                                                            )}
-                                                            <p className="whitespace-pre-wrap">{entry.text}</p>
-                                                            {entry.details && entry.details.length > 0 && (
-                                                                <div className="mt-2 space-y-1 text-xs">
-                                                                    {entry.details.map((detail) => (
-                                                                        <div key={`${entry.id}-${detail}`}>- {detail}</div>
-                                                                    ))}
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    ))}
-                                                    {isContentGenerating && (
-                                                        <div className="mr-auto inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
-                                                            <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:-0.2s]" />
-                                                            <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:-0.1s]" />
-                                                            <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce" />
-                                                        </div>
-                                                    )}
-                                                    <div ref={threadEndRef} />
-                                                </div>
-
-                                                <div className="mt-auto border border-slate-200 rounded-lg bg-white p-3 space-y-3">
-                                                    <div className="relative">
-                                                        <textarea
-                                                            ref={collaboratorPromptRef}
-                                                            className="w-full border border-slate-200 rounded-md px-3 py-2 pr-16 pb-12 text-sm min-h-[140px]"
-                                                            placeholder="Prompt AI here. Use @ to attach library references."
-                                                            value={noteForm.instructions}
-                                                            onChange={(e) => handleCollaboratorPromptChange(e.target.value, e.target.selectionStart ?? e.target.value.length)}
-                                                            onKeyDown={(e) => {
-                                                                if (e.key === 'Enter' && isMentionOpen && mentionSuggestions.length > 0) {
-                                                                    e.preventDefault();
-                                                                    insertReferenceMention(mentionSuggestions[0]);
-                                                                }
-                                                            }}
-                                                        />
-                                                        {isMentionOpen && mentionSuggestions.length > 0 && (
-                                                            <div className="absolute left-0 right-0 mt-1 z-20 border border-slate-200 bg-white rounded-md shadow-lg max-h-44 overflow-y-auto">
-                                                                {mentionSuggestions.map((resource) => (
-                                                                    <button
-                                                                        key={resource.id}
-                                                                        type="button"
-                                                                        onClick={() => insertReferenceMention(resource)}
-                                                                        className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
-                                                                    >
-                                                                        @{resource.name}
-                                                                    </button>
-                                                                ))}
+                                                <div className="flex-1 min-h-0 border border-slate-200 rounded-lg bg-white overflow-hidden flex flex-col">
+                                                    <div className="flex-1 min-h-0 p-3 overflow-y-auto space-y-3">
+                                                        {aiThread.length === 0 && !isContentGenerating && (
+                                                            <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+                                                                Prompts and AI completion summaries will appear here.
                                                             </div>
                                                         )}
-                                                        <button
-                                                            type="button"
-                                                            onClick={handleGenerateOnCanvas}
-                                                            disabled={isContentGenerating}
-                                                            className="absolute right-2 bottom-2 inline-flex h-9 min-w-9 items-center justify-center rounded-full bg-blue-600 px-3 text-white hover:bg-blue-700 disabled:opacity-60"
-                                                            aria-label={isContentGenerating ? 'AI is thinking' : 'Generate on canvas'}
-                                                        >
-                                                            {isContentGenerating ? (
-                                                                <span className="inline-flex items-center gap-1">
-                                                                    <span className="h-1.5 w-1.5 rounded-full bg-white animate-bounce [animation-delay:-0.2s]" />
-                                                                    <span className="h-1.5 w-1.5 rounded-full bg-white animate-bounce [animation-delay:-0.1s]" />
-                                                                    <span className="h-1.5 w-1.5 rounded-full bg-white animate-bounce" />
-                                                                </span>
-                                                            ) : (
-                                                                <ArrowUp size={14} />
-                                                            )}
-                                                        </button>
-                                                    </div>
-                                                    <input
-                                                        ref={contextFileInputRef}
-                                                        type="file"
-                                                        className="hidden"
-                                                        multiple
-                                                        onChange={(event) => {
-                                                            const nextFiles = event.target.files ? Array.from(event.target.files) : [];
-                                                            if (!nextFiles.length) return;
-                                                            setContentFiles((prev) => {
-                                                                const merged = [...prev];
-                                                                nextFiles.forEach((file) => {
-                                                                    const exists = merged.some(
-                                                                        (existing) => existing.name === file.name
-                                                                            && existing.size === file.size
-                                                                            && existing.lastModified === file.lastModified
-                                                                    );
-                                                                    if (!exists) merged.push(file);
-                                                                });
-                                                                return merged;
-                                                            });
-                                                            event.target.value = '';
-                                                        }}
-                                                    />
-                                                    <div className="flex items-center justify-between gap-2">
-                                                        <div className="flex items-center gap-2">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => contextFileInputRef.current?.click()}
-                                                                className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 hover:text-blue-700"
+                                                        {aiThread.map((entry) => (
+                                                            <div
+                                                                key={entry.id}
+                                                                className={entry.role === 'user'
+                                                                    ? 'ml-auto max-w-[92%] rounded-xl bg-blue-600 px-3 py-2 text-sm text-white'
+                                                                    : clsx(
+                                                                        'mr-auto max-w-[95%] rounded-xl border px-3 py-2 text-sm',
+                                                                        entry.status === 'error' && 'border-rose-200 bg-rose-50 text-rose-700',
+                                                                        entry.status === 'success' && 'border-emerald-200 bg-emerald-50 text-emerald-700',
+                                                                        !entry.status && 'border-slate-200 bg-white text-slate-700'
+                                                                    )}
                                                             >
-                                                                <Paperclip size={14} />
-                                                                Attach context
-                                                            </button>
-                                                            <div className="relative z-20">
-                                                                <button
-                                                                    ref={configButtonRef}
-                                                                    type="button"
-                                                                    onClick={() => setIsConfigOpen((prev) => !prev)}
-                                                                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-blue-700"
-                                                                >
-                                                                    <Settings2 size={14} />
-                                                                    Configure
-                                                                </button>
-                                                                {isConfigOpen && (
-                                                                    <div
-                                                                        ref={configMenuRef}
-                                                                        className="absolute right-0 top-full mt-2 z-40 w-[320px] max-w-[80vw] border border-slate-200 rounded-lg bg-white shadow-xl p-3 space-y-3"
-                                                                    >
-                                                                        <label className="text-xs text-slate-600">Reference Material In Library (Optional)</label>
-                                                                        <input
-                                                                            value={referenceSearch}
-                                                                            onChange={(e) => setReferenceSearch(e.target.value)}
-                                                                            className="w-full border border-slate-200 rounded-md px-2 py-1 text-xs"
-                                                                            placeholder="Search..."
-                                                                        />
-                                                                        {availableReferenceResources.length === 0 ? (
-                                                                            <p className="text-xs text-slate-500">No uploaded material available for this subject yet.</p>
-                                                                        ) : filteredReferenceResources.length === 0 ? (
-                                                                            <p className="text-xs text-slate-500">No matching material.</p>
-                                                                        ) : (
-                                                                            <div className="max-h-44 overflow-y-auto border border-slate-200 rounded-md bg-white p-2 space-y-2">
-                                                                                {filteredReferenceResources.map((resource) => (
-                                                                                    <label key={resource.id} className="flex items-start gap-2 text-xs text-slate-700">
-                                                                                        <input
-                                                                                            type="checkbox"
-                                                                                            checked={selectedReferenceResourceIds.includes(resource.id)}
-                                                                                            onChange={(event) => {
-                                                                                                setSelectedReferenceResourceIds((prev) => (
-                                                                                                    event.target.checked
-                                                                                                        ? [...prev, resource.id]
-                                                                                                        : prev.filter((id) => id !== resource.id)
-                                                                                                ));
-                                                                                            }}
-                                                                                            className="mt-0.5"
-                                                                                        />
-                                                                                        <span>{resource.name}</span>
-                                                                                    </label>
-                                                                                ))}
-                                                                            </div>
-                                                                        )}
+                                                                {entry.role === 'assistant' && entry.type === 'summary' && (
+                                                                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide opacity-80">Completion summary</div>
+                                                                )}
+                                                                <p className="whitespace-pre-wrap">{entry.text}</p>
+                                                                {entry.details && entry.details.length > 0 && (
+                                                                    <div className="mt-2 space-y-1 text-xs">
+                                                                        {entry.details.map((detail) => (
+                                                                            <div key={`${entry.id}-${detail}`}>- {detail}</div>
+                                                                        ))}
                                                                     </div>
                                                                 )}
                                                             </div>
-                                                        </div>
-                                                        {contentFiles.length > 0 && (
+                                                        ))}
+                                                        {isContentGenerating && (
+                                                            <div className="mr-auto inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+                                                                <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:-0.2s]" />
+                                                                <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:-0.1s]" />
+                                                                <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce" />
+                                                            </div>
+                                                        )}
+                                                        <div ref={threadEndRef} />
+                                                    </div>
+
+                                                    <div className="border-t border-slate-200 p-3 space-y-3 bg-white">
+                                                        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Compose Prompt</div>
+                                                        <div className="relative">
+                                                            <textarea
+                                                                ref={collaboratorPromptRef}
+                                                                className="w-full resize-none border border-slate-200 rounded-md px-3 py-2 pr-16 pb-12 text-sm min-h-[120px] max-h-[260px]"
+                                                                placeholder="Prompt AI here. Use @ to attach library references."
+                                                                value={noteForm.instructions}
+                                                                onChange={(e) => {
+                                                                    handleCollaboratorPromptChange(e.target.value, e.target.selectionStart ?? e.target.value.length);
+                                                                    requestAnimationFrame(resizeCollaboratorTextarea);
+                                                                }}
+                                                                onKeyDown={(e) => {
+                                                                    if (e.key === 'Enter' && isMentionOpen && mentionSuggestions.length > 0) {
+                                                                        e.preventDefault();
+                                                                        insertReferenceMention(mentionSuggestions[0]);
+                                                                    }
+                                                                }}
+                                                            />
+                                                            {isMentionOpen && mentionSuggestions.length > 0 && (
+                                                                <div className="absolute left-0 right-0 bottom-full mb-1 z-20 border border-slate-200 bg-white rounded-md shadow-lg max-h-44 overflow-y-auto">
+                                                                    {mentionSuggestions.map((resource) => (
+                                                                        <button
+                                                                            key={resource.id}
+                                                                            type="button"
+                                                                            onClick={() => insertReferenceMention(resource)}
+                                                                            className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                                                                        >
+                                                                            @{resource.name}
+                                                                        </button>
+                                                                    ))}
+                                                                </div>
+                                                            )}
                                                             <button
                                                                 type="button"
-                                                                onClick={() => setContentFiles([])}
-                                                                className="text-xs text-slate-500 hover:text-red-600"
+                                                                onClick={handleGenerateOnCanvas}
+                                                                disabled={isContentGenerating}
+                                                                className="absolute right-2 bottom-2 inline-flex h-9 min-w-9 items-center justify-center rounded-full bg-blue-600 px-3 text-white hover:bg-blue-700 disabled:opacity-60"
+                                                                aria-label={isContentGenerating ? 'AI is thinking' : 'Generate on canvas'}
                                                             >
-                                                                Clear all
+                                                                {isContentGenerating ? (
+                                                                    <span className="inline-flex items-center gap-1">
+                                                                        <span className="h-1.5 w-1.5 rounded-full bg-white animate-bounce [animation-delay:-0.2s]" />
+                                                                        <span className="h-1.5 w-1.5 rounded-full bg-white animate-bounce [animation-delay:-0.1s]" />
+                                                                        <span className="h-1.5 w-1.5 rounded-full bg-white animate-bounce" />
+                                                                    </span>
+                                                                ) : (
+                                                                    <ArrowUp size={14} />
+                                                                )}
                                                             </button>
+                                                        </div>
+                                                        <input
+                                                            ref={contextFileInputRef}
+                                                            type="file"
+                                                            className="hidden"
+                                                            multiple
+                                                            onChange={(event) => {
+                                                                const nextFiles = event.target.files ? Array.from(event.target.files) : [];
+                                                                if (!nextFiles.length) return;
+                                                                setContentFiles((prev) => {
+                                                                    const merged = [...prev];
+                                                                    nextFiles.forEach((file) => {
+                                                                        const exists = merged.some(
+                                                                            (existing) => existing.name === file.name
+                                                                                && existing.size === file.size
+                                                                                && existing.lastModified === file.lastModified
+                                                                        );
+                                                                        if (!exists) merged.push(file);
+                                                                    });
+                                                                    return merged;
+                                                                });
+                                                                event.target.value = '';
+                                                            }}
+                                                        />
+                                                        <div className="flex items-center justify-between gap-2">
+                                                            <div className="flex items-center gap-2">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => contextFileInputRef.current?.click()}
+                                                                    className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 hover:text-blue-700"
+                                                                >
+                                                                    <Paperclip size={14} />
+                                                                    Attach context
+                                                                </button>
+                                                                <div className="relative z-[70]">
+                                                                    <button
+                                                                        ref={configButtonRef}
+                                                                        type="button"
+                                                                        onClick={() => setIsConfigOpen((prev) => !prev)}
+                                                                        className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-blue-700"
+                                                                    >
+                                                                        <Settings2 size={14} />
+                                                                        Configure
+                                                                    </button>
+                                                                    {isConfigOpen && (
+                                                                        <div
+                                                                            ref={configMenuRef}
+                                                                            className="absolute right-0 bottom-full mb-2 z-[80] w-[320px] max-w-[80vw] border border-slate-200 rounded-lg bg-white shadow-xl p-3 space-y-3"
+                                                                        >
+                                                                            <label className="text-xs text-slate-600">Reference Material In Library (Optional)</label>
+                                                                            <input
+                                                                                value={referenceSearch}
+                                                                                onChange={(e) => setReferenceSearch(e.target.value)}
+                                                                                className="w-full border border-slate-200 rounded-md px-2 py-1 text-xs"
+                                                                                placeholder="Search..."
+                                                                            />
+                                                                            {availableReferenceResources.length === 0 ? (
+                                                                                <p className="text-xs text-slate-500">No uploaded material available for this subject yet.</p>
+                                                                            ) : filteredReferenceResources.length === 0 ? (
+                                                                                <p className="text-xs text-slate-500">No matching material.</p>
+                                                                            ) : (
+                                                                                <div className="max-h-44 overflow-y-auto border border-slate-200 rounded-md bg-white p-2 space-y-2">
+                                                                                    {filteredReferenceResources.map((resource) => (
+                                                                                        <label key={resource.id} className="flex items-start gap-2 text-xs text-slate-700">
+                                                                                            <input
+                                                                                                type="checkbox"
+                                                                                                checked={selectedReferenceResourceIds.includes(resource.id)}
+                                                                                                onChange={(event) => {
+                                                                                                    setSelectedReferenceResourceIds((prev) => (
+                                                                                                        event.target.checked
+                                                                                                            ? [...prev, resource.id]
+                                                                                                            : prev.filter((id) => id !== resource.id)
+                                                                                                    ));
+                                                                                                }}
+                                                                                                className="mt-0.5"
+                                                                                            />
+                                                                                            <span>{resource.name}</span>
+                                                                                        </label>
+                                                                                    ))}
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                            {contentFiles.length > 0 && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setContentFiles([])}
+                                                                    className="text-xs text-slate-500 hover:text-red-600"
+                                                                >
+                                                                    Clear all
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                        <span className="text-[11px] text-slate-500">Type @ to attach reference</span>
+                                                        {selectedReferenceResources.length > 0 && (
+                                                            <div className="flex flex-wrap gap-2">
+                                                                {selectedReferenceResources.map((resource) => (
+                                                                    <span key={resource.id} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
+                                                                        @{resource.name}
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => setSelectedReferenceResourceIds((prev) => prev.filter((id) => id !== resource.id))}
+                                                                            className="text-slate-400 hover:text-slate-700"
+                                                                            aria-label={`Remove ${resource.name}`}
+                                                                        >
+                                                                            <X size={12} />
+                                                                        </button>
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                        {contentFiles.length > 0 && (
+                                                            <div className="flex flex-wrap gap-2">
+                                                                {contentFiles.map((file, index) => (
+                                                                    <span key={`${file.name}-${file.lastModified}-${index}`} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
+                                                                        {file.name}
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => setContentFiles((prev) => prev.filter((_, fileIndex) => fileIndex !== index))}
+                                                                            className="text-slate-400 hover:text-slate-700"
+                                                                            aria-label={`Remove ${file.name}`}
+                                                                        >
+                                                                            <X size={12} />
+                                                                        </button>
+                                                                    </span>
+                                                                ))}
+                                                            </div>
                                                         )}
                                                     </div>
-                                                    <span className="text-[11px] text-slate-500">Type @ to attach reference</span>
-                                                    {selectedReferenceResources.length > 0 && (
-                                                        <div className="flex flex-wrap gap-2">
-                                                            {selectedReferenceResources.map((resource) => (
-                                                                <span key={resource.id} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
-                                                                    @{resource.name}
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => setSelectedReferenceResourceIds((prev) => prev.filter((id) => id !== resource.id))}
-                                                                        className="text-slate-400 hover:text-slate-700"
-                                                                        aria-label={`Remove ${resource.name}`}
-                                                                    >
-                                                                        <X size={12} />
-                                                                    </button>
-                                                                </span>
-                                                            ))}
-                                                        </div>
-                                                    )}
-                                                    {contentFiles.length > 0 && (
-                                                        <div className="flex flex-wrap gap-2">
-                                                            {contentFiles.map((file, index) => (
-                                                                <span key={`${file.name}-${file.lastModified}-${index}`} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
-                                                                    {file.name}
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => setContentFiles((prev) => prev.filter((_, fileIndex) => fileIndex !== index))}
-                                                                        className="text-slate-400 hover:text-slate-700"
-                                                                        aria-label={`Remove ${file.name}`}
-                                                                    >
-                                                                        <X size={12} />
-                                                                    </button>
-                                                                </span>
-                                                            ))}
-                                                        </div>
-                                                    )}
                                                 </div>
                                             </>
                                         )}
@@ -1041,12 +1062,12 @@ const ResourcesDashboard: React.FC = () => {
                 )}
                 {activeAction === 'lesson-plans' && (
                     <div className="space-y-6">
-                        <header className="flex items-center justify-between">
-                            <div>
-                                <h1 className="text-2xl font-bold">Lesson Plans</h1>
-                                <p className="text-sm text-slate-500">Plan weekly lessons and share structured outlines with your students.</p>
-                            </div>
-                            <button className="bg-blue-600 text-white font-semibold px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2">
+                        <header className="flex items-center justify-end">
+                            <button
+                                type="button"
+                                onClick={handleCreateLessonPlan}
+                                className="bg-blue-600 text-white font-semibold px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
+                            >
                                 <BookOpen size={18} /> Create Lesson Plan
                             </button>
                         </header>
@@ -1062,7 +1083,13 @@ const ResourcesDashboard: React.FC = () => {
                                                     <p className="font-semibold text-slate-800">{subject.name}</p>
                                                     <p className="text-xs text-slate-500">Next session: To be scheduled</p>
                                                 </div>
-                                                <button className="text-blue-600 text-sm font-medium hover:text-blue-700">View Plan</button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleViewLessonPlan(subject)}
+                                                    className="text-blue-600 text-sm font-medium hover:text-blue-700"
+                                                >
+                                                    View Plan
+                                                </button>
                                             </div>
                                         ))}
                                         {subjects.length === 0 && (
@@ -1093,31 +1120,45 @@ const ResourcesDashboard: React.FC = () => {
 
                 {activeAction === 'drafts' && (
                     <div className="space-y-6">
-                        <header className="flex items-center justify-between">
-                            <div>
-                                <h1 className="text-2xl font-bold">Content Drafts</h1>
-                                <p className="text-sm text-slate-500">Manage saved drafts before publishing.</p>
+                        <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+                            <div className="overflow-x-auto">
+                                <table className="w-full">
+                                    <thead className="bg-slate-50">
+                                        <tr>
+                                            <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Title</th>
+                                            <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Grade</th>
+                                            <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Subject</th>
+                                            <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</th>
+                                            <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {draftNotes.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-500">
+                                                    No drafts yet. Create content and save it as drafts.
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            draftNotes.map((draft, index) => (
+                                                <tr key={`${draft.title}-${index}`} className="border-t border-slate-200">
+                                                    <td className="px-4 py-3 text-sm text-slate-800">{draft.title || 'Untitled Draft'}</td>
+                                                    <td className="px-4 py-3 text-sm text-slate-700">{draft.grade || 'N/A'}</td>
+                                                    <td className="px-4 py-3 text-sm text-slate-700">{draft.subjectId ? 'Subject selected' : 'No subject'}</td>
+                                                    <td className="px-4 py-3 text-sm text-slate-700 capitalize">{draft.status || 'draft'}</td>
+                                                    <td className="px-4 py-3 text-sm">
+                                                        <div className="flex flex-wrap gap-3">
+                                                            <button onClick={() => handleEditDraft(index)} className="text-blue-600 hover:text-blue-700">Edit</button>
+                                                            <button onClick={() => handleDeleteDraft(index)} className="text-slate-600 hover:text-slate-700">Delete</button>
+                                                            <button onClick={() => handlePublishDraft(index)} className="text-blue-600 hover:text-blue-700">Publish</button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
                             </div>
-                        </header>
-
-                        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 space-y-4">
-                            {draftNotes.length === 0 ? (
-                                <p className="text-sm text-slate-500">No drafts yet. Create content and save it as drafts.</p>
-                            ) : (
-                                draftNotes.map((draft, index) => (
-                                    <div key={`${draft.title}-${index}`} className="border border-slate-200 rounded-lg p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                                        <div>
-                                            <p className="font-semibold text-slate-800">{draft.title || 'Untitled Draft'}</p>
-                                            <p className="text-xs text-slate-500">{draft.grade} • {draft.subjectId ? 'Subject selected' : 'No subject'}</p>
-                                        </div>
-                                        <div className="flex flex-wrap gap-3">
-                                            <button onClick={() => handleEditDraft(index)} className="text-sm text-blue-600 hover:text-blue-700">Edit</button>
-                                            <button onClick={() => handleDeleteDraft(index)} className="text-sm text-slate-600 hover:text-slate-700">Delete</button>
-                                            <button onClick={() => handlePublishDraft(index)} className="text-sm text-blue-600 hover:text-blue-700">Publish</button>
-                                        </div>
-                                    </div>
-                                ))
-                            )}
                         </div>
                     </div>
                 )}
@@ -1177,25 +1218,46 @@ const ResourcesDashboard: React.FC = () => {
                             </div>
                         </div>
 
-                        <div className="space-y-3">
-                            {filteredMaterials.length === 0 ? (
-                                <div className="bg-white border border-dashed border-slate-200 rounded-lg p-8 text-center text-slate-500">
-                                    No material uploaded yet.
-                                </div>
-                            ) : (
-                                filteredMaterials.map((item) => (
-                                    <div key={item.id} className="bg-white border border-slate-200 rounded-lg p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                                        <div>
-                                            <p className="font-semibold text-slate-800">{item.name}</p>
-                                            <p className="text-xs text-slate-500">{item.subject?.name} • Uploaded by {item.uploadedBy?.firstName} {item.uploadedBy?.lastName}</p>
-                                        </div>
-                                        <div className="flex items-center gap-3">
-                                            <button className="text-sm text-blue-600 hover:text-blue-700">View</button>
-                                            <button className="text-sm text-slate-600 hover:text-slate-700">Download</button>
-                                        </div>
-                                    </div>
-                                ))
-                            )}
+                        <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+                            <div className="overflow-x-auto">
+                                <table className="w-full">
+                                    <thead className="bg-slate-50">
+                                        <tr>
+                                            <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Title</th>
+                                            <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Subject</th>
+                                            <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Uploaded By</th>
+                                            <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Type</th>
+                                            <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {filteredMaterials.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-500">
+                                                    No material uploaded yet.
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            filteredMaterials.map((item) => (
+                                                <tr key={item.id} className="border-t border-slate-200">
+                                                    <td className="px-4 py-3 text-sm text-slate-800">{item.name}</td>
+                                                    <td className="px-4 py-3 text-sm text-slate-700">{item.subject?.name || 'N/A'}</td>
+                                                    <td className="px-4 py-3 text-sm text-slate-700">
+                                                        {item.uploadedBy?.firstName} {item.uploadedBy?.lastName}
+                                                    </td>
+                                                    <td className="px-4 py-3 text-sm text-slate-700 capitalize">{item.type || 'other'}</td>
+                                                    <td className="px-4 py-3 text-sm">
+                                                        <div className="flex items-center gap-3">
+                                                            <button className="text-blue-600 hover:text-blue-700">View</button>
+                                                            <button className="text-slate-600 hover:text-slate-700">Download</button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 )}
@@ -1282,27 +1344,5 @@ const ResourcesDashboard: React.FC = () => {
         </div>
     );
 };
-
-// --- Child Components ---
-
-interface StatCardProps {
-    icon: LucideIcon;
-    value: string | number;
-    label: string;
-    color: 'blue' | 'green' | 'purple' | 'amber';
-    isText?: boolean;
-}
-
-const StatCard: React.FC<StatCardProps> = ({ icon: Icon, value, label, color, isText = false }) => (
-    <div className="bg-white p-4 rounded-lg shadow-sm border border-slate-200 flex items-center gap-5">
-        <div className={`w-12 h-12 flex items-center justify-center rounded-full bg-${color}-100`}>
-            <Icon size={24} className={`text-${color}-600`} />
-        </div>
-        <div>
-            <p className={clsx("font-bold text-slate-800 line-clamp-1", isText ? 'text-lg' : 'text-2xl')}>{value}</p>
-            <p className="text-sm text-slate-500">{label}</p>
-        </div>
-    </div>
-);
 
 export default ResourcesDashboard;
