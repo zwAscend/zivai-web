@@ -394,14 +394,11 @@ const Dashboard: React.FC = () => {
     }
   };
   
-  useEffect(() => {
-    console.log('Selected subject in Dashboard:', selectedSubject);
-  }, [selectedSubject]);
+  const selectedSubjectId = selectedSubject?.id;
 
   useEffect(() => {
     const fetchData = async () => {
-      if (!selectedSubject || !selectedSubject.id) {
-        console.log("No valid subject selected, skipping data fetch.", { selectedSubject });
+      if (!selectedSubjectId) {
         setStudentsWithPlans([]);
         setLatestAssessment(null);
         setStudentPerformance([]);
@@ -411,18 +408,13 @@ const Dashboard: React.FC = () => {
   
       try {
         setLoading(true);
-        console.log(`Fetching data for subject: ${selectedSubject.name} (ID: ${selectedSubject.id})`);
-  
-        const students = await fetchStudentsBySubject(selectedSubject.id);
-        console.log("Students fetched:", students);
+        const students = await fetchStudentsBySubject(selectedSubjectId);
   
         const subjectStudents = students.filter(student => 
-          student.subjects && student.subjects.includes(selectedSubject.id)
+          student.subjects && student.subjects.includes(selectedSubjectId)
         );
-        console.log("Filtered subject students:", subjectStudents);
   
-        const assessments = await fetchAssessmentsBySubject(selectedSubject.id);
-        console.log("Assessments fetched:", assessments);
+        const assessments = await fetchAssessmentsBySubject(selectedSubjectId);
   
         if (assessments.length > 0) {
           const sortedAssessments = [...assessments].sort((a, b) =>
@@ -430,10 +422,8 @@ const Dashboard: React.FC = () => {
           );
           const latest = sortedAssessments[0];
           setLatestAssessment(latest);
-          console.log("Latest assessment:", latest);
   
           const results = await fetchAssessmentResults(latest.id);
-          console.log("Assessment results:", results);
   
           const subjectResults = results.filter(result => 
             subjectStudents.some(student => student.id === result.student.id)
@@ -448,7 +438,6 @@ const Dashboard: React.FC = () => {
   
           setStudentPerformance(performance);
         } else {
-          console.log("No assessments found for the selected subject.");
           setLatestAssessment(null);
           setStudentPerformance([]);
         }
@@ -459,9 +448,9 @@ const Dashboard: React.FC = () => {
           let developmentData: StudentDevelopment;
   
           if (student.activePlan) {
-            const developmentPlan = await fetchStudentDevelopmentPlan(student.id, selectedSubject.id);
+            const developmentPlan = await fetchStudentDevelopmentPlan(student.id, selectedSubjectId);
             if (developmentPlan && developmentPlan.status === 'Active') {
-              const attributes = await getStudentAttributes(student.id, selectedSubject.id, developmentPlan.plan.skills);
+              const attributes = await getStudentAttributes(student.id, selectedSubjectId, developmentPlan.plan.skills);
               const sessionsAvailable = Math.ceil(developmentPlan.plan.eta / 3);
   
               developmentData = {
@@ -476,7 +465,7 @@ const Dashboard: React.FC = () => {
                 hasActivePlan: true
               };
             } else {
-              const attributes = await getStudentAttributes(student.id, selectedSubject.id);
+              const attributes = await getStudentAttributes(student.id, selectedSubjectId);
               developmentData = {
                 studentId: student.id,
                 firstName: student.firstName,
@@ -490,7 +479,7 @@ const Dashboard: React.FC = () => {
               };
             }
           } else {
-            const attributes = await getStudentAttributes(student.id, selectedSubject.id);
+            const attributes = await getStudentAttributes(student.id, selectedSubjectId);
             developmentData = {
               studentId: student.id,
               firstName: student.firstName,
@@ -508,7 +497,6 @@ const Dashboard: React.FC = () => {
         }
   
         setStudentsWithPlans(allStudentsDevelopment);
-        console.log("All students development data for subject:", allStudentsDevelopment);
   
       } catch (error) {
         console.error('Error fetching data:', error);
@@ -521,7 +509,7 @@ const Dashboard: React.FC = () => {
     };
   
     fetchData();
-  }, [selectedSubject]);
+  }, [selectedSubjectId]);
 
   useEffect(() => {
     if (studentsWithPlans.length > 0) {

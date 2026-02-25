@@ -1,12 +1,21 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { studentService, developmentService } from '../../services/api';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { studentService, developmentService, subjectService } from '../../services/api';
 import { Student } from '../../types';
-import StudentChat from './StudentChat';
-import DevelopmentAttributesView from './DevelopmentAttributesView';
 import ClassroomLayout from './ClassroomLayout';
 
-type StudentWithPlan = Student & { planName?: string };
+type StudentWithInsights = Student & {
+  planName: string;
+  planProgress: number | null;
+  weakness: string;
+  grade: 'A' | 'B' | 'C' | 'D' | 'E' | 'U';
+};
+
+type TeachingSubject = {
+  id: string;
+  code?: string;
+  name: string;
+};
 
 const ClassroomStudentsSkeleton: React.FC<{ columns: number }> = ({ columns }) => (
   <tbody>
@@ -22,334 +31,281 @@ const ClassroomStudentsSkeleton: React.FC<{ columns: number }> = ({ columns }) =
   </tbody>
 );
 
+const getGradeFromOverall = (overall: number): 'A' | 'B' | 'C' | 'D' | 'E' | 'U' => {
+  if (overall >= 75) return 'A';
+  if (overall >= 65) return 'B';
+  if (overall >= 50) return 'C';
+  if (overall >= 45) return 'D';
+  if (overall >= 35) return 'E';
+  return 'U';
+};
+
+const toPerformanceFilterKey = (value: string) => value.trim().toLowerCase();
+
 const ClassroomView: React.FC = () => {
-  const location = useLocation();
-  const queryTab = useMemo(() => {
-    const params = new URLSearchParams(location.search);
-    const tab = params.get('tab');
-    return tab === 'development' ? tab : 'status';
-  }, [location.search]);
-  const [activeTab, setActiveTab] = useState(queryTab);
-  const [students, setStudents] = useState<StudentWithPlan[]>([]);
-  const [selectedStudent, setSelectedStudent] = useState<StudentWithPlan | null>(null);
-  const [showChat, setShowChat] = useState(false);
-  const [selectedForDevelopment, setSelectedForDevelopment] = useState(false);
   const navigate = useNavigate();
+  const [students, setStudents] = useState<StudentWithInsights[]>([]);
+  const [subjects, setSubjects] = useState<TeachingSubject[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
   const [searchQuery, setSearchQuery] = useState('');
+  const [subjectFilter, setSubjectFilter] = useState('all');
   const [performanceFilter, setPerformanceFilter] = useState('all');
   const [engagementFilter, setEngagementFilter] = useState('all');
+  const [gradeFilter, setGradeFilter] = useState('all');
+  const [weaknessFilter, setWeaknessFilter] = useState('all');
 
-  const filteredStudents = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    return students.filter((student) => {
-      const fullName = `${student.firstName} ${student.lastName}`.toLowerCase();
-      const email = (student.email || '').toLowerCase();
-      const matchesQuery = !query || fullName.includes(query) || email.includes(query);
-      const performance = (student.performance || '').toLowerCase();
-      const engagement = (student.engagement || '').toLowerCase();
-      const matchesPerformance =
-        performanceFilter === 'all' || performance.includes(performanceFilter);
-      const matchesEngagement =
-        engagementFilter === 'all' || engagement.includes(engagementFilter);
-      return matchesQuery && matchesPerformance && matchesEngagement;
-    });
-  }, [students, searchQuery, performanceFilter, engagementFilter]);
+  useEffect(() => {
+    const fetchSubjects = async () => {
+      try {
+        const data = await subjectService.getTeachingSubjects();
+        setSubjects(Array.isArray(data) ? data : []);
+      } catch {
+        setSubjects([]);
+      }
+    };
+
+    fetchSubjects();
+  }, []);
 
   const fetchStudents = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await studentService.getStudents();
+      const selectedSubjectId = subjectFilter !== 'all' ? subjectFilter : undefined;
+      const rawStudents = await studentService.getStudents(selectedSubjectId);
 
-      if (activeTab === 'development') {
-        const studentsWithPlans = await Promise.all(
-          data.map(async (student) => {
-            try {
-              const studentId = student.id;
-              if (!studentId) {
-                return { ...student, planName: undefined };
-              }
-              const plans = await developmentService.getAllPlansForStudent(studentId);
-              return {
-                ...student,
-                planName: plans.length > 0 ? plans[0].plan.name : undefined,
-              };
-            } catch {
-              return { ...student, planName: undefined };
+      const studentsWithInsights = await Promise.all(
+        (Array.isArray(rawStudents) ? rawStudents : []).map(async (student: Student) => {
+          try {
+            const plans = await developmentService.getAllPlansForStudent(student.id);
+            const activePlan = plans.find((plan) => plan.status === 'Active') || plans[0];
+            const planName = activePlan?.plan?.name || 'No plan';
+            const planProgress =
+              typeof activePlan?.currentProgress === 'number' ? activePlan.currentProgress : null;
+
+            let weakestSkill = 'N/A';
+            if (Array.isArray(activePlan?.skillProgress) && activePlan!.skillProgress!.length > 0) {
+              const lowest = activePlan!.skillProgress!.reduce((lowestItem, current) =>
+                current.currentScore < lowestItem.currentScore ? current : lowestItem
+              );
+              weakestSkill = lowest.skill || 'N/A';
             }
-          })
-        );
-        setStudents(studentsWithPlans);
-        setSelectedStudent(studentsWithPlans[0]);
-      } else {
-        setStudents(data);
-        setSelectedStudent(data[0]);
-      }
 
+            return {
+              ...student,
+              planName,
+              planProgress,
+              weakness: weakestSkill,
+              grade: getGradeFromOverall(Number(student.overall) || 0),
+            } as StudentWithInsights;
+          } catch {
+            return {
+              ...student,
+              planName: 'No plan',
+              planProgress: null,
+              weakness: 'N/A',
+              grade: getGradeFromOverall(Number(student.overall) || 0),
+            } as StudentWithInsights;
+          }
+        })
+      );
+
+      setStudents(studentsWithInsights);
       setError(null);
     } catch (err) {
-      setError((err as Error).message);
+      setError((err as Error).message || 'Failed to load students');
     } finally {
       setLoading(false);
     }
-  }, [activeTab]);
+  }, [subjectFilter]);
 
   useEffect(() => {
     fetchStudents();
-  }, [fetchStudents, activeTab]);
+  }, [fetchStudents]);
 
-  useEffect(() => {
-    if (queryTab !== activeTab) {
-      setActiveTab(queryTab);
-      setSelectedForDevelopment(false);
-      setShowChat(false);
-    }
-  }, [queryTab]);
+  const weaknessOptions = useMemo(() => {
+    const values = Array.from(
+      new Set(
+        students
+          .map((student) => (student.weakness || '').trim())
+          .filter((value) => value.length > 0 && value !== 'N/A')
+      )
+    );
+    return values.sort((a, b) => a.localeCompare(b));
+  }, [students]);
 
-  useEffect(() => {
-    if (filteredStudents.length === 0) {
-      setSelectedStudent(null);
-      return;
-    }
-    if (!selectedStudent || !filteredStudents.some((student) => student.id === selectedStudent.id)) {
-      setSelectedStudent(filteredStudents[0]);
-    }
-  }, [filteredStudents, selectedStudent]);
+  const filteredStudents = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
 
-  const handleStudentClick = (student: StudentWithPlan) => {
-    setSelectedStudent(student);
-    setShowChat(true);
-  };
+    return students.filter((student) => {
+      const fullName = `${student.firstName} ${student.lastName}`.toLowerCase();
+      const email = (student.email || '').toLowerCase();
+      const matchesQuery = !query || fullName.includes(query) || email.includes(query);
 
-  const handleViewStudent = (student: StudentWithPlan) => {
-    setSelectedStudent(student);
-    setShowChat(false);
-    if (activeTab === 'development') {
-      setSelectedForDevelopment(true);
-    }
-  };
+      const matchesPerformance =
+        performanceFilter === 'all' ||
+        toPerformanceFilterKey(student.performance || '').includes(performanceFilter);
 
-  const handleClosePane = () => {
-    setSelectedForDevelopment(false);
-  };
+      const matchesEngagement =
+        engagementFilter === 'all' ||
+        toPerformanceFilterKey(student.engagement || '') === engagementFilter;
 
-  const handlePlanClick = (e: React.MouseEvent, studentId: string) => {
-    e.stopPropagation();
-    console.log('[DEBUG] handlePlanClick - studentId:', studentId);
-    navigate(`/development/${studentId}`);
-  };
+      const matchesGrade = gradeFilter === 'all' || student.grade === gradeFilter;
+
+      const matchesWeakness =
+        weaknessFilter === 'all' || (student.weakness || '').toLowerCase() === weaknessFilter.toLowerCase();
+
+      return matchesQuery && matchesPerformance && matchesEngagement && matchesGrade && matchesWeakness;
+    });
+  }, [students, searchQuery, performanceFilter, engagementFilter, gradeFilter, weaknessFilter]);
 
   if (error) {
-    return <div className="p-4 text-red-500">Error: {error}</div>;
+    return (
+      <ClassroomLayout>
+        <div className="p-4 text-red-500">Error: {error}</div>
+      </ClassroomLayout>
+    );
   }
-
-  // DevelopmentView is now opened via route /development/:studentId
 
   return (
     <ClassroomLayout>
-      <div className="h-full space-y-2 relative transition-all duration-500 ease-in-out">
-        {showChat && selectedStudent ? (
-          <div className="relative bg-white rounded-lg shadow p-4">
-            <button
-              onClick={() => setShowChat(false)}
-              className="absolute top-2 left-2 text-sm text-gray-500 hover:text-blue-500"
-            >
-              ← Back
-            </button>
-            <StudentChat
-              studentId={selectedStudent.id}
-              studentName={`${selectedStudent.firstName} ${selectedStudent.lastName}`}
-            />
+      <div className="h-full space-y-2 relative transition-all duration-300 ease-in-out">
+        <div className="bg-white rounded-lg shadow p-2">
+          <div className="bg-white rounded-lg shadow p-4 mb-3">
+            <div className="flex flex-wrap items-start gap-2">
+              <div className="flex basis-full flex-wrap gap-2 min-w-0">
+                <input
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Search by name or email"
+                  className="w-full min-w-0 sm:flex-1 sm:min-w-[260px] px-3 py-2 text-sm border border-slate-200 rounded-md"
+                />
+                <select
+                  value={subjectFilter}
+                  onChange={(event) => setSubjectFilter(event.target.value)}
+                  className="w-full min-w-0 sm:flex-none sm:w-[280px] px-3 py-2 text-sm border border-slate-200 rounded-md"
+                >
+                  <option value="all">All subjects</option>
+                  {subjects.map((subject) => (
+                    <option key={subject.id} value={subject.id}>
+                      {subject.code ? `${subject.code}: ${subject.name}` : subject.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex basis-full flex-wrap gap-2 min-w-0">
+                <select
+                  value={performanceFilter}
+                  onChange={(event) => setPerformanceFilter(event.target.value)}
+                  className="w-full min-w-0 sm:w-auto sm:min-w-[150px] sm:flex-none px-3 py-2 text-sm border border-slate-200 rounded-md"
+                >
+                  <option value="all">All performance</option>
+                  <option value="excellent">Excellent</option>
+                  <option value="good">Good</option>
+                  <option value="average">Average</option>
+                  <option value="needs">Needs improvement</option>
+                </select>
+                <select
+                  value={engagementFilter}
+                  onChange={(event) => setEngagementFilter(event.target.value)}
+                  className="w-full min-w-0 sm:w-auto sm:min-w-[150px] sm:flex-none px-3 py-2 text-sm border border-slate-200 rounded-md"
+                >
+                  <option value="all">All engagement</option>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </select>
+                <select
+                  value={gradeFilter}
+                  onChange={(event) => setGradeFilter(event.target.value)}
+                  className="w-full min-w-0 sm:w-auto sm:min-w-[150px] sm:flex-none px-3 py-2 text-sm border border-slate-200 rounded-md"
+                >
+                  <option value="all">All grades</option>
+                  <option value="A">A</option>
+                  <option value="B">B</option>
+                  <option value="C">C</option>
+                  <option value="D">D</option>
+                  <option value="E">E</option>
+                  <option value="U">U</option>
+                </select>
+                <select
+                  value={weaknessFilter}
+                  onChange={(event) => setWeaknessFilter(event.target.value)}
+                  className="w-full min-w-0 sm:w-auto sm:min-w-[150px] sm:flex-none px-3 py-2 text-sm border border-slate-200 rounded-md"
+                >
+                  <option value="all">All weaknesses</option>
+                  {weaknessOptions.map((weakness) => (
+                    <option key={weakness} value={weakness}>
+                      {weakness}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
           </div>
-        ) : (
-          <>
-
-          {activeTab === 'development' ? (
-            <div className="flex gap-6 transition-all duration-500 ease-in-out">
-              <div
-                className={`transition-all duration-500 ${
-                  selectedForDevelopment ? 'w-1/2' : 'w-full'
-                } bg-white rounded-lg shadow p-2`}
-              >
-                <div className="bg-white rounded-lg shadow p-4 mb-3">
-                  <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-                    <div className="flex flex-col gap-2">
-                      <input
-                        value={searchQuery}
-                        onChange={(event) => setSearchQuery(event.target.value)}
-                        placeholder="Search by name or email"
-                        className="px-3 py-2 text-sm border border-slate-200 rounded-md"
-                      />
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <select
-                        value={performanceFilter}
-                        onChange={(event) => setPerformanceFilter(event.target.value)}
-                        className="px-3 py-2 text-sm border border-slate-200 rounded-md"
-                      >
-                        <option value="all">All performance</option>
-                        <option value="excellent">Excellent</option>
-                        <option value="good">Good</option>
-                        <option value="average">Average</option>
-                        <option value="needs">Needs improvement</option>
-                      </select>
-                      <select
-                        value={engagementFilter}
-                        onChange={(event) => setEngagementFilter(event.target.value)}
-                        className="px-3 py-2 text-sm border border-slate-200 rounded-md"
-                      >
-                        <option value="all">All engagement</option>
-                        <option value="high">High</option>
-                        <option value="medium">Medium</option>
-                        <option value="low">Low</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-                <div className="overflow-y-auto max-h-[400px]">
-                  <table className="w-full">
-                    <thead className="sticky top-0 bg-gray-50 z-10">
-                      <tr>
-                        <th className="px-4 py-1.5 border-b text-left">Full Name</th>
-                        <th className="px-4 py-1.5 border-b text-left">Overall</th>
-                        <th className="px-4 py-1.5 border-b text-left">Plan</th>
-                        <th className="px-4 py-1.5 border-b text-left">Performance</th>
-                      </tr>
-                    </thead>
-                    {loading ? (
-                      <ClassroomStudentsSkeleton columns={4} />
-                    ) : (
-                      <tbody>
-                        {filteredStudents.map((student, index) => (
-                          <tr
-                            key={student.id}
-                            className={`transition-colors duration-300 ${
-                              selectedStudent?.id === student.id
-                                ? 'bg-blue-300'
-                                : index % 2 === 0
-                                ? 'bg-white'
-                                : 'bg-gray-50'
-                            } hover:bg-blue-200 cursor-pointer`}
-                            onClick={() => handleViewStudent(student)}
-                          >
-                            <td className="px-4 py-1.5 border-b text-sm">
-                              {student.firstName} {student.lastName}
-                            </td>
-                            <td className="px-4 py-1.5 border-b text-sm">{student.overall}</td>
-                            <td className="px-4 py-1.5 border-b text-sm">
-                              <button
-                                className="text-blue-600 underline hover:text-blue-800"
-                                onClick={(e) => handlePlanClick(e, student.id)}
-                              >
-                                {student.planName || 'View Plan'}
-                              </button>
-                            </td>
-                            <td className="px-4 py-1.5 border-b text-sm">{student.performance}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    )}
-                  </table>
-                </div>
-              </div>
-
-              {selectedForDevelopment && selectedStudent && (
-                <div className="w-1/2 bg-white rounded-lg shadow p-4 relative">
-                  <button
-                    onClick={handleClosePane}
-                    className="absolute top-2 right-2 text-sm text-gray-500 hover:text-red-500"
-                  >
-                    ✕
-                  </button>
-                  <DevelopmentAttributesView student={selectedStudent} />
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="bg-white rounded-lg shadow p-2">
-              <div className="bg-white rounded-lg shadow p-4 mb-3">
-                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-                  <div className="flex flex-col gap-2">
-                    <div className="flex items-center gap-2 text-sm text-slate-600">Filters</div>
-                    <input
-                      value={searchQuery}
-                      onChange={(event) => setSearchQuery(event.target.value)}
-                      placeholder="Search by name or email"
-                      className="px-3 py-2 text-sm border border-slate-200 rounded-md"
-                    />
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <select
-                      value={performanceFilter}
-                      onChange={(event) => setPerformanceFilter(event.target.value)}
-                      className="px-3 py-2 text-sm border border-slate-200 rounded-md"
+          <div className="overflow-y-auto max-h-[560px]">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-gray-50">
+                  <th className="px-4 py-1.5 border-b text-left">Full Name</th>
+                  <th className="px-4 py-1.5 border-b text-left">Overall</th>
+                  <th className="px-4 py-1.5 border-b text-left">Grade</th>
+                  <th className="px-4 py-1.5 border-b text-left">Strength</th>
+                  <th className="px-4 py-1.5 border-b text-left">Weakness</th>
+                  <th className="px-4 py-1.5 border-b text-left">Performance</th>
+                  <th className="px-4 py-1.5 border-b text-left">Plan</th>
+                  <th className="px-4 py-1.5 border-b text-left">Plan Performance</th>
+                  <th className="px-4 py-1.5 border-b text-left">Profile</th>
+                </tr>
+              </thead>
+              {loading ? (
+                <ClassroomStudentsSkeleton columns={9} />
+              ) : filteredStudents.length > 0 ? (
+                <tbody>
+                  {filteredStudents.map((student, index) => (
+                    <tr
+                      key={student.id}
+                      className={`${
+                        index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
+                      } hover:bg-blue-50 transition-colors duration-300`}
                     >
-                      <option value="all">All performance</option>
-                      <option value="excellent">Excellent</option>
-                      <option value="good">Good</option>
-                      <option value="average">Average</option>
-                      <option value="needs">Needs improvement</option>
-                    </select>
-                    <select
-                      value={engagementFilter}
-                      onChange={(event) => setEngagementFilter(event.target.value)}
-                      className="px-3 py-2 text-sm border border-slate-200 rounded-md"
-                    >
-                      <option value="all">All engagement</option>
-                      <option value="high">High</option>
-                      <option value="medium">Medium</option>
-                      <option value="low">Low</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-              <div className="overflow-y-auto max-h-[400px]">
-                <table className="w-full">
-                <thead>
-                  <tr className="bg-gray-50">
-                    <th className="px-4 py-1.5 border-b text-left">Full Name</th>
-                    <th className="px-4 py-1.5 border-b text-left">Overall</th>
-                    <th className="px-4 py-1.5 border-b text-left">Strength</th>
-                    <th className="px-4 py-1.5 border-b text-left">Performance</th>
-                    <th className="px-4 py-1.5 border-b text-left"></th>
+                      <td className="px-4 py-1.5 border-b text-sm">
+                        {student.firstName} {student.lastName}
+                      </td>
+                      <td className="px-4 py-1.5 border-b text-sm">{student.overall}</td>
+                      <td className="px-4 py-1.5 border-b text-sm">{student.grade}</td>
+                      <td className="px-4 py-1.5 border-b text-sm">{student.strength || 'N/A'}</td>
+                      <td className="px-4 py-1.5 border-b text-sm">{student.weakness || 'N/A'}</td>
+                      <td className="px-4 py-1.5 border-b text-sm">{student.performance || 'N/A'}</td>
+                      <td className="px-4 py-1.5 border-b text-sm">{student.planName}</td>
+                      <td className="px-4 py-1.5 border-b text-sm">
+                        {student.planProgress === null ? 'N/A' : `${Math.round(student.planProgress)}%`}
+                      </td>
+                      <td className="px-4 py-1.5 border-b text-sm">
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/students/profile?studentId=${encodeURIComponent(student.id)}`)}
+                          className="text-blue-600 hover:text-blue-700 font-medium"
+                        >
+                          View Profile
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              ) : (
+                <tbody>
+                  <tr>
+                    <td colSpan={9} className="px-4 py-8 text-sm text-center text-slate-500 border-b">
+                      No students match the selected filters.
+                    </td>
                   </tr>
-                </thead>
-                {loading ? (
-                  <ClassroomStudentsSkeleton columns={5} />
-                ) : (
-                  <tbody>
-                    {filteredStudents.map((student, index) => (
-                      <tr
-                        key={student.id}
-                        className={`${
-                          index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
-                        } hover:bg-blue-50 transition-colors duration-300`}
-                      >
-                        <td className="px-4 py-1.5 border-b text-sm">
-                          {student.firstName} {student.lastName}
-                        </td>
-                        <td className="px-4 py-1.5 border-b text-sm">{student.overall}</td>
-                        <td className="px-4 py-1.5 border-b text-sm">{student.strength}</td>
-                        <td className="px-4 py-1.5 border-b text-sm">{student.performance}</td>
-                        <td className="px-4 py-1.5 border-b text-sm">
-                          <button
-                            className="text-blue-500 hover:text-blue-700"
-                            onClick={() => handleStudentClick(student)}
-                          >
-                            Chat
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                )}
-              </table>
-              </div>
-            </div>
-          )}
-          </>
-        )}
+                </tbody>
+              )}
+            </table>
+          </div>
+        </div>
       </div>
     </ClassroomLayout>
   );

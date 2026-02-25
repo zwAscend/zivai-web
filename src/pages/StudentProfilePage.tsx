@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import StudentsLayout from '../components/students/StudentsLayout';
 import { teacherService } from '../services/teacherService';
 import { authService } from '../services/authService';
@@ -8,7 +8,6 @@ const getInitials = (student: { firstName?: string; lastName?: string }) =>
   `${student.firstName?.[0] || ''}${student.lastName?.[0] || ''}`.toUpperCase();
 
 const StudentProfilePage: React.FC = () => {
-  const navigate = useNavigate();
   const location = useLocation();
   const teacherId = authService.getCurrentUserId();
 
@@ -115,41 +114,34 @@ const StudentProfilePage: React.FC = () => {
     return students.find((student) => student.studentId === selectedStudentId) || null;
   }, [students, selectedStudentId]);
 
+  const selectedStudentOptionValue = useMemo(() => {
+    return filteredStudents.some((student) => student.studentId === selectedStudentId)
+      ? selectedStudentId
+      : '';
+  }, [filteredStudents, selectedStudentId]);
+
   const studentCard = profileSummary?.student || selectedStudent;
 
   return (
     <StudentsLayout>
       <div className="space-y-6">
-        <div className="bg-white rounded-lg shadow p-5">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-            <div>
-              <h1 className="text-2xl font-bold text-slate-900">Student Profile</h1>
-              <p className="text-sm text-slate-500">Complete student record with mastery and assessment signals.</p>
-            </div>
-            <button
-              onClick={() => navigate('/students')}
-              className="text-sm text-blue-600 hover:text-blue-700"
-            >
-              Back to Directory
-            </button>
-          </div>
-        </div>
-
         <div className="bg-white rounded-lg shadow p-4">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-            <div className="flex items-center gap-2 text-sm text-slate-600">Filters</div>
-            <div className="flex flex-wrap gap-2">
-              <input
-                value={studentQuery}
-                onChange={(event) => setStudentQuery(event.target.value)}
-                placeholder="Search student"
-                className="px-3 py-2 text-sm border border-slate-200 rounded-md"
-              />
+          <div className="flex flex-col lg:flex-row lg:items-center gap-3">
+            <input
+              value={studentQuery}
+              onChange={(event) => setStudentQuery(event.target.value)}
+              placeholder="Search student"
+              className="w-full lg:max-w-[380px] px-3 py-2 text-sm border border-slate-200 rounded-md"
+            />
+            <div className="flex flex-wrap gap-2 lg:ml-auto">
               <select
-                value={selectedStudentId}
+                value={selectedStudentOptionValue}
                 onChange={(event) => setSelectedStudentId(event.target.value)}
                 className="px-3 py-2 text-sm border border-slate-200 rounded-md"
               >
+                <option value="" disabled>
+                  {filteredStudents.length > 0 ? 'Select student' : 'No students found'}
+                </option>
                 {filteredStudents.map((student) => (
                   <option key={student.studentId} value={student.studentId}>
                     {student.firstName} {student.lastName}
@@ -270,8 +262,32 @@ const StudentProfilePage: React.FC = () => {
             </div>
           </div>
         ) : (
-          <div className="bg-gray-50 rounded-lg shadow p-4 text-sm text-gray-500">
-            Select a student to view details.
+          <div className="bg-white rounded-lg shadow overflow-hidden">
+            <div className="border-b border-slate-200 px-4 py-3">
+              <h3 className="text-sm font-semibold text-slate-700">Student Details</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Overall</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Performance</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Engagement</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Strength</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Grade Level</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white">
+                  <tr>
+                    <td colSpan={7} className="px-4 py-8 text-sm text-center text-gray-500">
+                      Select a student to view details.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </div>

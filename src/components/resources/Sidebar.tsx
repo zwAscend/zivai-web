@@ -1,6 +1,6 @@
 // src/components/resources/Sidebar.tsx
 import React, { useState } from 'react';
-import { Menu, UploadCloud, FileText as CreateAssignmentIcon, CheckCircle, FileImage, FileVideo, FilePlus, Eye, BarChart3, UserCheck, Sparkles, BookOpen, Target, ListChecks, User, TrendingUp, LayoutGrid, Users, CalendarRange } from 'lucide-react';
+import { Menu, UploadCloud, FileText as CreateAssignmentIcon, CheckCircle, FileImage, FileVideo, FilePlus, Eye, BarChart3, UserCheck, Sparkles, BookOpen, Target, ListChecks, User, TrendingUp, Users, CalendarRange } from 'lucide-react';
 import { clsx } from 'clsx';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -36,7 +36,6 @@ interface SidebarProps {
   onPerformanceOverview?: () => void;
   onPerformanceStudent?: () => void;
   onClassroomStatus?: () => void;
-  onClassroomDevelopment?: () => void;
   onStudentsDirectory?: () => void;
   onStudentsProfile?: () => void;
   activeAction?: string;
@@ -79,7 +78,6 @@ const Sidebar: React.FC<SidebarProps> = ({
   onPerformanceOverview,
   onPerformanceStudent,
   onClassroomStatus,
-  onClassroomDevelopment,
   onStudentsDirectory,
   onStudentsProfile,
   activeAction,
@@ -118,9 +116,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           ]
         : mode === 'classroom'
           ? [
-              { id: 'classroom-status', label: 'Class Status', icon: LayoutGrid, onClick: onClassroomStatus },
-              { id: 'classroom-development', label: 'Development View', icon: Target, onClick: onClassroomDevelopment },
-              { id: 'students-directory', label: 'Student Directory', icon: Users, onClick: onStudentsDirectory },
+              { id: 'classroom-status', label: 'Class', icon: Users, onClick: onClassroomStatus },
               { id: 'students-profile', label: 'Student Profile', icon: User, onClick: onStudentsProfile },
             ]
           : mode === 'students'

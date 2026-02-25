@@ -204,7 +204,29 @@ const DevelopmentPlansPage: React.FC = () => {
             })}
           </div>
         ) : (
-          <div className="text-sm text-slate-500">No student plans available for the selected filters.</div>
+          <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+            <table className="w-full min-w-[760px] text-sm">
+              <thead className="bg-slate-50 text-slate-600">
+                <tr>
+                  <th className="px-4 py-2 text-left font-semibold border-b border-slate-200">Student</th>
+                  <th className="px-4 py-2 text-left font-semibold border-b border-slate-200">Overall</th>
+                  <th className="px-4 py-2 text-left font-semibold border-b border-slate-200">Plan</th>
+                  <th className="px-4 py-2 text-left font-semibold border-b border-slate-200">Status</th>
+                  <th className="px-4 py-2 text-left font-semibold border-b border-slate-200">Progress</th>
+                  <th className="px-4 py-2 text-left font-semibold border-b border-slate-200">Engagement</th>
+                  <th className="px-4 py-2 text-left font-semibold border-b border-slate-200">Strength</th>
+                  <th className="px-4 py-2 text-left font-semibold border-b border-slate-200">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td colSpan={8} className="px-4 py-6 text-center text-slate-500">
+                    No student plans available for the selected filters.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         )}
       </div>
     </DevelopmentLayout>

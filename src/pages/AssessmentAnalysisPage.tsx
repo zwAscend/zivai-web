@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
 import Sidebar from '../components/resources/Sidebar';
 import { assessmentService, subjectService } from '../services/api';
 import { Assessment, Subject } from '../types';
@@ -12,6 +13,7 @@ const AssessmentAnalysisPage: React.FC = () => {
   const [selectedSubjectId, setSelectedSubjectId] = useState('');
   const [selectedAssessmentId, setSelectedAssessmentId] = useState('');
   const [loading, setLoading] = useState(true);
+  const [assessmentResults, setAssessmentResults] = useState<Array<{ actualMark?: number; expectedMark?: number }>>([]);
   const [metrics, setMetrics] = useState({
     attempted: 0,
     submitted: 0,
@@ -72,6 +74,13 @@ const AssessmentAnalysisPage: React.FC = () => {
       setLoading(true);
       try {
         const results = await assessmentService.getResults(selectedAssessmentId).catch(() => []);
+        const normalizedResults = Array.isArray(results)
+          ? results.map((result: any) => ({
+              actualMark: Number(result?.actualMark ?? 0),
+              expectedMark: Number(result?.expectedMark ?? 0),
+            }))
+          : [];
+        setAssessmentResults(normalizedResults);
         const attempted = results.length;
         const submitted = results.length;
         const totalScore = results.reduce((sum, result) => sum + (result.actualMark || 0), 0);
@@ -96,6 +105,7 @@ const AssessmentAnalysisPage: React.FC = () => {
         });
       } catch (error) {
         console.error('Failed to load assessment metrics:', error);
+        setAssessmentResults([]);
       } finally {
         setLoading(false);
       }
@@ -108,6 +118,29 @@ const AssessmentAnalysisPage: React.FC = () => {
     () => assessments.find((assessment) => assessment.id === selectedAssessmentId),
     [assessments, selectedAssessmentId]
   );
+
+  const marksDistribution = useMemo(() => {
+    const buckets = [
+      { band: '0-39', min: 0, max: 39, count: 0 },
+      { band: '40-49', min: 40, max: 49, count: 0 },
+      { band: '50-59', min: 50, max: 59, count: 0 },
+      { band: '60-69', min: 60, max: 69, count: 0 },
+      { band: '70-79', min: 70, max: 79, count: 0 },
+      { band: '80-89', min: 80, max: 89, count: 0 },
+      { band: '90-100', min: 90, max: 100, count: 0 },
+    ];
+
+    assessmentResults.forEach((result) => {
+      const actual = Number(result.actualMark ?? 0);
+      const expected = Number(result.expectedMark ?? 0);
+      const normalizedScore = expected > 0 ? (actual / expected) * 100 : actual;
+      const score = Math.max(0, Math.min(100, Number.isFinite(normalizedScore) ? normalizedScore : 0));
+      const target = buckets.find((bucket) => score >= bucket.min && score <= bucket.max);
+      if (target) target.count += 1;
+    });
+
+    return buckets.map(({ band, count }) => ({ band, count }));
+  }, [assessmentResults]);
 
   return (
     <div className="flex h-full bg-slate-50 text-slate-900 overflow-hidden">
@@ -216,6 +249,29 @@ const AssessmentAnalysisPage: React.FC = () => {
                     <div className="font-semibold">{metrics.passRate}%</div>
                   </div>
                 </div>
+              </div>
+
+              <div className="bg-white rounded-lg shadow p-6 mb-6">
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <h3 className="text-sm font-semibold text-gray-800">Marks Distribution</h3>
+                  <span className="text-xs text-gray-500">Score bands (%)</span>
+                </div>
+                {assessmentResults.length > 0 ? (
+                  <div className="h-60">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={marksDistribution} margin={{ left: -20, right: 8, top: 8 }}>
+                        <XAxis dataKey="band" fontSize={11} tickLine={false} axisLine={false} />
+                        <YAxis allowDecimals={false} fontSize={11} tickLine={false} axisLine={false} />
+                        <Tooltip cursor={{ fill: '#f1f5f9' }} />
+                        <Bar dataKey="count" fill="#2563eb" radius={[6, 6, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-sm text-slate-500">
+                    No marks available yet for distribution.
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
