@@ -4,7 +4,7 @@ import { submissionService, subjectService } from '../services/api';
 import { ClassReportResponse, reportService } from '../services/reportService';
 import { useAuth } from '../context/AuthContext';
 import { Subject } from '../types';
-import { BarChart3, TrendingUp, Users, AlertTriangle } from 'lucide-react';
+import { BarChart3, TrendingUp, Users, AlertTriangle, BookOpen } from 'lucide-react';
 
 const ReportOverviewPage: React.FC = () => {
   const { selectedSubject, setSelectedSubject } = useAuth();
@@ -163,8 +163,9 @@ const ReportOverviewPage: React.FC = () => {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <label className="flex items-center gap-2 text-xs font-semibold text-slate-700">
-                Subject
+              <label className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600 shadow-sm">
+                <BookOpen className="h-4 w-4 text-slate-500" />
+                <span className="font-medium text-slate-700">Subject</span>
                 <select
                   value={selectedSubject?.id || 'all'}
                   onChange={(event) => {
@@ -176,7 +177,7 @@ const ReportOverviewPage: React.FC = () => {
                     const nextSubject = subjects.find((subject) => subject.id === value) || null;
                     setSelectedSubject(nextSubject);
                   }}
-                  className="text-xs font-semibold px-3 py-1 rounded-full bg-slate-100 text-slate-700 border border-slate-200"
+                  className="min-w-[160px] rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="all">All subjects</option>
                   {subjects.map((subject) => (
@@ -208,7 +209,6 @@ const ReportOverviewPage: React.FC = () => {
               <div className="text-2xl font-bold text-slate-900 mt-2">
                 {Math.round(classAverage)}%
               </div>
-              <p className="text-xs text-slate-500 mt-1">Predicted grade: {predictedGrade}</p>
             </div>
             <div className="bg-white rounded-lg shadow p-4">
               <div className="flex items-center gap-2 text-xs text-slate-500">
@@ -217,7 +217,6 @@ const ReportOverviewPage: React.FC = () => {
               <div className="text-2xl font-bold text-slate-900 mt-2">
                 {predictedGrade}
               </div>
-              <p className="text-xs text-slate-500 mt-1">Based on current assessments</p>
             </div>
             <div className="bg-white rounded-lg shadow p-4">
               <div className="flex items-center gap-2 text-xs text-slate-500">
@@ -226,7 +225,6 @@ const ReportOverviewPage: React.FC = () => {
               <div className="text-2xl font-bold text-slate-900 mt-2">
                 {classStudentCount}
               </div>
-              <p className="text-xs text-slate-500 mt-1">Students with submissions</p>
             </div>
             <div className="bg-white rounded-lg shadow p-4">
               <div className="flex items-center gap-2 text-xs text-slate-500">
@@ -235,7 +233,6 @@ const ReportOverviewPage: React.FC = () => {
               <div className="text-2xl font-bold text-slate-900 mt-2">
                 {masteryGapCards.length}
               </div>
-              <p className="text-xs text-slate-500 mt-1">Priority topics flagged</p>
             </div>
           </div>
         )}

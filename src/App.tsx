@@ -5,6 +5,7 @@ import Dashboard from './components/home/Dashboard';
 import Inbox from './components/staffroom/Inbox';
 import CalendarView from './components/calendar/CalendarView';
 import ClassroomView from './components/classroom/ClassroomView';
+import ClassroomSubjectsPage from './pages/ClassroomSubjectsPage';
 import ResourcesDashboard from './components/resources/ResourcesDashboard';
 import ReportOverviewPage from './pages/ReportOverviewPage';
 import ReportSubmissionsPage from './pages/ReportSubmissionsPage';
@@ -136,6 +137,8 @@ function App() {
             <Route path="staffroom" element={<Inbox />} />
             <Route path="calendar" element={<CalendarView />} />
             <Route path="classroom" element={<ClassroomView />} />
+            <Route path="subjects-workspace" element={<ClassroomSubjectsPage />} />
+            <Route path="classroom/subjects" element={<Navigate to="/subjects-workspace" replace />} />
             <Route path="students" element={<StudentDirectoryPage />} />
             <Route path="students/profile" element={<StudentProfilePage />} />
             <Route path="assessments" element={<Navigate to="/assessments/create" replace />} />

@@ -66,19 +66,21 @@ const DevelopmentPracticePage: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <select
-            value={subjectFilter}
-            onChange={(e) => setSubjectFilter(e.target.value)}
-            className="border border-slate-200 rounded-md px-3 py-2 text-sm"
-          >
-            <option value="">All subjects</option>
-            {subjects.map((subject) => (
-              <option key={subject.id} value={subject.id}>
-                {subject.name}
-              </option>
-            ))}
-          </select>
+        <div className="rounded-lg border border-slate-200 shadow-sm p-3 sm:p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+            <select
+              value={subjectFilter}
+              onChange={(e) => setSubjectFilter(e.target.value)}
+              className="w-full sm:w-auto border border-slate-200 rounded-md px-3 py-2 text-sm"
+            >
+              <option value="">All subjects</option>
+              {subjects.map((subject) => (
+                <option key={subject.id} value={subject.id}>
+                  {subject.name}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         {loading ? (

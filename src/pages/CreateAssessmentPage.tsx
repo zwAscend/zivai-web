@@ -9,7 +9,7 @@ import { subjectService } from '../services/subjectService';
 import { schoolService, SchoolItem } from '../services/schoolService';
 import { aiService } from '../services/aiService';
 import { Subject, SubjectAttribute } from '../types';
-import { ArrowUp, GripVertical, Maximize2, Minimize2, Paperclip, Settings2, Sparkles, Wand2, X } from 'lucide-react';
+import { ArrowUp, GripVertical, Maximize2, Minimize2, Paperclip, Settings2, X } from 'lucide-react';
 
 type ManualQuestionType = 'mcq' | 'true_false' | 'short_answer' | 'essay';
 
@@ -715,7 +715,6 @@ const CreateAssessmentPage: React.FC = () => {
               )}
               <div className="flex items-center justify-between p-4 border-b border-slate-200 bg-slate-50">
                 <div className="flex items-center gap-2 text-sm text-slate-600">
-                  <Wand2 className="w-4 h-4 text-blue-600" />
                   Assessment Workspace
                 </div>
                 <button
@@ -964,7 +963,7 @@ const CreateAssessmentPage: React.FC = () => {
                   <div className={`flex items-center ${isAiPanelCollapsed ? 'justify-center' : 'justify-between'} gap-2`}>
                     {!isAiPanelCollapsed && (
                       <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-                        <Sparkles className="w-4 h-4 text-blue-600" /> AI Collaborator
+                        AI Collaborator
                       </div>
                     )}
                     <button
@@ -984,7 +983,7 @@ const CreateAssessmentPage: React.FC = () => {
                       className="w-full mt-2 inline-flex items-center justify-center rounded-md border border-slate-200 bg-white py-2 text-slate-600 hover:text-slate-800"
                       aria-label="Expand AI collaborator panel"
                     >
-                      <Sparkles className="w-4 h-4" />
+                      AI
                     </button>
                   ) : (
                     <>

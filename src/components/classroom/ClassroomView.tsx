@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { studentService, developmentService, subjectService } from '../../services/api';
 import { Student } from '../../types';
+import { useAuth } from '../../context/AuthContext';
 import ClassroomLayout from './ClassroomLayout';
 
 type StudentWithInsights = Student & {
@@ -44,17 +45,23 @@ const toPerformanceFilterKey = (value: string) => value.trim().toLowerCase();
 
 const ClassroomView: React.FC = () => {
   const navigate = useNavigate();
+  const { selectedSubject, setSelectedSubject } = useAuth();
   const [students, setStudents] = useState<StudentWithInsights[]>([]);
   const [subjects, setSubjects] = useState<TeachingSubject[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [subjectFilter, setSubjectFilter] = useState('all');
+  const [subjectFilter, setSubjectFilter] = useState(selectedSubject?.id ?? 'all');
   const [performanceFilter, setPerformanceFilter] = useState('all');
   const [engagementFilter, setEngagementFilter] = useState('all');
   const [gradeFilter, setGradeFilter] = useState('all');
   const [weaknessFilter, setWeaknessFilter] = useState('all');
+
+  useEffect(() => {
+    const nextSubjectFilter = selectedSubject?.id ?? 'all';
+    setSubjectFilter((current) => (current === nextSubjectFilter ? current : nextSubjectFilter));
+  }, [selectedSubject?.id]);
 
   useEffect(() => {
     const fetchSubjects = async () => {
@@ -168,6 +175,23 @@ const ClassroomView: React.FC = () => {
     );
   }
 
+  const handleSubjectFilterChange = (value: string) => {
+    setSubjectFilter(value);
+    if (value === 'all') {
+      setSelectedSubject(null);
+      return;
+    }
+
+    const chosenSubject = subjects.find((subject) => subject.id === value);
+    if (!chosenSubject) return;
+
+    setSelectedSubject({
+      id: chosenSubject.id,
+      code: chosenSubject.code || '',
+      name: chosenSubject.name,
+    });
+  };
+
   return (
     <ClassroomLayout>
       <div className="h-full space-y-2 relative transition-all duration-300 ease-in-out">
@@ -183,7 +207,7 @@ const ClassroomView: React.FC = () => {
                 />
                 <select
                   value={subjectFilter}
-                  onChange={(event) => setSubjectFilter(event.target.value)}
+                  onChange={(event) => handleSubjectFilterChange(event.target.value)}
                   className="w-full min-w-0 sm:flex-none sm:w-[280px] px-3 py-2 text-sm border border-slate-200 rounded-md"
                 >
                   <option value="all">All subjects</option>
@@ -198,7 +222,7 @@ const ClassroomView: React.FC = () => {
                 <select
                   value={performanceFilter}
                   onChange={(event) => setPerformanceFilter(event.target.value)}
-                  className="w-full min-w-0 sm:w-auto sm:min-w-[150px] sm:flex-none px-3 py-2 text-sm border border-slate-200 rounded-md"
+                  className="w-full sm:w-[180px] px-3 py-2 text-sm border border-slate-200 rounded-md"
                 >
                   <option value="all">All performance</option>
                   <option value="excellent">Excellent</option>
@@ -209,7 +233,7 @@ const ClassroomView: React.FC = () => {
                 <select
                   value={engagementFilter}
                   onChange={(event) => setEngagementFilter(event.target.value)}
-                  className="w-full min-w-0 sm:w-auto sm:min-w-[150px] sm:flex-none px-3 py-2 text-sm border border-slate-200 rounded-md"
+                  className="w-full sm:w-[180px] px-3 py-2 text-sm border border-slate-200 rounded-md"
                 >
                   <option value="all">All engagement</option>
                   <option value="high">High</option>
@@ -219,7 +243,7 @@ const ClassroomView: React.FC = () => {
                 <select
                   value={gradeFilter}
                   onChange={(event) => setGradeFilter(event.target.value)}
-                  className="w-full min-w-0 sm:w-auto sm:min-w-[150px] sm:flex-none px-3 py-2 text-sm border border-slate-200 rounded-md"
+                  className="w-full sm:w-[180px] px-3 py-2 text-sm border border-slate-200 rounded-md"
                 >
                   <option value="all">All grades</option>
                   <option value="A">A</option>
@@ -232,7 +256,7 @@ const ClassroomView: React.FC = () => {
                 <select
                   value={weaknessFilter}
                   onChange={(event) => setWeaknessFilter(event.target.value)}
-                  className="w-full min-w-0 sm:w-auto sm:min-w-[150px] sm:flex-none px-3 py-2 text-sm border border-slate-200 rounded-md"
+                  className="w-full sm:w-[180px] px-3 py-2 text-sm border border-slate-200 rounded-md"
                 >
                   <option value="all">All weaknesses</option>
                   {weaknessOptions.map((weakness) => (
@@ -256,7 +280,7 @@ const ClassroomView: React.FC = () => {
                   <th className="px-4 py-1.5 border-b text-left">Performance</th>
                   <th className="px-4 py-1.5 border-b text-left">Plan</th>
                   <th className="px-4 py-1.5 border-b text-left">Plan Performance</th>
-                  <th className="px-4 py-1.5 border-b text-left">Profile</th>
+                  <th className="px-4 py-1.5 border-b text-left">Action</th>
                 </tr>
               </thead>
               {loading ? (
@@ -283,13 +307,22 @@ const ClassroomView: React.FC = () => {
                         {student.planProgress === null ? 'N/A' : `${Math.round(student.planProgress)}%`}
                       </td>
                       <td className="px-4 py-1.5 border-b text-sm">
-                        <button
-                          type="button"
-                          onClick={() => navigate(`/students/profile?studentId=${encodeURIComponent(student.id)}`)}
-                          className="text-blue-600 hover:text-blue-700 font-medium"
-                        >
-                          View Profile
-                        </button>
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/students/profile?studentId=${encodeURIComponent(student.id)}`)}
+                            className="text-blue-600 hover:text-blue-700 font-medium"
+                          >
+                            View Profile
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/development/${encodeURIComponent(student.id)}`)}
+                            className="text-slate-700 hover:text-slate-900 font-medium"
+                          >
+                            Open Development
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}

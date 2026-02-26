@@ -5,7 +5,20 @@ import { useAuth } from '../context/AuthContext';
 import { PlanStatus, Student, Subject } from '../types';
 import DevelopmentLayout from '../components/development/DevelopmentLayout';
 import CreateDevelopmentPlanModal from '../components/resources/CreateDevelopmentPlanModal';
-import { ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip } from 'recharts';
+import {
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  LineChart,
+  Line,
+  CartesianGrid,
+} from 'recharts';
 
 const DevelopmentOverviewPage: React.FC = () => {
   const { selectedSubject } = useAuth();
@@ -160,18 +173,22 @@ const DevelopmentOverviewPage: React.FC = () => {
     return buckets;
   }, [students]);
 
-  const planNameSummary = useMemo(() => {
-    const counts = new Map<string, number>();
-    students.forEach((student) => {
-      const planName = student.activePlan?.plan?.name;
-      if (!planName) return;
-      counts.set(planName, (counts.get(planName) || 0) + 1);
-    });
-    return Array.from(counts.entries())
-      .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 4);
-  }, [students]);
+  const planCompletionDistribution = useMemo(() => (
+    students
+      .map((student, index) => {
+        const rawProgress = student.activePlan?.currentProgress;
+        const parsed = typeof rawProgress === 'number' ? rawProgress : Number(rawProgress);
+        if (!Number.isFinite(parsed)) return null;
+        const progress = Math.max(0, Math.min(100, Math.round(parsed)));
+        return {
+          learner: `L${index + 1}`,
+          student: `${student.firstName} ${student.lastName}`.trim(),
+          progress,
+        };
+      })
+      .filter((item): item is { learner: string; student: string; progress: number } => item !== null)
+      .sort((a, b) => a.progress - b.progress)
+  ), [students]);
 
   const priorityLearners = useMemo(() => (
     students
@@ -197,35 +214,37 @@ const DevelopmentOverviewPage: React.FC = () => {
     <DevelopmentLayout>
       <div className="space-y-6">
         <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-            <div>
-              <h2 className="text-2xl font-bold text-slate-900">Student Development Intelligence</h2>
-            </div>
-            <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2">
-              <select
-                value={subjectFilter}
-                onChange={(e) => setSubjectFilter(e.target.value)}
-                className="px-3 py-2 rounded-md text-sm font-medium border border-slate-200 bg-white text-slate-700"
-              >
-                <option value="">All subjects</option>
-                {subjects.map((subject) => (
-                  <option key={subject.id} value={subject.id}>
-                    {subject.name}
-                  </option>
-                ))}
-              </select>
-              <button
-                onClick={() => navigate('/classroom')}
-                className="px-4 py-2 rounded-md text-sm font-medium bg-blue-600 text-white hover:bg-blue-700"
-              >
-                Open Classroom
-              </button>
-              <button
-                onClick={() => navigate('/assessments/analysis')}
-                className="px-4 py-2 rounded-md text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200"
-              >
-                Class Assessment Analysis
-              </button>
+          <div className="rounded-lg border border-slate-200 shadow-sm p-4">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-bold text-slate-900">Student Development Intelligence</h2>
+              </div>
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+                <select
+                  value={subjectFilter}
+                  onChange={(e) => setSubjectFilter(e.target.value)}
+                  className="w-full sm:w-auto sm:min-w-[200px] px-3 py-1.5 sm:py-2 rounded-md text-xs sm:text-sm font-medium border border-slate-200 bg-white text-slate-700"
+                >
+                  <option value="">All subjects</option>
+                  {subjects.map((subject) => (
+                    <option key={subject.id} value={subject.id}>
+                      {subject.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => navigate('/classroom')}
+                  className="w-full sm:w-auto px-3 py-1.5 sm:px-4 sm:py-2 rounded-md text-xs sm:text-sm font-medium bg-blue-600 text-white hover:bg-blue-700"
+                >
+                  Open Classroom
+                </button>
+                <button
+                  onClick={() => navigate('/assessments/analysis')}
+                  className="w-full sm:w-auto px-3 py-1.5 sm:px-4 sm:py-2 rounded-md text-xs sm:text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200"
+                >
+                  Class Assessment Analysis
+                </button>
+              </div>
             </div>
           </div>
 
@@ -255,16 +274,16 @@ const DevelopmentOverviewPage: React.FC = () => {
                 <div>
                   <h3 className="text-lg font-semibold text-slate-900">Development Profile</h3>
                 </div>
-                <div className="flex items-center gap-2 overflow-x-auto whitespace-nowrap">
+                <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end">
                   <button
                     onClick={() => setIsPlanModalOpen(true)}
-                    className="px-4 py-2 rounded-md text-sm font-medium bg-blue-600 text-white hover:bg-blue-700"
+                    className="w-full sm:w-auto px-3 py-1.5 sm:px-4 sm:py-2 rounded-md text-xs sm:text-sm font-medium bg-blue-600 text-white hover:bg-blue-700"
                   >
                     Generate Targeted Plan
                   </button>
                   <button
                     onClick={() => navigate('/development/reteach')}
-                    className="px-4 py-2 rounded-md text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    className="w-full sm:w-auto px-3 py-1.5 sm:px-4 sm:py-2 rounded-md text-xs sm:text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200"
                   >
                     View Re-teach Cards
                   </button>
@@ -286,29 +305,42 @@ const DevelopmentOverviewPage: React.FC = () => {
                 </div>
               </div>
 
-              <div className="mt-5">
-                <h4 className="text-sm font-semibold text-slate-900 mb-2">Top active plans</h4>
-                {planNameSummary.length > 0 ? (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {planNameSummary.map((plan) => (
-                      <div key={plan.name} className="border border-slate-200 rounded-lg p-3 bg-slate-50">
-                        <p className="text-sm font-medium text-slate-800">{plan.name}</p>
-                        <p className="text-xs text-slate-500">{plan.count} students</p>
-                      </div>
-                    ))}
+              <div className="mt-6 border-t border-slate-200 pt-4">
+                <h4 className="text-sm font-semibold text-slate-900 mb-2">Plan completion distribution</h4>
+                {planCompletionDistribution.length > 0 ? (
+                  <div className="h-64">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart
+                        data={planCompletionDistribution}
+                        margin={{ top: 8, right: 12, left: -16, bottom: 0 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                        <XAxis dataKey="learner" fontSize={10} tickLine={false} axisLine={false} />
+                        <YAxis
+                          domain={[0, 100]}
+                          allowDecimals={false}
+                          fontSize={10}
+                          tickLine={false}
+                          axisLine={false}
+                        />
+                        <Tooltip
+                          formatter={(value: number) => [`${value}%`, 'Completion']}
+                          labelFormatter={(_, payload) => payload?.[0]?.payload?.student || 'Student'}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="progress"
+                          stroke="#2563eb"
+                          strokeWidth={2}
+                          dot={{ r: 3 }}
+                          activeDot={{ r: 5 }}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
                   </div>
                 ) : (
-                  <p className="text-xs text-slate-500">No active plans recorded for this subject.</p>
+                  <p className="text-xs text-slate-500">No plan progress data available for this subject.</p>
                 )}
-              </div>
-
-              <div className="mt-6 border-t border-slate-200 pt-4">
-                <h4 className="text-sm font-semibold text-slate-900 mb-2">Recommended teacher actions</h4>
-                <ul className="space-y-2 text-xs text-slate-600">
-                  <li>• Review mastery gaps and assign targeted plans for priority learners.</li>
-                  <li>• Generate re-teach cards for topics with low mastery signals.</li>
-                  <li>• Schedule quick exit assessments to validate interventions.</li>
-                </ul>
               </div>
             </div>
           </div>

@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import axios from 'axios';
 import { clsx } from 'clsx';
-import { ArrowUp, Search as SearchIcon, UploadCloud, Sparkles, BookOpen, CalendarDays, Send, Maximize2, Minimize2, GripVertical, Wand2, Paperclip, Settings2, X } from 'lucide-react';
+import { ArrowUp, Search as SearchIcon, UploadCloud, BookOpen, CalendarDays, Send, Maximize2, Minimize2, GripVertical, Paperclip, Settings2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import Sidebar from './Sidebar';
 import UploadModal from './UploadModal';
@@ -641,7 +641,6 @@ const ResourcesDashboard: React.FC = () => {
                                 )}
                                 <div className="flex items-center justify-between p-4 border-b border-slate-200 bg-slate-50">
                                     <div className="flex items-center gap-2 text-sm text-slate-600">
-                                        <Wand2 className="w-4 h-4 text-blue-600" />
                                         Resource Workspace
                                     </div>
                                     <button
@@ -768,7 +767,6 @@ const ResourcesDashboard: React.FC = () => {
                                         <div className={`flex items-center ${isAiPanelCollapsed ? 'justify-center' : 'justify-between'} gap-2`}>
                                             {!isAiPanelCollapsed && (
                                                 <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-                                                    <Sparkles size={16} className="text-blue-600" />
                                                     AI Collaborator
                                                 </div>
                                             )}
@@ -789,7 +787,7 @@ const ResourcesDashboard: React.FC = () => {
                                                 className="w-full mt-2 inline-flex items-center justify-center rounded-md border border-slate-200 bg-white py-2 text-slate-600 hover:text-slate-800"
                                                 aria-label="Expand AI collaborator panel"
                                             >
-                                                <Sparkles size={16} />
+                                                AI
                                             </button>
                                         ) : (
                                             <>

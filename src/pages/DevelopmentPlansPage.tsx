@@ -78,55 +78,53 @@ const DevelopmentPlansPage: React.FC = () => {
             <h2 className="text-2xl font-bold text-slate-900">Student Development Plans</h2>
             <p className="text-sm text-slate-500">Track active plans, progress, and intervention status per learner.</p>
           </div>
-          <button
-            onClick={() => navigate('/development/profile')}
-            className="px-4 py-2 rounded-md text-sm font-medium bg-gray-100 text-gray-700 hover:bg-gray-200"
-          >
-            Back to Development Profile
-          </button>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search student"
-            className="border border-slate-200 rounded-md px-3 py-2 text-sm"
-          />
-          <select
-            value={subjectFilter}
-            onChange={(e) => setSubjectFilter(e.target.value)}
-            className="border border-slate-200 rounded-md px-3 py-2 text-sm"
-          >
-            <option value="">All subjects</option>
-            {subjects.map((subject) => (
-              <option key={subject.id} value={subject.id}>
-                {subject.name}
-              </option>
-            ))}
-          </select>
-          <select
-            value={performanceFilter}
-            onChange={(e) => setPerformanceFilter(e.target.value)}
-            className="border border-slate-200 rounded-md px-3 py-2 text-sm"
-          >
-            <option value="all">All performance</option>
-            <option value="excellent">Excellent</option>
-            <option value="good">Good</option>
-            <option value="average">Average</option>
-            <option value="needs-improvement">Needs improvement</option>
-          </select>
-          <select
-            value={planFilter}
-            onChange={(e) => setPlanFilter(e.target.value)}
-            className="border border-slate-200 rounded-md px-3 py-2 text-sm"
-          >
-            <option value="all">All plans</option>
-            <option value="active">Active</option>
-            <option value="completed">Completed</option>
-            <option value="on-hold">On Hold</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
+        <div className="rounded-lg border border-slate-200 shadow-sm p-3 sm:p-4">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search student"
+              className="w-full md:w-72 border border-slate-200 rounded-md px-3 py-2 text-sm"
+            />
+            <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap md:w-auto md:justify-end">
+              <select
+                value={subjectFilter}
+                onChange={(e) => setSubjectFilter(e.target.value)}
+                className="w-full sm:w-auto border border-slate-200 rounded-md px-3 py-2 text-sm"
+              >
+                <option value="">All subjects</option>
+                {subjects.map((subject) => (
+                  <option key={subject.id} value={subject.id}>
+                    {subject.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={performanceFilter}
+                onChange={(e) => setPerformanceFilter(e.target.value)}
+                className="w-full sm:w-auto border border-slate-200 rounded-md px-3 py-2 text-sm"
+              >
+                <option value="all">All performance</option>
+                <option value="excellent">Excellent</option>
+                <option value="good">Good</option>
+                <option value="average">Average</option>
+                <option value="needs-improvement">Needs improvement</option>
+              </select>
+              <select
+                value={planFilter}
+                onChange={(e) => setPlanFilter(e.target.value)}
+                className="w-full sm:w-auto border border-slate-200 rounded-md px-3 py-2 text-sm"
+              >
+                <option value="all">All plans</option>
+                <option value="active">Active</option>
+                <option value="completed">Completed</option>
+                <option value="on-hold">On Hold</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </div>
+          </div>
         </div>
 
         {loading ? (

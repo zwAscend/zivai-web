@@ -97,7 +97,12 @@ const Header: React.FC<HeaderProps> = ({ activeTab: _activeTab, setActiveTab, po
         const items = Array.isArray(data) ? data as Subject[] : [];
         setSubjects(items);
         if (!selectedSubject && items.length > 0) {
-          setSelectedSubject(items[0]);
+          const computerScience = items.find((subject) => {
+            const code = (subject.code || '').toLowerCase();
+            const name = (subject.name || '').toLowerCase();
+            return code === 'cs' || code === 'comp' || code === 'csc' || name.includes('computer science');
+          });
+          setSelectedSubject(computerScience || items[0]);
         }
       } catch (error) {
         console.error('Error fetching subjects:', error);
@@ -151,6 +156,7 @@ const Header: React.FC<HeaderProps> = ({ activeTab: _activeTab, setActiveTab, po
     ? [
         { name: 'Home', path: '/dashboard', key: 'dashboard', icon: 'home' },
         { name: 'Classroom', path: '/classroom', key: 'classroom', icon: 'grid' },
+        { name: 'Workspace', path: '/subjects-workspace', key: 'subjects-workspace', icon: 'subject' },
         { name: 'Resources', path: '/resources', key: 'resources', icon: 'resources' },
         { name: 'Assessments', path: '/assessments/create', key: 'assessments', icon: 'assessment' },
         { name: 'Development', path: '/development/profile', key: 'development', icon: 'development' },

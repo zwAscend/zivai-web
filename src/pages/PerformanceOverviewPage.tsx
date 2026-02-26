@@ -9,6 +9,7 @@ const PerformanceOverviewPage: React.FC = () => {
   const { selectedSubject } = useAuth();
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
+  const [performerView, setPerformerView] = useState<'top' | 'support'>('top');
 
   useEffect(() => {
     const loadStudents = async () => {
@@ -37,6 +38,15 @@ const PerformanceOverviewPage: React.FC = () => {
     students.filter((student) => (student.overall || 0) < 50 || (student.performance || '').toLowerCase().includes('needs')).length
   ), [students]);
 
+  const overallClassGrade = useMemo(() => {
+    if (averageOverall >= 80) return 'A';
+    if (averageOverall >= 70) return 'B';
+    if (averageOverall >= 60) return 'C';
+    if (averageOverall >= 50) return 'D';
+    if (averageOverall >= 40) return 'E';
+    return 'U';
+  }, [averageOverall]);
+
   const performanceData = useMemo(() => {
     const buckets: Record<string, number> = {
       Excellent: 0,
@@ -61,6 +71,14 @@ const PerformanceOverviewPage: React.FC = () => {
       .slice(0, 4)
   ), [students]);
 
+  const supportStudents = useMemo(() => (
+    [...students]
+      .sort((a, b) => (a.overall || 0) - (b.overall || 0))
+      .slice(0, 4)
+  ), [students]);
+
+  const displayedStudents = performerView === 'top' ? topStudents : supportStudents;
+
   return (
     <PerformanceLayout>
       <div className="bg-white rounded-lg shadow p-6 space-y-4">
@@ -69,10 +87,14 @@ const PerformanceOverviewPage: React.FC = () => {
           <p className="text-sm text-slate-500">Snapshot of class mastery and performance trends.</p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="border border-slate-200 rounded-lg p-4">
             <p className="text-xs text-slate-500">Average mastery</p>
             <p className="text-2xl font-semibold text-slate-900">{averageOverall}%</p>
+          </div>
+          <div className="border border-slate-200 rounded-lg p-4">
+            <p className="text-xs text-slate-500">Overall class grade</p>
+            <p className="text-2xl font-semibold text-slate-900">{overallClassGrade}</p>
           </div>
           <div className="border border-slate-200 rounded-lg p-4">
             <p className="text-xs text-slate-500">Learners needing support</p>
@@ -104,16 +126,40 @@ const PerformanceOverviewPage: React.FC = () => {
           </div>
 
           <div className="border border-slate-200 rounded-lg p-4">
-            <h3 className="text-sm font-semibold text-slate-900 mb-2">Top performers</h3>
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-slate-900">
+                {performerView === 'top' ? 'Top performers' : 'Learners to support'}
+              </h3>
+              <div className="inline-flex rounded-md border border-slate-200 p-0.5 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setPerformerView('top')}
+                  className={`rounded px-2 py-1 ${
+                    performerView === 'top' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  Top
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPerformerView('support')}
+                  className={`rounded px-2 py-1 ${
+                    performerView === 'support' ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  Support
+                </button>
+              </div>
+            </div>
             {loading ? (
               <div className="space-y-2">
                 {Array.from({ length: 3 }).map((_, index) => (
                   <div key={index} className="h-10 bg-slate-200 rounded animate-pulse" />
                 ))}
               </div>
-            ) : topStudents.length > 0 ? (
+            ) : displayedStudents.length > 0 ? (
               <div className="space-y-2">
-                {topStudents.map((student) => (
+                {displayedStudents.map((student) => (
                   <div key={student.id} className="flex items-center justify-between text-xs text-slate-600">
                     <span className="font-medium text-slate-800">
                       {student.firstName} {student.lastName}

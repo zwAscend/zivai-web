@@ -11,6 +11,7 @@ const PerformancePage: React.FC = () => {
   const location = useLocation();
   const [students, setStudents] = useState<Student[]>([]);
   const [selectedStudentId, setSelectedStudentId] = useState('');
+  const [studentSearch, setStudentSearch] = useState('');
   const [loading, setLoading] = useState(true);
 
   const queryStudentId = useMemo(() => {
@@ -39,20 +40,46 @@ const PerformancePage: React.FC = () => {
     loadStudents();
   }, [selectedSubject?.id, queryStudentId]);
 
+  const filteredStudents = useMemo(() => {
+    const query = studentSearch.trim().toLowerCase();
+    if (!query) return students;
+    return students.filter((student) =>
+      `${student.firstName} ${student.lastName}`.toLowerCase().includes(query)
+    );
+  }, [studentSearch, students]);
+
+  useEffect(() => {
+    if (loading) return;
+    if (filteredStudents.length === 0) {
+      setSelectedStudentId('');
+      return;
+    }
+    const selectedVisible = filteredStudents.some((student) => student.id === selectedStudentId);
+    if (!selectedVisible) {
+      setSelectedStudentId(filteredStudents[0].id);
+    }
+  }, [filteredStudents, loading, selectedStudentId]);
+
   return (
     <PerformanceLayout>
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         <div className="lg:col-span-3 col-span-12 bg-gray-50 rounded-lg shadow p-4">
           <h2 className="text-sm font-bold mb-3">Students</h2>
+          <input
+            value={studentSearch}
+            onChange={(e) => setStudentSearch(e.target.value)}
+            placeholder="Search student"
+            className="mb-3 w-full rounded-md border border-slate-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
           {loading ? (
             <div className="space-y-3">
               {Array.from({ length: 6 }).map((_, index) => (
                 <div key={index} className="h-10 bg-slate-200 rounded animate-pulse" />
               ))}
             </div>
-          ) : students.length > 0 ? (
+          ) : filteredStudents.length > 0 ? (
             <div className="space-y-2 max-h-[70vh] overflow-y-auto">
-              {students.map((student) => (
+              {filteredStudents.map((student) => (
                 <button
                   key={student.id}
                   onClick={() => setSelectedStudentId(student.id)}
@@ -70,7 +97,7 @@ const PerformancePage: React.FC = () => {
               ))}
             </div>
           ) : (
-            <div className="text-sm text-gray-500">No students available.</div>
+            <div className="text-sm text-gray-500">No students match your search.</div>
           )}
         </div>
 
