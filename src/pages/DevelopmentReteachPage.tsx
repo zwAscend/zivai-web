@@ -119,34 +119,38 @@ const DevelopmentReteachPage: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search topic or student"
-            className="border border-slate-200 rounded-md px-3 py-2 text-sm"
-          />
-          <select
-            value={subjectFilter}
-            onChange={(e) => setSubjectFilter(e.target.value)}
-            className="border border-slate-200 rounded-md px-3 py-2 text-sm"
-          >
-            <option value="">All subjects</option>
-            {subjects.map((subject) => (
-              <option key={subject.id} value={subject.id}>
-                {subject.name}
-              </option>
-            ))}
-          </select>
-          <select
-            value={priorityFilter}
-            onChange={(e) => setPriorityFilter(e.target.value)}
-            className="border border-slate-200 rounded-md px-3 py-2 text-sm"
-          >
-            <option value="all">All priorities</option>
-            <option value="high">High priority</option>
-            <option value="normal">Normal priority</option>
-          </select>
+        <div className="rounded-lg border border-slate-200 shadow-sm p-3 sm:p-4">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search topic or student"
+              className="w-full md:w-72 border border-slate-200 rounded-md px-3 py-2 text-sm"
+            />
+            <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap md:w-auto md:justify-end">
+              <select
+                value={subjectFilter}
+                onChange={(e) => setSubjectFilter(e.target.value)}
+                className="w-full sm:w-auto border border-slate-200 rounded-md px-3 py-2 text-sm"
+              >
+                <option value="">All subjects</option>
+                {subjects.map((subject) => (
+                  <option key={subject.id} value={subject.id}>
+                    {subject.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={priorityFilter}
+                onChange={(e) => setPriorityFilter(e.target.value)}
+                className="w-full sm:w-auto border border-slate-200 rounded-md px-3 py-2 text-sm"
+              >
+                <option value="all">All priorities</option>
+                <option value="high">High priority</option>
+                <option value="normal">Normal priority</option>
+              </select>
+            </div>
+          </div>
         </div>
 
         {loading ? (
@@ -187,7 +191,21 @@ const DevelopmentReteachPage: React.FC = () => {
             })}
           </div>
         ) : (
-          <div className="text-sm text-slate-500">No re-teach cards available for the selected filters.</div>
+          <div className="rounded-lg border border-slate-200 bg-white overflow-x-auto">
+            <div className="min-w-[760px]">
+              <div className="grid grid-cols-[1.4fr_1fr_0.8fr_0.9fr_1.6fr_0.7fr] gap-3 px-4 py-3 border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <span>Topic</span>
+                <span>Subject</span>
+                <span>Priority</span>
+                <span>Affected</span>
+                <span>Notes</span>
+                <span>Action</span>
+              </div>
+              <div className="px-4 py-6 text-sm text-slate-500">
+                No re-teach cards available for the selected filters.
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </DevelopmentLayout>

@@ -5,6 +5,8 @@ import { teacherService } from '../services/teacherService';
 import { authService } from '../services/authService';
 import { ApiError } from '../services/http';
 import Sidebar from '../components/resources/Sidebar';
+import TablePagination from '../components/ui/TablePagination';
+import { useClientPagination } from '../hooks/useClientPagination';
 
 const normalizeType = (value?: string | null) => {
   const normalized = String(value || 'test').toLowerCase().replace(/\s+/g, '-');
@@ -192,6 +194,21 @@ const AssessmentsDashboardPage: React.FC = () => {
     return rows.filter((row) => normalizeType(row.assessmentType) === selectedType);
   }, [rows, selectedType]);
 
+  const {
+    currentPage,
+    pageSize,
+    totalPages,
+    totalItems,
+    paginatedItems: paginatedRows,
+    rangeStart,
+    rangeEnd,
+    setCurrentPage,
+    setPageSize,
+  } = useClientPagination(filteredRows, {
+    initialPageSize: 10,
+    resetKey: `${selectedSubjectId}|${selectedType}|${selectedStatus}|${searchMode}|${searchQuery}|${selectedStudentId}|${filteredRows.length}`,
+  });
+
   return (
     <div className="flex h-full bg-slate-50 text-slate-900 overflow-hidden">
       <Sidebar
@@ -215,28 +232,25 @@ const AssessmentsDashboardPage: React.FC = () => {
             <label className="text-xs text-gray-500">
               {searchMode === 'assessment' ? 'Search assessment' : 'Search student'}
             </label>
-            <div className="mt-1 flex flex-col sm:flex-row">
+            <div className="mt-1 flex flex-col sm:flex-row sm:items-stretch">
               <select
                 value={searchMode}
                 onChange={(e) => setSearchMode(e.target.value as 'assessment' | 'student')}
-                className="w-full sm:w-[180px] border border-gray-200 rounded-md sm:rounded-r-none sm:border-r-0 px-3 py-2 text-sm"
+                className="w-full shrink-0 rounded-md border border-gray-200 px-3 py-2 text-sm sm:w-[180px] sm:rounded-r-none sm:border-r-0"
               >
                 <option value="assessment">Assessment name</option>
                 <option value="student">Student</option>
               </select>
-              <div className="relative flex-1">
+              <div className="relative flex-1 min-w-0">
                 <Search className="h-4 w-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder={searchMode === 'assessment' ? 'Search assessment name' : 'Search student'}
-                  className="w-full border border-gray-200 rounded-md sm:rounded-l-none pl-9 pr-3 py-2 text-sm sm:-ml-px"
+                  className="w-full rounded-md border border-gray-200 py-2 pl-9 pr-3 text-sm sm:-ml-px sm:rounded-l-none"
                 />
               </div>
             </div>
-            {searchMode === 'student' && (
-              <p className="text-[11px] text-gray-400 mt-1">Search will narrow to one student before loading student-specific marks.</p>
-            )}
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
@@ -295,85 +309,119 @@ const AssessmentsDashboardPage: React.FC = () => {
             </div>
           </div>
 
-          {loading ? (
-            <div className="space-y-3">
-              {Array.from({ length: 5 }).map((_, index) => (
-                <div key={index} className="h-14 bg-slate-200 rounded animate-pulse" />
-              ))}
-            </div>
-          ) : filteredRows.length > 0 ? (
-            <div className="space-y-3">
-              {filteredRows.map((row) => (
-                <div key={row.assignmentId} className="border border-gray-200 rounded-lg p-4 space-y-3">
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div>
-                      <div className="text-sm font-semibold text-gray-800">{row.assessmentName}</div>
-                      <div className="text-xs text-gray-500">
-                        {row.assessmentType || 'Assessment'} • Status: {row.assessmentStatus || 'draft'}
-                      </div>
-                    </div>
-                    {row.attempted > 0 && (
-                      <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        Marked
-                      </span>
-                    )}
-                    {selectedStudentId && (
-                      <div className="text-sm text-gray-600">
-                        Score: {row.studentActualMark ?? 0}/{row.studentExpectedMark ?? 0}
-                      </div>
-                    )}
-                    <div className="flex items-center gap-3">
-                      <button
-                        onClick={() => navigate(`/assessments/view/${row.assessmentId}`)}
-                        className="text-blue-600 text-sm font-medium hover:text-blue-700"
-                      >
-                        View assessment
-                      </button>
-                      <button
-                        onClick={() => navigate(`/assessments/analysis?assessmentId=${row.assessmentId}`)}
-                        className="text-slate-600 text-sm font-medium hover:text-slate-800"
-                      >
-                        Analysis
-                      </button>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-6 gap-2 text-xs text-gray-600">
-                    <div className="bg-slate-50 rounded px-2 py-1">Marked submissions: {row.attempted}</div>
-                    <div className="bg-slate-50 rounded px-2 py-1">Submitted: {row.submitted}</div>
-                    <div className="bg-slate-50 rounded px-2 py-1">Passed: {row.passed}</div>
-                    <div className="bg-slate-50 rounded px-2 py-1">Failed: {row.failed}</div>
-                    <div className="bg-slate-50 rounded px-2 py-1">Average: {(row.averageScore ?? 0).toFixed(1)}</div>
-                    <div className="bg-slate-50 rounded px-2 py-1">Pass rate: {Math.round(row.passRate ?? 0)}%</div>
-                  </div>
-                  <div className="text-xs text-gray-500">AI Review: {row.aiEnhanced ? 'Enabled' : 'Disabled'}</div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="overflow-x-auto rounded-lg border border-gray-200">
-              <table className="w-full min-w-[860px]">
-                <thead className="bg-slate-50">
+          <div className="overflow-x-auto rounded-lg border border-gray-200">
+            <table className="w-full min-w-[1180px]">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Assessment</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Type</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Subject</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Due Date</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Submitted</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Marked</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Passed</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Failed</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Average</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Pass Rate</th>
+                  {selectedStudentId && (
+                    <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Student Score</th>
+                  )}
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">AI Review</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 bg-white">
+                {loading ? (
+                  Array.from({ length: 5 }).map((_, index) => (
+                    <tr key={index} className="animate-pulse">
+                      <td className="px-4 py-4"><div className="h-4 w-40 rounded bg-slate-200" /></td>
+                      <td className="px-4 py-4"><div className="h-4 w-20 rounded bg-slate-200" /></td>
+                      <td className="px-4 py-4"><div className="h-4 w-24 rounded bg-slate-200" /></td>
+                      <td className="px-4 py-4"><div className="h-4 w-28 rounded bg-slate-200" /></td>
+                      <td className="px-4 py-4"><div className="h-4 w-32 rounded bg-slate-200" /></td>
+                      <td className="px-4 py-4"><div className="h-4 w-12 rounded bg-slate-200" /></td>
+                      <td className="px-4 py-4"><div className="h-4 w-12 rounded bg-slate-200" /></td>
+                      <td className="px-4 py-4"><div className="h-4 w-12 rounded bg-slate-200" /></td>
+                      <td className="px-4 py-4"><div className="h-4 w-12 rounded bg-slate-200" /></td>
+                      <td className="px-4 py-4"><div className="h-4 w-16 rounded bg-slate-200" /></td>
+                      <td className="px-4 py-4"><div className="h-4 w-16 rounded bg-slate-200" /></td>
+                      {selectedStudentId && <td className="px-4 py-4"><div className="h-4 w-20 rounded bg-slate-200" /></td>}
+                      <td className="px-4 py-4"><div className="h-4 w-16 rounded bg-slate-200" /></td>
+                      <td className="px-4 py-4"><div className="h-4 w-32 rounded bg-slate-200" /></td>
+                    </tr>
+                  ))
+                ) : paginatedRows.length > 0 ? (
+                  paginatedRows.map((row) => (
+                    <tr key={row.assignmentId} className="align-top">
+                      <td className="px-4 py-4">
+                        <div className="text-sm font-semibold text-gray-800">{row.assessmentName}</div>
+                      </td>
+                      <td className="px-4 py-4 text-sm text-gray-700">{row.assessmentType || 'Assessment'}</td>
+                      <td className="px-4 py-4">
+                        <div className="flex flex-col gap-2">
+                          <span className="text-sm text-gray-700">{row.assessmentStatus || 'draft'}</span>
+                          {row.attempted > 0 && (
+                            <span className="inline-flex w-fit rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                              Marked
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-4 text-sm text-gray-700">{row.subjectName}</td>
+                      <td className="px-4 py-4 text-sm text-gray-700">
+                        {row.dueTime ? new Date(row.dueTime).toLocaleString() : 'No due date'}
+                      </td>
+                      <td className="px-4 py-4 text-sm text-gray-700">{row.submitted}</td>
+                      <td className="px-4 py-4 text-sm text-gray-700">{row.attempted}</td>
+                      <td className="px-4 py-4 text-sm text-gray-700">{row.passed}</td>
+                      <td className="px-4 py-4 text-sm text-gray-700">{row.failed}</td>
+                      <td className="px-4 py-4 text-sm text-gray-700">{(row.averageScore ?? 0).toFixed(1)}</td>
+                      <td className="px-4 py-4 text-sm text-gray-700">{Math.round(row.passRate ?? 0)}%</td>
+                      {selectedStudentId && (
+                        <td className="px-4 py-4 text-sm text-gray-700">
+                          {row.studentActualMark ?? 0}/{row.studentExpectedMark ?? 0}
+                        </td>
+                      )}
+                      <td className="px-4 py-4 text-sm text-gray-700">{row.aiEnhanced ? 'Enabled' : 'Disabled'}</td>
+                      <td className="px-4 py-4">
+                        <div className="flex items-center gap-3 whitespace-nowrap">
+                          <button
+                            onClick={() => navigate(`/assessments/view/${row.assessmentId}`)}
+                            className="text-sm font-medium text-blue-600 hover:text-blue-700"
+                          >
+                            View assessment
+                          </button>
+                          <button
+                            onClick={() => navigate(`/assessments/analysis?assessmentId=${row.assessmentId}`)}
+                            className="text-sm font-medium text-slate-600 hover:text-slate-800"
+                          >
+                            Analysis
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
                   <tr>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Assessment</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Type</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Subject</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Due Date</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Average</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Pass Rate</th>
-                    <th className="px-4 py-3 text-left text-xs font-semibold text-slate-500 uppercase tracking-wide">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr className="border-t border-gray-200">
-                    <td colSpan={8} className="px-4 py-8 text-center text-sm text-gray-500">
+                    <td colSpan={selectedStudentId ? 14 : 13} className="px-4 py-8 text-center text-sm text-gray-500">
                       No assessments found for the selected filters.
                     </td>
                   </tr>
-                </tbody>
-              </table>
-            </div>
-          )}
+                )}
+              </tbody>
+            </table>
+          </div>
+          <TablePagination
+            currentPage={currentPage}
+            pageSize={pageSize}
+            totalItems={totalItems}
+            totalPages={totalPages}
+            rangeStart={rangeStart}
+            rangeEnd={rangeEnd}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={setPageSize}
+          />
         </div>
       </main>
     </div>

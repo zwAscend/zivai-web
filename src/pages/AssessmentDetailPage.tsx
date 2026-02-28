@@ -11,6 +11,8 @@ import {
   submissionService,
 } from '../services/api';
 import { Assessment, Student } from '../types';
+import TablePagination from '../components/ui/TablePagination';
+import { useClientPagination } from '../hooks/useClientPagination';
 
 type DetailTab = 'assessment' | 'submissions' | 'scheme';
 
@@ -199,6 +201,21 @@ const AssessmentDetailPage: React.FC = () => {
     if (results.length === 0) return null;
     return results.find((item) => item.id === selectedResultId) || results[0];
   }, [results, selectedResultId]);
+
+  const {
+    currentPage,
+    pageSize,
+    totalPages,
+    totalItems,
+    paginatedItems: paginatedResults,
+    rangeStart,
+    rangeEnd,
+    setCurrentPage,
+    setPageSize,
+  } = useClientPagination(results, {
+    initialPageSize: 10,
+    resetKey: `${id || 'assessment'}|${activeTab}|${results.length}`,
+  });
 
   const selectedStudentName = useMemo(() => {
     if (!selectedResult) return '';
@@ -493,7 +510,7 @@ const AssessmentDetailPage: React.FC = () => {
                           onChange={(event) => setSelectedResultId(event.target.value)}
                           className="border border-slate-200 rounded-md px-2 py-1 text-xs"
                         >
-                          {results.map((item) => {
+                          {paginatedResults.map((item) => {
                             const studentId = resolveStudentId(item.student);
                             const student = studentsById[studentId];
                             const label = student
@@ -628,6 +645,7 @@ const AssessmentDetailPage: React.FC = () => {
                   {results.length === 0 ? (
                     <div className="p-4 text-sm text-slate-500">No marked attempts are available yet.</div>
                   ) : (
+                    <>
                     <div className="overflow-x-auto">
                       <table className="min-w-full text-sm">
                         <thead className="bg-slate-50 text-slate-600 text-xs uppercase">
@@ -641,7 +659,7 @@ const AssessmentDetailPage: React.FC = () => {
                           </tr>
                         </thead>
                         <tbody>
-                          {results.map((item) => {
+                          {paginatedResults.map((item) => {
                             const studentId = resolveStudentId(item.student);
                             const student = studentsById[studentId];
                             const studentName = student
@@ -674,6 +692,17 @@ const AssessmentDetailPage: React.FC = () => {
                         </tbody>
                       </table>
                     </div>
+                    <TablePagination
+                      currentPage={currentPage}
+                      pageSize={pageSize}
+                      totalItems={totalItems}
+                      totalPages={totalPages}
+                      rangeStart={rangeStart}
+                      rangeEnd={rangeEnd}
+                      onPageChange={setCurrentPage}
+                      onPageSizeChange={setPageSize}
+                    />
+                    </>
                   )}
                 </div>
               )}

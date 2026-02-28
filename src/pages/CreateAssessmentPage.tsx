@@ -5,11 +5,13 @@ import { toast } from 'sonner';
 import Sidebar from '../components/resources/Sidebar';
 import { API_URL, fetchData } from '../services/http';
 import { authService } from '../services/authService';
+import { assessmentEnrollmentService } from '../services/assessmentEnrollmentService';
 import { subjectService } from '../services/subjectService';
 import { schoolService, SchoolItem } from '../services/schoolService';
+import { studentService } from '../services/studentService';
 import { aiService } from '../services/aiService';
 import { Subject, SubjectAttribute } from '../types';
-import { ArrowUp, GripVertical, Maximize2, Minimize2, Paperclip, Settings2, Sparkles, Wand2, X } from 'lucide-react';
+import { ArrowUp, Bot, GripVertical, Maximize2, Minimize2, PanelRightClose, PanelRightOpen, Paperclip, Settings2, X } from 'lucide-react';
 
 type ManualQuestionType = 'mcq' | 'true_false' | 'short_answer' | 'essay';
 
@@ -86,6 +88,7 @@ const CreateAssessmentPage: React.FC = () => {
   const [isDesktop, setIsDesktop] = useState(() => (typeof window !== 'undefined' ? window.innerWidth >= 1280 : true));
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
+  const [isAssessmentDetailsOpen, setIsAssessmentDetailsOpen] = useState(false);
   const [attributeSearch, setAttributeSearch] = useState('');
   const [availableReferenceResources, setAvailableReferenceResources] = useState<ReferenceResource[]>([]);
   const [selectedReferenceResourceIds, setSelectedReferenceResourceIds] = useState<string[]>([]);
@@ -419,6 +422,10 @@ const CreateAssessmentPage: React.FC = () => {
     availableReferenceResources.filter((resource) => selectedReferenceResourceIds.includes(resource.id))
   ), [availableReferenceResources, selectedReferenceResourceIds]);
 
+  const isAssessmentConfigured = useMemo(() => (
+    Boolean(manualForm.name.trim() && manualForm.subjectId && manualForm.assessmentType)
+  ), [manualForm.assessmentType, manualForm.name, manualForm.subjectId]);
+
   const mentionSuggestions = useMemo(() => {
     const query = mentionQuery.trim().toLowerCase();
     return availableReferenceResources
@@ -671,10 +678,35 @@ const CreateAssessmentPage: React.FC = () => {
         })),
       };
 
-      await fetchData('/assessments', {
+      const createdAssessment = await fetchData<{ id: string }>('/assessments', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
+
+      if (manualForm.status === 'published' && createdAssessment?.id) {
+        const assignment = await assessmentEnrollmentService.createAssignment({
+          assessmentId: createdAssessment.id,
+          assignedBy: currentUser.id,
+          title: manualForm.name.trim(),
+          instructions: manualForm.description.trim() || undefined,
+          published: false,
+        });
+
+        const enrolledStudents = await studentService.getStudents(manualForm.subjectId);
+        const studentIds = Array.isArray(enrolledStudents)
+          ? enrolledStudents
+              .map((student) => student.id)
+              .filter((studentId): studentId is string => !!studentId)
+          : [];
+
+        if (assignment?.id && studentIds.length > 0) {
+          await assessmentEnrollmentService.enrollStudents(assignment.id, studentIds, 'assigned');
+        }
+
+        if (assignment?.id) {
+          await assessmentEnrollmentService.publishAssignment(assignment.id);
+        }
+      }
 
       toast.success('Assessment created successfully');
       navigate('/assessments/view');
@@ -703,7 +735,7 @@ const CreateAssessmentPage: React.FC = () => {
         <div className="max-w-7xl h-full flex flex-col min-h-0">
           {isWorkspaceExpanded && <div className="fixed inset-0 bg-black/30 z-40" />}
           <div className={isWorkspaceExpanded ? 'fixed top-4 left-4 right-4 bottom-6 z-50' : 'flex-1 min-h-0'}>
-            <div className={`${isWorkspaceExpanded ? 'bg-white rounded-lg shadow-2xl border border-gray-200 h-full max-h-[calc(100vh-2rem)]' : 'bg-white rounded-lg shadow h-full'} overflow-hidden flex flex-col`}>
+            <div className={`${isWorkspaceExpanded ? 'bg-white rounded-lg shadow-2xl border border-gray-200 h-full max-h-[calc(100vh-2rem)]' : 'h-full'} overflow-hidden flex flex-col`}>
               {isWorkspaceExpanded && (
                 <button
                   onClick={() => setIsWorkspaceExpanded(false)}
@@ -713,235 +745,268 @@ const CreateAssessmentPage: React.FC = () => {
                   <Minimize2 className="w-4 h-4" />
                 </button>
               )}
-              <div className="flex items-center justify-between p-4 border-b border-slate-200 bg-slate-50">
-                <div className="flex items-center gap-2 text-sm text-slate-600">
-                  <Wand2 className="w-4 h-4 text-blue-600" />
-                  Assessment Workspace
+              <div className="flex h-full flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 p-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsPreviewOpen(true)}
+                      className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                    >
+                      Preview Assessment
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/assessments/view')}
+                      className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSubmitAssessment}
+                      disabled={isSubmitting || isGenerating}
+                      className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+                    >
+                      {isSubmitting ? 'Saving...' : 'Create Assessment'}
+                    </button>
+                  </div>
+                  <button
+                    onClick={() => setIsWorkspaceExpanded((prev) => !prev)}
+                    className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
+                    aria-label={isWorkspaceExpanded ? 'Collapse assessment workspace' : 'Expand assessment workspace'}
+                    title={isWorkspaceExpanded ? 'Collapse' : 'Expand'}
+                  >
+                    {isWorkspaceExpanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+                  </button>
                 </div>
-                <button
-                  onClick={() => setIsWorkspaceExpanded((prev) => !prev)}
-                  className="p-2 rounded-full hover:bg-gray-100"
-                  aria-label={isWorkspaceExpanded ? 'Collapse' : 'Expand'}
-                >
-                  {isWorkspaceExpanded ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-                </button>
-              </div>
 
-              <div ref={workspaceRef} className="flex-1 min-h-0 flex flex-col xl:flex-row">
-                <div className="min-w-0 flex-1 overflow-y-auto p-6 space-y-6 relative z-0">
-                  <section className="space-y-4">
-                    <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">Assessment Brief</h2>
-                    <div>
-                      <label className="text-xs text-gray-500">Assessment Name</label>
-                      <input
-                        value={manualForm.name}
-                        onChange={(e) => setManualForm((prev) => ({ ...prev, name: e.target.value }))}
-                        className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
-                        placeholder="Enter assessment name"
-                      />
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <label className="text-xs text-gray-500">Subject</label>
-                        <select
-                          value={manualForm.subjectId}
-                          onChange={(e) => setManualForm((prev) => ({ ...prev, subjectId: e.target.value }))}
-                          className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
-                        >
-                          {subjects.map((subject) => (
-                            <option key={subject.id} value={subject.id}>{subject.name}</option>
-                          ))}
-                        </select>
+                <div ref={workspaceRef} className="flex min-h-0 flex-1 flex-col overflow-hidden xl:flex-row">
+                  <div className="relative z-0 min-h-0 min-w-0 flex-1 space-y-6 overflow-y-auto p-6">
+                    <section className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Question Canvas</h2>
+                          <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${isAssessmentConfigured ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                            {isAssessmentConfigured ? 'Configured' : 'Not configured'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setIsAssessmentDetailsOpen((prev) => !prev)}
+                            className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                          >
+                            <Settings2 className="h-3.5 w-3.5" />
+                            Configure
+                          </button>
+                          <button type="button" onClick={addQuestion} className="text-sm text-blue-600 hover:text-blue-700">
+                            + Add question
+                          </button>
+                        </div>
                       </div>
-                      <div>
-                        <label className="text-xs text-gray-500">Assessment Type</label>
-                        <select
-                          value={manualForm.assessmentType}
-                          onChange={(e) => setManualForm((prev) => ({ ...prev, assessmentType: e.target.value }))}
-                          className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm"
-                        >
-                          <option value="quiz">Quiz</option>
-                          <option value="assignment">Assignment</option>
-                          <option value="test">Test</option>
-                          <option value="project">Project</option>
-                          <option value="exam">Exam</option>
-                        </select>
-                      </div>
-                    </div>
 
-                    <div>
-                      <label className="text-xs text-gray-500">Description</label>
-                      <textarea
-                        value={manualForm.description}
-                        onChange={(e) => setManualForm((prev) => ({ ...prev, description: e.target.value }))}
-                        className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm min-h-[100px]"
-                        placeholder="Define the outcome and scope for learners"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                      <div>
-                        <label className="text-xs text-gray-500">Max Score</label>
-                        <input type="number" min="1" value={manualForm.maxScore} onChange={(e) => setManualForm((prev) => ({ ...prev, maxScore: Number(e.target.value) }))} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm" />
-                      </div>
-                      <div>
-                        <label className="text-xs text-gray-500">Weight %</label>
-                        <input type="number" min="0" value={manualForm.weightPct} onChange={(e) => setManualForm((prev) => ({ ...prev, weightPct: Number(e.target.value) }))} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm" />
-                      </div>
-                      <div>
-                        <label className="text-xs text-gray-500">Time Limit (min)</label>
-                        <input type="number" min="0" value={manualForm.timeLimitMin} onChange={(e) => setManualForm((prev) => ({ ...prev, timeLimitMin: Number(e.target.value) }))} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm" />
-                      </div>
-                      <div>
-                        <label className="text-xs text-gray-500">Attempts Allowed</label>
-                        <input type="number" min="1" value={manualForm.attemptsAllowed} onChange={(e) => setManualForm((prev) => ({ ...prev, attemptsAllowed: Number(e.target.value) }))} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm" />
-                      </div>
-                    </div>
-                  </section>
-
-                  <section className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wide">Question Canvas</h2>
-                      <button type="button" onClick={addQuestion} className="text-sm text-blue-600 hover:text-blue-700">+ Add question</button>
-                    </div>
-
-                    {manualQuestions.length === 0 ? (
-                      <div className="border border-dashed border-gray-300 rounded-lg p-6 text-sm text-gray-500">
-                        No questions yet. Type manually or ask AI collaborator to draft on the canvas.
-                      </div>
-                    ) : (
-                      <div className="space-y-4">
-                        {manualQuestions.map((question, index) => (
-                          <div key={question.id} className="border border-gray-200 rounded-lg p-4 space-y-4">
-                            <div className="flex items-center justify-between">
-                              <h4 className="text-sm font-semibold">Question {index + 1}</h4>
-                              <button type="button" onClick={() => removeQuestion(question.id)} className="text-xs text-red-600 hover:text-red-700">Remove</button>
+                      {isAssessmentDetailsOpen && (
+                        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                            <div className="md:col-span-2 xl:col-span-2">
+                              <label className="text-xs text-slate-500">Assessment Name</label>
+                              <input
+                                value={manualForm.name}
+                                onChange={(e) => setManualForm((prev) => ({ ...prev, name: e.target.value }))}
+                                className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+                                placeholder="Enter assessment name"
+                              />
                             </div>
                             <div>
-                              <label className="text-xs text-gray-500">Question text</label>
-                              <textarea value={question.stem} onChange={(e) => updateQuestion(question.id, { stem: e.target.value })} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm min-h-[80px]" placeholder="Enter the question prompt" />
+                              <label className="text-xs text-slate-500">Subject</label>
+                              <select
+                                value={manualForm.subjectId}
+                                onChange={(e) => setManualForm((prev) => ({ ...prev, subjectId: e.target.value }))}
+                                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                              >
+                                {subjects.map((subject) => (
+                                  <option key={subject.id} value={subject.id}>{subject.name}</option>
+                                ))}
+                              </select>
                             </div>
-
-                            <div className="space-y-2">
-                              <label className="text-xs text-gray-500">Diagram / image (optional)</label>
-                              <input
-                                type="file"
-                                accept=".png,.jpg,.jpeg,.webp,.gif,.svg"
-                                onChange={(e) => setQuestionDiagram(question.id, e.target.files?.[0] || null)}
-                                className="block w-full text-sm text-gray-600"
+                            <div>
+                              <label className="text-xs text-slate-500">Assessment Type</label>
+                              <select
+                                value={manualForm.assessmentType}
+                                onChange={(e) => setManualForm((prev) => ({ ...prev, assessmentType: e.target.value }))}
+                                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                              >
+                                <option value="quiz">Quiz</option>
+                                <option value="assignment">Assignment</option>
+                                <option value="test">Test</option>
+                                <option value="project">Project</option>
+                                <option value="exam">Exam</option>
+                              </select>
+                            </div>
+                            <div className="md:col-span-2 xl:col-span-4">
+                              <label className="text-xs text-slate-500">Description</label>
+                              <textarea
+                                value={manualForm.description}
+                                onChange={(e) => setManualForm((prev) => ({ ...prev, description: e.target.value }))}
+                                className="mt-1 min-h-[100px] w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+                                placeholder="Define the outcome and scope for learners"
                               />
-                              {question.diagramPreviewUrl && (
-                                <div className="border border-slate-200 rounded-md p-3 bg-slate-50 space-y-2">
-                                  <img
-                                    src={question.diagramPreviewUrl}
-                                    alt={`Question ${index + 1} diagram`}
-                                    className="max-h-56 w-auto rounded-md border border-slate-200 bg-white"
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={() => setQuestionDiagram(question.id, null)}
-                                    className="text-xs text-red-600 hover:text-red-700"
-                                  >
-                                    Remove image
-                                  </button>
-                                </div>
-                              )}
                             </div>
-
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                              <div>
-                                <label className="text-xs text-gray-500">Type</label>
-                                <select value={question.questionTypeCode} onChange={(e) => {
-                                  const nextType = e.target.value as ManualQuestionType;
-                                  if (nextType === 'true_false') {
-                                    updateQuestion(question.id, { questionTypeCode: nextType, options: ['True', 'False'], correctAnswer: question.correctAnswer === 'True' || question.correctAnswer === 'False' ? question.correctAnswer : '' });
-                                    return;
-                                  }
-                                  if (nextType === 'mcq') {
-                                    updateQuestion(question.id, { questionTypeCode: nextType, options: question.options.length > 0 ? question.options : [''], correctAnswer: question.correctAnswer || '' });
-                                    return;
-                                  }
-                                  updateQuestion(question.id, { questionTypeCode: nextType, options: [], correctAnswer: '' });
-                                }} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm">
-                                  <option value="mcq">Multiple choice</option>
-                                  <option value="true_false">True/False</option>
-                                  <option value="short_answer">Short answer</option>
-                                  <option value="essay">Essay</option>
-                                </select>
-                              </div>
-                              <div>
-                                <label className="text-xs text-gray-500">Max mark</label>
-                                <input type="number" min="1" value={question.maxMark} onChange={(e) => updateQuestion(question.id, { maxMark: Number(e.target.value) })} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm" />
-                              </div>
-                              <div>
-                                <label className="text-xs text-gray-500">Difficulty</label>
-                                <select value={question.difficulty} onChange={(e) => updateQuestion(question.id, { difficulty: Number(e.target.value) })} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm">
-                                  <option value={1}>Easy</option>
-                                  <option value={2}>Medium</option>
-                                  <option value={3}>Hard</option>
-                                </select>
-                              </div>
+                            <div>
+                              <label className="text-xs text-slate-500">Max Score</label>
+                              <input type="number" min="1" value={manualForm.maxScore} onChange={(e) => setManualForm((prev) => ({ ...prev, maxScore: Number(e.target.value) }))} className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm" />
                             </div>
+                            <div>
+                              <label className="text-xs text-slate-500">Weight %</label>
+                              <input type="number" min="0" value={manualForm.weightPct} onChange={(e) => setManualForm((prev) => ({ ...prev, weightPct: Number(e.target.value) }))} className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm" />
+                            </div>
+                            <div>
+                              <label className="text-xs text-slate-500">Time Limit (min)</label>
+                              <input type="number" min="0" value={manualForm.timeLimitMin} onChange={(e) => setManualForm((prev) => ({ ...prev, timeLimitMin: Number(e.target.value) }))} className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm" />
+                            </div>
+                            <div>
+                              <label className="text-xs text-slate-500">Attempts Allowed</label>
+                              <input type="number" min="1" value={manualForm.attemptsAllowed} onChange={(e) => setManualForm((prev) => ({ ...prev, attemptsAllowed: Number(e.target.value) }))} className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm" />
+                            </div>
+                            <div>
+                              <label className="text-xs text-slate-500">Status</label>
+                              <select value={manualForm.status} onChange={(e) => setManualForm((prev) => ({ ...prev, status: e.target.value }))} className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
+                                <option value="draft">Draft</option>
+                                <option value="published">Published</option>
+                                <option value="archived">Archived</option>
+                              </select>
+                            </div>
+                            <div>
+                              <label className="text-xs text-slate-500">Visibility</label>
+                              <select value={manualForm.visibility} onChange={(e) => setManualForm((prev) => ({ ...prev, visibility: e.target.value }))} className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
+                                <option value="private">Private</option>
+                                <option value="public">Public</option>
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
-                            {(question.questionTypeCode === 'mcq' || question.questionTypeCode === 'true_false') && (
-                              <div className="space-y-3">
-                                <div className="flex items-center justify-between">
-                                  <label className="text-xs text-gray-500">Options</label>
-                                  {question.questionTypeCode === 'mcq' && (
-                                    <button type="button" onClick={() => addOption(question.id)} className="text-xs text-blue-600 hover:text-blue-700">+ Add option</button>
-                                  )}
-                                </div>
-                                {question.questionTypeCode === 'true_false' ? (
-                                  <div className="grid grid-cols-2 gap-2">
-                                    {['True', 'False'].map((option) => (
-                                      <button key={option} type="button" onClick={() => updateQuestion(question.id, { options: ['True', 'False'], correctAnswer: option })} className={`px-3 py-2 rounded-md text-sm border ${question.correctAnswer === option ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600'}`}>
-                                        {option}
-                                      </button>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <div className="space-y-2">
-                                    {question.options.map((option, optionIndex) => (
-                                      <div key={`${question.id}-option-${optionIndex}`} className="flex items-center gap-2">
-                                        <input value={option} onChange={(e) => updateOption(question.id, optionIndex, e.target.value)} className="flex-1 border border-gray-200 rounded-md px-3 py-2 text-sm" placeholder={`Option ${optionIndex + 1}`} />
-                                        <button type="button" onClick={() => updateQuestion(question.id, { correctAnswer: option })} className={`text-xs px-2 py-1 rounded-md border ${question.correctAnswer === option ? 'border-blue-500 text-blue-700 bg-blue-50' : 'border-gray-200 text-gray-500'}`}>
-                                          Correct
-                                        </button>
-                                      </div>
-                                    ))}
+                      {manualQuestions.length === 0 ? (
+                        <div className="rounded-lg border border-dashed border-gray-300 p-6 text-sm text-gray-500">
+                          No questions yet. Add a question or ask AI collaborator to draft on the canvas.
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          {manualQuestions.map((question, index) => (
+                            <div key={question.id} className="rounded-xl border border-slate-200 bg-white p-4 space-y-4">
+                              <div className="flex items-center justify-between">
+                                <h4 className="text-sm font-semibold text-slate-800">Question {index + 1}</h4>
+                                <button type="button" onClick={() => removeQuestion(question.id)} className="text-xs text-red-600 hover:text-red-700">Remove</button>
+                              </div>
+                              <div>
+                                <label className="text-xs text-gray-500">Question text</label>
+                                <textarea value={question.stem} onChange={(e) => updateQuestion(question.id, { stem: e.target.value })} className="mt-1 min-h-[80px] w-full rounded-md border border-gray-200 px-3 py-2 text-sm" placeholder="Enter the question prompt" />
+                              </div>
+
+                              <div className="space-y-2">
+                                <label className="text-xs text-gray-500">Diagram / image (optional)</label>
+                                <input
+                                  type="file"
+                                  accept=".png,.jpg,.jpeg,.webp,.gif,.svg"
+                                  onChange={(e) => setQuestionDiagram(question.id, e.target.files?.[0] || null)}
+                                  className="block w-full text-sm text-gray-600"
+                                />
+                                {question.diagramPreviewUrl && (
+                                  <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3">
+                                    <img
+                                      src={question.diagramPreviewUrl}
+                                      alt={`Question ${index + 1} diagram`}
+                                      className="max-h-56 w-auto rounded-md border border-slate-200 bg-white"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() => setQuestionDiagram(question.id, null)}
+                                      className="text-xs text-red-600 hover:text-red-700"
+                                    >
+                                      Remove image
+                                    </button>
                                   </div>
                                 )}
                               </div>
-                            )}
 
-                            <div>
-                              <label className="text-xs text-gray-500">Marking guide / model answer</label>
-                              <textarea value={question.markingGuide} onChange={(e) => updateQuestion(question.id, { markingGuide: e.target.value })} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm min-h-[70px]" placeholder="Provide marking guidance for this question" />
+                              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                                <div>
+                                  <label className="text-xs text-gray-500">Type</label>
+                                  <select value={question.questionTypeCode} onChange={(e) => {
+                                    const nextType = e.target.value as ManualQuestionType;
+                                    if (nextType === 'true_false') {
+                                      updateQuestion(question.id, { questionTypeCode: nextType, options: ['True', 'False'], correctAnswer: question.correctAnswer === 'True' || question.correctAnswer === 'False' ? question.correctAnswer : '' });
+                                      return;
+                                    }
+                                    if (nextType === 'mcq') {
+                                      updateQuestion(question.id, { questionTypeCode: nextType, options: question.options.length > 0 ? question.options : [''], correctAnswer: question.correctAnswer || '' });
+                                      return;
+                                    }
+                                    updateQuestion(question.id, { questionTypeCode: nextType, options: [], correctAnswer: '' });
+                                  }} className="mt-1 w-full rounded-md border border-gray-200 px-3 py-2 text-sm">
+                                    <option value="mcq">Multiple choice</option>
+                                    <option value="true_false">True/False</option>
+                                    <option value="short_answer">Short answer</option>
+                                    <option value="essay">Essay</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="text-xs text-gray-500">Max mark</label>
+                                  <input type="number" min="1" value={question.maxMark} onChange={(e) => updateQuestion(question.id, { maxMark: Number(e.target.value) })} className="mt-1 w-full rounded-md border border-gray-200 px-3 py-2 text-sm" />
+                                </div>
+                                <div>
+                                  <label className="text-xs text-gray-500">Difficulty</label>
+                                  <select value={question.difficulty} onChange={(e) => updateQuestion(question.id, { difficulty: Number(e.target.value) })} className="mt-1 w-full rounded-md border border-gray-200 px-3 py-2 text-sm">
+                                    <option value={1}>Easy</option>
+                                    <option value={2}>Medium</option>
+                                    <option value={3}>Hard</option>
+                                  </select>
+                                </div>
+                              </div>
+
+                              {(question.questionTypeCode === 'mcq' || question.questionTypeCode === 'true_false') && (
+                                <div className="space-y-3">
+                                  <div className="flex items-center justify-between">
+                                    <label className="text-xs text-gray-500">Options</label>
+                                    {question.questionTypeCode === 'mcq' && (
+                                      <button type="button" onClick={() => addOption(question.id)} className="text-xs text-blue-600 hover:text-blue-700">+ Add option</button>
+                                    )}
+                                  </div>
+                                  {question.questionTypeCode === 'true_false' ? (
+                                    <div className="grid grid-cols-2 gap-2">
+                                      {['True', 'False'].map((option) => (
+                                        <button key={option} type="button" onClick={() => updateQuestion(question.id, { options: ['True', 'False'], correctAnswer: option })} className={`rounded-md border px-3 py-2 text-sm ${question.correctAnswer === option ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600'}`}>
+                                          {option}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <div className="space-y-2">
+                                      {question.options.map((option, optionIndex) => (
+                                        <div key={`${question.id}-option-${optionIndex}`} className="flex items-center gap-2">
+                                          <input value={option} onChange={(e) => updateOption(question.id, optionIndex, e.target.value)} className="flex-1 rounded-md border border-gray-200 px-3 py-2 text-sm" placeholder={`Option ${optionIndex + 1}`} />
+                                          <button type="button" onClick={() => updateQuestion(question.id, { correctAnswer: option })} className={`rounded-md border px-2 py-1 text-xs ${question.correctAnswer === option ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-500'}`}>
+                                            Correct
+                                          </button>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              <div>
+                                <label className="text-xs text-gray-500">Marking guide / model answer</label>
+                                <textarea value={question.markingGuide} onChange={(e) => updateQuestion(question.id, { markingGuide: e.target.value })} className="mt-1 min-h-[70px] w-full rounded-md border border-gray-200 px-3 py-2 text-sm" placeholder="Provide marking guidance for this question" />
+                              </div>
                             </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </section>
-
-                  <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-xs text-gray-500">Status</label>
-                      <select value={manualForm.status} onChange={(e) => setManualForm((prev) => ({ ...prev, status: e.target.value }))} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm">
-                        <option value="draft">Draft</option>
-                        <option value="published">Published</option>
-                        <option value="archived">Archived</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-xs text-gray-500">Visibility</label>
-                      <select value={manualForm.visibility} onChange={(e) => setManualForm((prev) => ({ ...prev, visibility: e.target.value }))} className="w-full border border-gray-200 rounded-md px-3 py-2 text-sm">
-                        <option value="private">Private</option>
-                        <option value="public">Public</option>
-                      </select>
-                    </div>
-                  </section>
-                </div>
+                          ))}
+                        </div>
+                      )}
+                    </section>
+                  </div>
 
                 {!isAiPanelCollapsed && (
                   <button
@@ -950,86 +1015,93 @@ const CreateAssessmentPage: React.FC = () => {
                       event.preventDefault();
                       setIsResizingAiPanel(true);
                     }}
-                    className="hidden xl:flex w-2 shrink-0 cursor-col-resize items-center justify-center border-l border-r border-slate-100 bg-slate-50 hover:bg-blue-50 transition-colors"
+                    className="hidden xl:flex w-2 shrink-0 cursor-col-resize items-center justify-center border-l border-r border-slate-100 bg-slate-50 transition-colors hover:bg-blue-50"
                     aria-label="Resize AI collaborator panel"
                   >
-                    <GripVertical className="w-3 h-8 text-slate-400" />
+                    <GripVertical className="h-8 w-3 text-slate-400" />
                   </button>
                 )}
 
                 <aside
-                  className={`relative z-10 overflow-hidden bg-slate-50 border-t xl:border-t-0 xl:border-l border-slate-100 transition-all duration-200 ${isAiPanelCollapsed ? 'p-3' : 'p-6'} flex flex-col gap-4`}
-                  style={isDesktop ? { width: isAiPanelCollapsed ? 56 : aiPanelWidth } : undefined}
+                  className={`relative z-10 overflow-hidden border-slate-100 bg-slate-50 transition-all duration-200 ${isAiPanelCollapsed ? 'flex h-full w-16 shrink-0 flex-col items-center gap-2 rounded-lg border border-slate-200 p-2.5' : 'flex h-full min-w-0 flex-col rounded-lg border border-slate-200 p-3'}`}
+                  style={isDesktop ? { width: isAiPanelCollapsed ? 64 : aiPanelWidth } : undefined}
                 >
-                  <div className={`flex items-center ${isAiPanelCollapsed ? 'justify-center' : 'justify-between'} gap-2`}>
-                    {!isAiPanelCollapsed && (
-                      <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-                        <Sparkles className="w-4 h-4 text-blue-600" /> AI Collaborator
-                      </div>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => setIsAiPanelCollapsed((prev) => !prev)}
-                      className="p-2 rounded-md border border-slate-200 bg-white text-slate-600 hover:text-slate-800 hover:border-slate-300"
-                      aria-label={isAiPanelCollapsed ? 'Expand AI collaborator panel' : 'Collapse AI collaborator panel'}
-                    >
-                      {isAiPanelCollapsed ? <Maximize2 className="w-4 h-4" /> : <Minimize2 className="w-4 h-4" />}
-                    </button>
-                  </div>
-
                   {isAiPanelCollapsed ? (
-                    <button
-                      type="button"
-                      onClick={() => setIsAiPanelCollapsed(false)}
-                      className="w-full mt-2 inline-flex items-center justify-center rounded-md border border-slate-200 bg-white py-2 text-slate-600 hover:text-slate-800"
-                      aria-label="Expand AI collaborator panel"
-                    >
-                      <Sparkles className="w-4 h-4" />
-                    </button>
+                    <>
+                      <Bot className="mt-1 h-4 w-4 text-slate-600" />
+                      <button
+                        type="button"
+                        onClick={() => setIsAiPanelCollapsed(false)}
+                        className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
+                        aria-label="Expand AI collaborator panel"
+                        title="Expand"
+                      >
+                        <PanelRightOpen className="h-4 w-4" />
+                      </button>
+                    </>
                   ) : (
                     <>
-                      <div className="flex-1 min-h-0 border border-slate-200 rounded-lg bg-white p-3 overflow-y-auto space-y-3">
-                        {aiThread.length === 0 && !isGenerating && (
-                          <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
-                            Prompts and AI completion summaries will appear here.
-                          </div>
-                        )}
-                        {aiThread.map((entry) => (
-                          <div
-                            key={entry.id}
-                            className={entry.role === 'user'
-                              ? 'ml-auto max-w-[92%] rounded-xl bg-blue-600 px-3 py-2 text-sm text-white'
-                              : `mr-auto max-w-[95%] rounded-xl border px-3 py-2 text-sm ${entry.status === 'error'
-                                ? 'border-rose-200 bg-rose-50 text-rose-700'
-                                : entry.status === 'success'
-                                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
-                                  : 'border-slate-200 bg-white text-slate-700'}` }
-                          >
-                            {entry.role === 'assistant' && entry.type === 'summary' && (
-                              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide opacity-80">Completion summary</div>
-                            )}
-                            <p className="whitespace-pre-wrap">{entry.text}</p>
-                            {entry.details && entry.details.length > 0 && (
-                              <div className="mt-2 space-y-1 text-xs">
-                                {entry.details.map((detail) => (
-                                  <div key={`${entry.id}-${detail}`}>- {detail}</div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                        {isGenerating && (
-                          <div className="mr-auto inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
-                            <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:-0.2s]" />
-                            <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:-0.1s]" />
-                            <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce" />
-                          </div>
-                        )}
-                        <div ref={threadEndRef} />
+                      <div className="mb-3 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-semibold text-slate-900">AI Collaborator</p>
+                          <Bot className="h-4 w-4 text-slate-600" />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setIsAiPanelCollapsed(true)}
+                          className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
+                          aria-label="Collapse AI collaborator"
+                          title="Collapse"
+                        >
+                          <PanelRightClose className="h-4 w-4" />
+                        </button>
                       </div>
 
-                      <div className="mt-auto space-y-2">
-                        <div className="relative">
+                      <div className="flex h-full min-h-0 flex-col rounded-md border border-slate-200 bg-white p-2">
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Assistant chat</p>
+                        </div>
+                        <div className="mt-2 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+                          {aiThread.length === 0 && !isGenerating && (
+                            <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+                              Prompts and AI completion summaries will appear here.
+                            </div>
+                          )}
+                          {aiThread.map((entry) => (
+                            <div
+                              key={entry.id}
+                              className={entry.role === 'user'
+                                ? 'ml-auto max-w-[92%] rounded-xl bg-blue-600 px-3 py-2 text-sm text-white'
+                                : `mr-auto max-w-[95%] rounded-xl border px-3 py-2 text-sm ${entry.status === 'error'
+                                  ? 'border-rose-200 bg-rose-50 text-rose-700'
+                                  : entry.status === 'success'
+                                    ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                                    : 'border-slate-200 bg-white text-slate-700'}` }
+                            >
+                              {entry.role === 'assistant' && entry.type === 'summary' && (
+                                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide opacity-80">Completion summary</div>
+                              )}
+                              <p className="whitespace-pre-wrap">{entry.text}</p>
+                              {entry.details && entry.details.length > 0 && (
+                                <div className="mt-2 space-y-1 text-xs">
+                                  {entry.details.map((detail) => (
+                                    <div key={`${entry.id}-${detail}`}>- {detail}</div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                          {isGenerating && (
+                            <div className="mr-auto inline-flex items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">
+                              <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:-0.2s]" />
+                              <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce [animation-delay:-0.1s]" />
+                              <span className="h-1.5 w-1.5 rounded-full bg-slate-400 animate-bounce" />
+                            </div>
+                          )}
+                          <div ref={threadEndRef} />
+                        </div>
+                        <div className="mt-2 space-y-3">
+                          <div className="relative">
                           <textarea
                             ref={promptRef}
                             value={aiForm.prompt}
@@ -1040,7 +1112,7 @@ const CreateAssessmentPage: React.FC = () => {
                                 insertReferenceMention(mentionSuggestions[0]);
                               }
                             }}
-                            className="w-full border border-slate-200 rounded-md px-3 py-2 pr-16 pb-12 text-sm min-h-[140px]"
+                            className="min-h-[120px] w-full resize-none rounded-md border border-slate-200 px-3 py-2 pb-12 pr-16 text-sm"
                             placeholder="Prompt AI here. Use @ to attach library references."
                           />
                           {isMentionOpen && mentionSuggestions.length > 0 && (
@@ -1076,104 +1148,86 @@ const CreateAssessmentPage: React.FC = () => {
                           </button>
                         </div>
 
-                        <input
-                          ref={assessmentFileInputRef}
-                          type="file"
-                          className="hidden"
-                          onChange={(e) => setAssessmentFile(e.target.files?.[0] || null)}
-                          accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"
-                        />
+                          <input
+                            ref={assessmentFileInputRef}
+                            type="file"
+                            className="hidden"
+                            onChange={(e) => setAssessmentFile(e.target.files?.[0] || null)}
+                            accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"
+                          />
 
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => assessmentFileInputRef.current?.click()}
-                              className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-blue-700"
-                            >
-                              <Paperclip className="w-3.5 h-3.5" />
-                              Attach file
-                            </button>
-                            <div className="relative z-20">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
                               <button
-                                ref={configButtonRef}
                                 type="button"
-                                onClick={() => {
-                                  if (isConfigOpen) {
-                                    setIsConfigOpen(false);
-                                    return;
-                                  }
-                                  positionConfigMenu();
-                                  setIsConfigOpen(true);
-                                }}
-                                className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-blue-700"
+                                onClick={() => assessmentFileInputRef.current?.click()}
+                                className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 hover:text-blue-700"
                               >
-                                <Settings2 className="w-3.5 h-3.5" />
-                                Configure
+                                <Paperclip className="h-3.5 w-3.5" />
+                                Attach context
                               </button>
+                              <div className="relative z-[70]">
+                                <button
+                                  ref={configButtonRef}
+                                  type="button"
+                                  onClick={() => {
+                                    if (isConfigOpen) {
+                                      setIsConfigOpen(false);
+                                      return;
+                                    }
+                                    positionConfigMenu();
+                                    setIsConfigOpen(true);
+                                  }}
+                                  className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 hover:text-blue-700"
+                                >
+                                  <Settings2 className="h-3.5 w-3.5" />
+                                  Configure
+                                </button>
+                              </div>
                             </div>
+                            <span className="text-[11px] text-slate-500">Type @ to attach reference</span>
                           </div>
-                          <span className="text-[11px] text-slate-500">Type @ to attach reference</span>
-                        </div>
 
-                        {assessmentFile && (
-                          <div className="flex flex-wrap gap-2">
-                            <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
-                              {assessmentFile.name}
-                              <button
-                                type="button"
-                                onClick={() => setAssessmentFile(null)}
-                                className="text-slate-400 hover:text-slate-700"
-                                aria-label="Remove attached file"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            </span>
-                          </div>
-                        )}
-
-                        {selectedReferenceResources.length > 0 && (
-                          <div className="flex flex-wrap gap-2">
-                            {selectedReferenceResources.map((resource) => (
-                              <span key={resource.id} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
-                                @{resource.name}
+                          {assessmentFile && (
+                            <div className="flex flex-wrap gap-2">
+                              <span className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
+                                {assessmentFile.name}
                                 <button
                                   type="button"
-                                  onClick={() => setSelectedReferenceResourceIds((prev) => prev.filter((id) => id !== resource.id))}
+                                  onClick={() => setAssessmentFile(null)}
                                   className="text-slate-400 hover:text-slate-700"
-                                  aria-label={`Remove ${resource.name}`}
+                                  aria-label="Remove attached file"
                                 >
                                   <X className="w-3 h-3" />
                                 </button>
                               </span>
-                            ))}
-                          </div>
-                        )}
+                            </div>
+                          )}
+
+                          {selectedReferenceResources.length > 0 && (
+                            <div className="flex flex-wrap gap-2">
+                              {selectedReferenceResources.map((resource) => (
+                                <span key={resource.id} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
+                                  @{resource.name}
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedReferenceResourceIds((prev) => prev.filter((id) => id !== resource.id))}
+                                    className="text-slate-400 hover:text-slate-700"
+                                    aria-label={`Remove ${resource.name}`}
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </div>
                     </>
                   )}
                 </aside>
               </div>
-
-              <div className="bg-gray-50 border-t border-gray-200 p-4">
-                <div className="flex items-center justify-between gap-3">
-                  <button
-                    type="button"
-                    onClick={() => setIsPreviewOpen(true)}
-                    className="px-4 py-2 text-sm rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                  >
-                    Preview Assessment
-                  </button>
-                  <div className="flex justify-end gap-3">
-                    <button type="button" onClick={() => navigate('/assessments/view')} className="px-4 py-2 text-sm rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200">
-                    Cancel
-                    </button>
-                    <button type="button" onClick={handleSubmitAssessment} disabled={isSubmitting || isGenerating} className="px-4 py-2 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60">
-                      {isSubmitting ? 'Saving...' : 'Create Assessment'}
-                    </button>
-                  </div>
-                </div>
-              </div>
+            </div>
             </div>
           </div>
         </div>

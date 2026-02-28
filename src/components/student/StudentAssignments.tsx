@@ -20,6 +20,8 @@ import { ApiError } from '../../services/http';
 import type { SubmissionReviewDetail, SubmissionReviewQuestionDetail } from '../../services/submissionService';
 import type { StudentAssessmentDetail, StudentAssessmentHistoryItem } from '../../services/studentService';
 import { toast } from 'sonner';
+import TablePagination from '../ui/TablePagination';
+import { useClientPagination } from '../../hooks/useClientPagination';
 
 interface StudentAssignmentsProps {
   studentId: string;
@@ -486,6 +488,20 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
     () => filteredEntries.filter((entry) => entry.status === 'pending' || entry.status === 'overdue'),
     [filteredEntries]
   );
+  const {
+    currentPage,
+    pageSize,
+    totalPages,
+    totalItems,
+    paginatedItems: paginatedEntries,
+    rangeStart,
+    rangeEnd,
+    setCurrentPage,
+    setPageSize,
+  } = useClientPagination(filteredEntries, {
+    initialPageSize: 10,
+    resetKey: `${selectedSubjectId || 'all'}|${assessmentTab}|${selectedStatus}|${selectedType}|${searchQuery}|${filteredEntries.length}`,
+  });
   const pendingCount = entries.filter((item) => item.status === 'pending' || item.status === 'overdue').length;
   const reviewedCount = entries.filter((item) => item.status === 'graded').length;
   const reviewedPercent = entries.length > 0 ? Math.round((reviewedCount / entries.length) * 100) : 0;
@@ -1077,8 +1093,8 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredEntries.length > 0 ? (
-                      filteredEntries.map((entry) => {
+                    {paginatedEntries.length > 0 ? (
+                      paginatedEntries.map((entry) => {
                         const dueDate = asDate(entry.dueTime);
                         const scorePercent =
                           typeof entry.result?.actualMark === 'number' &&
@@ -1133,6 +1149,16 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                   </tbody>
                 </table>
               </div>
+              <TablePagination
+                currentPage={currentPage}
+                pageSize={pageSize}
+                totalItems={totalItems}
+                totalPages={totalPages}
+                rangeStart={rangeStart}
+                rangeEnd={rangeEnd}
+                onPageChange={setCurrentPage}
+                onPageSizeChange={setPageSize}
+              />
             </>
           )}
 

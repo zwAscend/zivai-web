@@ -5,6 +5,7 @@ import Dashboard from './components/home/Dashboard';
 import Inbox from './components/staffroom/Inbox';
 import CalendarView from './components/calendar/CalendarView';
 import ClassroomView from './components/classroom/ClassroomView';
+import ClassroomSubjectsPage from './pages/ClassroomSubjectsPage';
 import ResourcesDashboard from './components/resources/ResourcesDashboard';
 import ReportOverviewPage from './pages/ReportOverviewPage';
 import ReportSubmissionsPage from './pages/ReportSubmissionsPage';
@@ -18,6 +19,7 @@ import NotFound from './components/pages/NotFound';
 import DevelopmentPage from './pages/DevelopmentPage';
 import DevelopmentOverviewPage from './pages/DevelopmentOverviewPage';
 import DevelopmentPlansPage from './pages/DevelopmentPlansPage';
+import DevelopmentPlanCreatePage from './pages/DevelopmentPlanCreatePage';
 import DevelopmentReteachPage from './pages/DevelopmentReteachPage';
 import DevelopmentPracticePage from './pages/DevelopmentPracticePage';
 import DevelopmentReteachDetailPage from './pages/DevelopmentReteachDetailPage';
@@ -136,6 +138,8 @@ function App() {
             <Route path="staffroom" element={<Inbox />} />
             <Route path="calendar" element={<CalendarView />} />
             <Route path="classroom" element={<ClassroomView />} />
+            <Route path="subjects-workspace" element={<ClassroomSubjectsPage />} />
+            <Route path="classroom/subjects" element={<Navigate to="/subjects-workspace" replace />} />
             <Route path="students" element={<StudentDirectoryPage />} />
             <Route path="students/profile" element={<StudentProfilePage />} />
             <Route path="assessments" element={<Navigate to="/assessments/create" replace />} />
@@ -151,6 +155,7 @@ function App() {
             <Route path="development" element={<Navigate to="/development/profile" replace />} />
             <Route path="development/profile" element={<DevelopmentOverviewPage />} />
             <Route path="development/plans" element={<DevelopmentPlansPage />} />
+            <Route path="development/create/:studentId/:subjectId" element={<DevelopmentPlanCreatePage />} />
             <Route path="development/reteach" element={<DevelopmentReteachPage />} />
             <Route path="development/reteach/:id" element={<DevelopmentReteachDetailPage />} />
             <Route path="development/practice" element={<DevelopmentPracticePage />} />

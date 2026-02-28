@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Maximize2, Minimize2, Wand2 } from 'lucide-react';
+import { Maximize2, Minimize2 } from 'lucide-react';
 import { MarkAssignmentModal } from '../components/resources/MarkAssignmentModal';
 import Sidebar from '../components/resources/Sidebar';
 import { assessmentService, studentService, subjectService } from '../services/api';
@@ -82,7 +82,6 @@ const MarkAssessmentPage: React.FC = () => {
               )}
               <div className="flex items-center justify-between p-4 border-b border-slate-200 bg-slate-50">
                 <div className="flex items-center gap-2 text-sm text-slate-600">
-                  <Wand2 className="w-4 h-4 text-blue-600" />
                   Marking Workspace
                 </div>
                 <button

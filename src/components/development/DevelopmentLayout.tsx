@@ -29,7 +29,7 @@ const DevelopmentLayout: React.FC<DevelopmentLayoutProps> = ({ children, student
         onDevelopmentStudents={() => navigate('/development/plans')}
         onDevelopmentReteach={() => navigate('/development/reteach')}
         onDevelopmentPractice={() => navigate('/development/practice')}
-        onDevelopmentStudent={studentId ? () => navigate(`/development/${studentId}`) : undefined}
+        onDevelopmentStudent={() => navigate(studentId ? `/development/${studentId}` : '/development/plans')}
         recentUploads={[]}
       />
       <main className="flex-1 min-h-0 overflow-y-auto p-6">

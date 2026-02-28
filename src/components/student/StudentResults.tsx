@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { TrendingUp, TrendingDown, Award, Target, FileText } from 'lucide-react';
 import { Assessment, Result } from '../../types';
 import { assessmentService } from '../../services/api';
+import TablePagination from '../ui/TablePagination';
+import { useClientPagination } from '../../hooks/useClientPagination';
 
 interface StudentResultsProps {
   studentId: string;
@@ -104,6 +106,21 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubj
     return typeMatch && periodMatch && queryMatch;
   });
 
+  const {
+    currentPage,
+    pageSize,
+    totalPages,
+    totalItems,
+    paginatedItems: paginatedResults,
+    rangeStart,
+    rangeEnd,
+    setCurrentPage,
+    setPageSize,
+  } = useClientPagination(filteredResults, {
+    initialPageSize: 10,
+    resetKey: `${selectedSubjectId || 'all'}|${selectedPeriod}|${selectedType}|${searchQuery}|${filteredResults.length}`,
+  });
+
   // Calculate statistics
   const totalAssessments = filteredResults.length;
   const averageScore = totalAssessments > 0 
@@ -150,18 +167,20 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubj
     <div className="space-y-6">
       {/* Header and Filters */}
       <div className="bg-white rounded-lg shadow p-6">
-        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div className="flex flex-wrap gap-3">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="w-full md:max-w-sm">
             <input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search assessments"
-              className="px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
+          </div>
+          <div className="flex w-full flex-wrap gap-3 md:w-auto md:justify-end">
             <select
               value={selectedPeriod}
               onChange={(e) => setSelectedPeriod(e.target.value as any)}
-              className="px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full md:w-auto min-w-[150px] px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="all">All Time</option>
               <option value="semester">This Semester</option>
@@ -171,7 +190,7 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubj
             <select
               value={selectedType}
               onChange={(e) => setSelectedType(e.target.value as any)}
-              className="px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full md:w-auto min-w-[150px] px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="all">All Types</option>
               <option value="Assignment">Assignments</option>
@@ -185,45 +204,53 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubj
       </div>
 
       {/* Statistics Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex items-center">
-            <FileText className="w-8 h-8 text-blue-500 mr-3" />
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-4">
+          <div className="flex items-start justify-between gap-3">
             <div>
-              <div className="text-2xl font-bold text-gray-800">{totalAssessments}</div>
-              <div className="text-sm text-gray-500">Total Assessments</div>
+              <p className="text-xs font-medium tracking-wide text-slate-500 uppercase">Total Assessments</p>
+              <p className="mt-1 text-2xl font-semibold text-slate-900">{totalAssessments}</p>
+            </div>
+            <div className="rounded-md bg-blue-50 p-2 text-blue-600">
+              <FileText className="h-5 w-5" />
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex items-center">
-            <Target className="w-8 h-8 text-green-500 mr-3" />
+        <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-4">
+          <div className="flex items-start justify-between gap-3">
             <div>
-              <div className="text-2xl font-bold text-gray-800">{averageScore}%</div>
-              <div className="text-sm text-gray-500">Average Score</div>
+              <p className="text-xs font-medium tracking-wide text-slate-500 uppercase">Average Score</p>
+              <p className="mt-1 text-2xl font-semibold text-slate-900">{averageScore}%</p>
+            </div>
+            <div className="rounded-md bg-emerald-50 p-2 text-emerald-600">
+              <Target className="h-5 w-5" />
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex items-center">
-            <TrendingUp className="w-8 h-8 text-purple-500 mr-3" />
+        <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-4">
+          <div className="flex items-start justify-between gap-3">
             <div>
-              <div className="text-2xl font-bold text-gray-800">{improvementRate}%</div>
-              <div className="text-sm text-gray-500">Above Expected</div>
+              <p className="text-xs font-medium tracking-wide text-slate-500 uppercase">Above Expected</p>
+              <p className="mt-1 text-2xl font-semibold text-slate-900">{improvementRate}%</p>
+            </div>
+            <div className="rounded-md bg-violet-50 p-2 text-violet-600">
+              <TrendingUp className="h-5 w-5" />
             </div>
           </div>
         </div>
 
-        <div className="bg-white rounded-lg shadow p-6">
-          <div className="flex items-center">
-            <Award className="w-8 h-8 text-yellow-500 mr-3" />
+        <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-4">
+          <div className="flex items-start justify-between gap-3">
             <div>
-              <div className="text-2xl font-bold text-gray-800">
+              <p className="text-xs font-medium tracking-wide text-slate-500 uppercase">A Grades</p>
+              <p className="mt-1 text-2xl font-semibold text-slate-900">
                 {filteredResults.filter(r => ['A+', 'A', 'A-'].includes(r.result.grade)).length}
-              </div>
-              <div className="text-sm text-gray-500">A Grades</div>
+              </p>
+            </div>
+            <div className="rounded-md bg-amber-50 p-2 text-amber-600">
+              <Award className="h-5 w-5" />
             </div>
           </div>
         </div>
@@ -263,7 +290,7 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubj
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredResults.map((result) => (
+              {paginatedResults.map((result) => (
                 <tr key={result.result.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div>
@@ -331,6 +358,17 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubj
             </tbody>
           </table>
         </div>
+
+        <TablePagination
+          currentPage={currentPage}
+          pageSize={pageSize}
+          totalItems={totalItems}
+          totalPages={totalPages}
+          rangeStart={rangeStart}
+          rangeEnd={rangeEnd}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={setPageSize}
+        />
 
         {filteredResults.length === 0 && (
           <div className="text-center py-8 text-gray-500">

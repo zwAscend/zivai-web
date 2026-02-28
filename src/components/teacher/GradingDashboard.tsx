@@ -13,6 +13,8 @@ import { submissionService } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
 import { authService } from '../../services/authService';
 import SubmissionReviewModal from './SubmissionReviewModal';
+import TablePagination from '../ui/TablePagination';
+import { useClientPagination } from '../../hooks/useClientPagination';
 
 interface GradingStats {
   totalSubmissions: number;
@@ -104,6 +106,21 @@ const GradingDashboard: React.FC<GradingDashboardProps> = ({ embedded = false })
       submission.assessment.name.toLowerCase().includes(searchQuery.toLowerCase());
     
     return matchesStatus && matchesSearch;
+  });
+
+  const {
+    currentPage,
+    pageSize,
+    totalPages,
+    totalItems,
+    paginatedItems: paginatedSubmissions,
+    rangeStart,
+    rangeEnd,
+    setCurrentPage,
+    setPageSize,
+  } = useClientPagination(filteredSubmissions, {
+    initialPageSize: 10,
+    resetKey: `${filterStatus}|${searchQuery}|${selectedSubject?.id || 'all'}|${filteredSubmissions.length}`,
   });
 
   const getStatusColor = (status: string) => {
@@ -300,7 +317,7 @@ const GradingDashboard: React.FC<GradingDashboardProps> = ({ embedded = false })
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredSubmissions.map((submission) => (
+                {paginatedSubmissions.map((submission) => (
                   <tr key={submission.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
@@ -350,6 +367,17 @@ const GradingDashboard: React.FC<GradingDashboardProps> = ({ embedded = false })
               </tbody>
             </table>
           </div>
+
+          <TablePagination
+            currentPage={currentPage}
+            pageSize={pageSize}
+            totalItems={totalItems}
+            totalPages={totalPages}
+            rangeStart={rangeStart}
+            rangeEnd={rangeEnd}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={setPageSize}
+          />
 
           {filteredSubmissions.length === 0 && (
             <div className="text-center py-8 text-gray-500">

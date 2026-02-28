@@ -12,6 +12,7 @@ interface RecentUpload {
 
 interface SidebarProps {
   mode?: 'resources' | 'assessments' | 'development' | 'performance' | 'classroom' | 'students' | 'report';
+  showClassroomStudentProfile?: boolean;
   onUploadClick?: () => void;
   onCreateAssessment?: () => void;
   onMarkAssessment?: () => void;
@@ -54,6 +55,7 @@ const getFileIcon = (type: string, className = "h-5 w-5") => {
 
 const Sidebar: React.FC<SidebarProps> = ({
   mode = 'resources',
+  showClassroomStudentProfile = true,
   onUploadClick: _onUploadClick,
   onCreateAssessment,
   onMarkAssessment,
@@ -73,7 +75,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   onDevelopmentProfile,
   onDevelopmentStudents,
   onDevelopmentReteach,
-  onDevelopmentPractice,
+  onDevelopmentPractice: _onDevelopmentPractice,
   onDevelopmentStudent,
   onPerformanceOverview,
   onPerformanceStudent,
@@ -95,10 +97,9 @@ const Sidebar: React.FC<SidebarProps> = ({
       ]
     : mode === 'development'
       ? [
-          { id: 'development-profile', label: 'Development Profile', icon: Target, onClick: onDevelopmentProfile },
+          { id: 'development-profile', label: 'Class Profile', icon: Target, onClick: onDevelopmentProfile },
           { id: 'development-students', label: 'Student Plans', icon: ListChecks, onClick: onDevelopmentStudents },
           { id: 'development-reteach', label: 'Re-teach Cards', icon: BookOpen, onClick: onDevelopmentReteach },
-          { id: 'development-practice', label: 'Next Best Practice', icon: Sparkles, onClick: onDevelopmentPractice },
           { id: 'development-student', label: 'Student Profile', icon: User, onClick: onDevelopmentStudent },
         ]
     : mode === 'report'
@@ -117,7 +118,9 @@ const Sidebar: React.FC<SidebarProps> = ({
         : mode === 'classroom'
           ? [
               { id: 'classroom-status', label: 'Class', icon: Users, onClick: onClassroomStatus },
-              { id: 'students-profile', label: 'Student Profile', icon: User, onClick: onStudentsProfile },
+              ...(showClassroomStudentProfile
+                ? [{ id: 'students-profile', label: 'Student Profile', icon: User, onClick: onStudentsProfile }]
+                : []),
             ]
           : mode === 'students'
             ? [

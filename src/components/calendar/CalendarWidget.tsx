@@ -81,9 +81,9 @@ const CalendarWidget: React.FC<CalendarWidgetProps> = ({
   const todayEvents = getUpcomingEvents(today);
 
   return (
-    <div className={`bg-gray-50 p-4 rounded-lg shadow h-full flex flex-col ${className}`}>
+    <div className={`bg-gray-50 p-3 rounded-lg shadow h-full flex flex-col ${className}`}>
       {/* Month Header */}
-      <h2 className="text-xl font-bold text-left mb-2">{currentMonth}</h2>
+      <h2 className="text-lg font-bold text-left mb-1.5">{currentMonth}</h2>
 
       {/* Calendar Grid */}
       <div className="grid grid-cols-8 gap-1 h-full divide-x divide-gray-200">
@@ -125,16 +125,16 @@ const CalendarWidget: React.FC<CalendarWidgetProps> = ({
               {isToday ? (
                 <div className="flex w-full h-full">
                   {/* Date Number on the left */}
-                  <div className="flex-shrink-0 font-bold text-xl p-2 pr-4 self-start">
+                  <div className="flex-shrink-0 font-bold text-lg p-1.5 pr-3 self-start">
                     {date.day}
                   </div>
                   {/* Events list on the right */}
-                  <div className="flex-1 w-full space-y-1 overflow-y-auto pr-1">
+                  <div className="flex-1 w-full space-y-1 pr-1">
                     {todayEvents.length > 0 ? (
-                      todayEvents.map((event) => (
+                      todayEvents.slice(0, 3).map((event) => (
                         <motion.div
                           key={event.id}
-                          className="text-xs p-1 rounded-md cursor-pointer truncate bg-white/20 hover:bg-white/30"
+                          className="text-[11px] p-1 rounded-md cursor-pointer truncate bg-white/20 hover:bg-white/30"
                           onClick={(e) => handleEventClick(event, e)}
                           title={event.title}
                           whileHover={{ scale: 1.02 }}
@@ -155,7 +155,7 @@ const CalendarWidget: React.FC<CalendarWidgetProps> = ({
                         </motion.div>
                       ))
                     ) : (
-                      <div className="text-center text-white/80 text-xs mt-2 p-2">
+                      <div className="text-center text-white/80 text-[11px] mt-1 p-1.5">
                         No upcoming events today.
                       </div>
                     )}
