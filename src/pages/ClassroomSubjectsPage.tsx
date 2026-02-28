@@ -35,13 +35,23 @@ import {
   Undo2,
 } from 'lucide-react';
 import ClassroomLayout from '../components/classroom/ClassroomLayout';
-import { subjectService } from '../services/api';
+import {
+  assessmentEnrollmentService,
+  assessmentService,
+  schoolService,
+  studentService,
+  subjectService,
+} from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { authService } from '../services/authService';
+import { curriculumService, CurriculumTopicWithResources } from '../services/curriculumService';
+import { ResourceItem, resourceService } from '../services/resourceService';
 
 type TeachingSubject = {
   id: string;
   code?: string;
   name: string;
+  grades?: string[];
 };
 
 type FormLevel = 'Form 3' | 'Form 4';
@@ -70,6 +80,21 @@ type AssessmentQuestion = {
   type: AssessmentQuestionType;
   marks: number;
   options: string;
+};
+type WorkspaceAssessment = {
+  id: string;
+  name: string;
+  description?: string;
+  assessmentType?: string;
+  visibility?: string;
+  timeLimitMin?: number | null;
+  attemptsAllowed?: number | null;
+  maxScore?: number | null;
+  weightPct?: number | null;
+  status?: string;
+  resourceId?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 type TopicCoverage = {
@@ -473,12 +498,94 @@ AI direction used:
 ${promptLine}`;
 };
 
+const inferTopicForm = (
+  topic: Pick<CurriculumTopicWithResources, 'name' | 'description' | 'objectives' | 'code'>,
+  subjectGrades: string[] = []
+): FormLevel => {
+  const haystack = `${topic.code || ''} ${topic.name || ''} ${topic.description || ''} ${topic.objectives || ''}`.toLowerCase();
+  if (haystack.includes('form 3')) return 'Form 3';
+  if (haystack.includes('form 4')) return 'Form 4';
+
+  const normalizedGrades = subjectGrades.map((grade) => grade.trim().toLowerCase());
+  if (normalizedGrades.includes('form 3')) return 'Form 3';
+  return 'Form 4';
+};
+
+const toWorkspaceUnitLabel = (topic: Pick<CurriculumTopicWithResources, 'code' | 'name'>) => {
+  const code = topic.code?.trim();
+  if (code && code.includes('-')) {
+    return toTitleCase(code.split('-')[0].replace(/_/g, ' '));
+  }
+  const name = topic.name?.trim();
+  if (!name) return 'Curriculum';
+  const firstWord = name.split(/\s+/)[0];
+  return firstWord ? `${toTitleCase(firstWord)} strand` : 'Curriculum';
+};
+
+const extractAssessmentResourceId = (assessment: any): string | null => {
+  const raw = assessment?.resourceId ?? assessment?.resource;
+  if (!raw) return null;
+  if (typeof raw === 'string') return raw;
+  return raw?.id || null;
+};
+
+const formatUpdatedAtLabel = (timestamps: Array<string | undefined | null>) => {
+  const validTimes = timestamps
+    .map((value) => (value ? new Date(value).getTime() : Number.NaN))
+    .filter((value) => Number.isFinite(value))
+    .sort((a, b) => b - a);
+
+  if (validTimes.length === 0) return 'Never updated';
+
+  const latest = validTimes[0];
+  const diffMs = Date.now() - latest;
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffDays <= 0) return 'Updated today';
+  if (diffDays === 1) return 'Updated yesterday';
+  return `Updated ${diffDays} days ago`;
+};
+
+const buildAssessmentResourceContent = (
+  topicTitle: string,
+  assessmentName: string,
+  assessmentDescription: string,
+  questions: AssessmentQuestion[]
+) => {
+  const questionLines = questions.length
+    ? questions
+        .map((question, index) => {
+          const options = question.type === 'multiple-choice' && question.options.trim()
+            ? ` Options: ${question.options}`
+            : '';
+          return `${index + 1}. ${question.prompt || 'Untitled question'} (${question.marks} marks)${options}`;
+        })
+        .join('\n')
+    : 'No questions yet.';
+
+  return `${assessmentName}
+
+Topic: ${topicTitle}
+
+${assessmentDescription || 'Assessment description pending.'}
+
+Questions:
+${questionLines}`;
+};
+
 const ClassroomSubjectsPage: React.FC = () => {
   const { selectedSubject, setSelectedSubject } = useAuth();
 
   const [subjects, setSubjects] = useState<TeachingSubject[]>([]);
   const [selectedSubjectId, setSelectedSubjectId] = useState('');
   const [topics, setTopics] = useState<TopicCoverage[]>([]);
+  const [workspaceLoading, setWorkspaceLoading] = useState(false);
+  const [workspaceError, setWorkspaceError] = useState<string | null>(null);
+  const [activeSchoolId, setActiveSchoolId] = useState('');
+  const [materialRecordIds, setMaterialRecordIds] = useState<Record<string, string>>({});
+  const [assessmentResourceIds, setAssessmentResourceIds] = useState<Record<string, string>>({});
+  const [resourceDetailsCache, setResourceDetailsCache] = useState<Record<string, ResourceItem>>({});
+  const [assessmentDetailsCache, setAssessmentDetailsCache] = useState<Record<string, any>>({});
   const [selectedTopicId, setSelectedTopicId] = useState('');
   const [view, setView] = useState<WorkspaceView>('overview');
 
@@ -530,6 +637,119 @@ const ClassroomSubjectsPage: React.FC = () => {
   const [selectionActionOverlay, setSelectionActionOverlay] = useState<{ top: number; left: number; text: string } | null>(null);
   const [selectionActionHint, setSelectionActionHint] = useState<string | null>(null);
 
+  const refreshWorkspaceData = React.useCallback(async () => {
+    if (!selectedSubjectId) return;
+    const current = subjects.find((subject) => subject.id === selectedSubjectId);
+    if (!current) return;
+
+    try {
+      setWorkspaceLoading(true);
+      setWorkspaceError(null);
+
+      const [topicRows, subjectResources, subjectAssessments] = await Promise.all([
+        curriculumService.listTopicsWithResources(current.id).catch(() => []),
+        resourceService.listBySubject(current.id).catch(() => []),
+        assessmentService.getAssessmentsBySubjectId(current.id).catch(() => []),
+      ]);
+
+      const subjectGrades = current.grades || [];
+      const resourcesByTopicId = new Map<string, ResourceItem[]>();
+      const resourceById = new Map<string, ResourceItem>();
+      subjectResources.forEach((resource) => {
+        resourceById.set(resource.id, resource);
+        (resource.topicIds || []).forEach((topicId) => {
+          const existing = resourcesByTopicId.get(topicId) || [];
+          existing.push(resource);
+          resourcesByTopicId.set(topicId, existing);
+        });
+      });
+
+      const assessmentsByTopicId = new Map<string, WorkspaceAssessment[]>();
+      const nextAssessmentResourceIds: Record<string, string> = {};
+      (Array.isArray(subjectAssessments) ? subjectAssessments : []).forEach((assessment: any) => {
+        const resourceId = extractAssessmentResourceId(assessment);
+        if (!resourceId) return;
+        nextAssessmentResourceIds[assessment.id] = resourceId;
+        const linkedResource = resourceById.get(resourceId);
+        const topicIds = linkedResource?.topicIds || [];
+        topicIds.forEach((topicId) => {
+          const existing = assessmentsByTopicId.get(topicId) || [];
+          existing.push({
+            id: assessment.id,
+            name: assessment.name,
+            description: assessment.description,
+            assessmentType: assessment.assessmentType,
+            visibility: assessment.visibility,
+            timeLimitMin: assessment.timeLimitMin,
+            attemptsAllowed: assessment.attemptsAllowed,
+            maxScore: assessment.maxScore,
+            weightPct: assessment.weightPct,
+            status: assessment.status,
+            resourceId,
+            createdAt: assessment.createdAt,
+            updatedAt: assessment.updatedAt,
+          });
+          assessmentsByTopicId.set(topicId, existing);
+        });
+      });
+
+      const nextMaterialRecordIds: Record<string, string> = {};
+      const nextTopics = topicRows.map((topic) => {
+        const topicResources = resourcesByTopicId.get(topic.id) || [];
+        const lessonResources = topicResources.filter((resource) => {
+          const contentType = (resource.contentType || '').toLowerCase();
+          return contentType !== 'practice' && contentType !== 'assessment';
+        });
+        const practiceResources = topicResources.filter((resource) => (resource.contentType || '').toLowerCase() === 'practice');
+        const topicAssessments = assessmentsByTopicId.get(topic.id) || [];
+
+        lessonResources.forEach((resource) => {
+          nextMaterialRecordIds[getMaterialDraftKey(topic.id, 'resource', resource.name)] = resource.id;
+        });
+        practiceResources.forEach((resource) => {
+          nextMaterialRecordIds[getMaterialDraftKey(topic.id, 'practice', resource.name)] = resource.id;
+        });
+        topicAssessments.forEach((assessment) => {
+          nextMaterialRecordIds[getMaterialDraftKey(topic.id, 'assessment', assessment.name)] = assessment.id;
+        });
+
+        return {
+          id: topic.id,
+          title: topic.name,
+          unit: toWorkspaceUnitLabel(topic),
+          form: inferTopicForm(topic, subjectGrades),
+          masteryPercent: 0,
+          resourcesCount: lessonResources.length,
+          practicesCount: practiceResources.length,
+          assessmentsCount: topicAssessments.length,
+          updatedAtLabel: formatUpdatedAtLabel([
+            ...topicResources.map((resource) => resource.updatedAt || resource.createdAt),
+            ...topicAssessments.map((assessment) => assessment.updatedAt || assessment.createdAt),
+          ]),
+          materials: {
+            resource: lessonResources.map((resource) => resource.name),
+            practice: practiceResources.map((resource) => resource.name),
+            assessment: topicAssessments.map((assessment) => assessment.name),
+          },
+        } as TopicCoverage;
+      });
+
+      setTopics(nextTopics);
+      setMaterialRecordIds(nextMaterialRecordIds);
+      setAssessmentResourceIds(nextAssessmentResourceIds);
+      setSelectedTopicId((previous) => {
+        if (previous && nextTopics.some((topic) => topic.id === previous)) return previous;
+        return nextTopics[0]?.id || '';
+      });
+    } catch (error: any) {
+      setTopics([]);
+      setWorkspaceError(error?.message || 'Unable to load the workspace right now.');
+      setSelectedTopicId('');
+    } finally {
+      setWorkspaceLoading(false);
+    }
+  }, [selectedSubjectId, subjects]);
+
   useEffect(() => {
     const loadSubjects = async () => {
       try {
@@ -538,6 +758,7 @@ const ClassroomSubjectsPage: React.FC = () => {
           id: subject.id,
           code: subject.code || '',
           name: subject.name,
+          grades: Array.isArray(subject.grades) ? subject.grades : [],
         }));
         setSubjects(normalized.length ? normalized : FALLBACK_SUBJECTS);
       } catch {
@@ -545,6 +766,20 @@ const ClassroomSubjectsPage: React.FC = () => {
       }
     };
     loadSubjects();
+  }, []);
+
+  useEffect(() => {
+    const loadSchools = async () => {
+      try {
+        const schools = await schoolService.getSchools();
+        if (schools[0]?.id) {
+          setActiveSchoolId(schools[0].id);
+        }
+      } catch {
+        setActiveSchoolId('');
+      }
+    };
+    loadSchools();
   }, []);
 
   useEffect(() => {
@@ -569,10 +804,6 @@ const ClassroomSubjectsPage: React.FC = () => {
       code: current.code || '',
       name: current.name,
     });
-
-    const key = current.name.trim().toLowerCase();
-    const seededTopics = TOPIC_TEMPLATES[key] || TOPIC_TEMPLATES['computer science'];
-    setTopics(seededTopics);
     setIsTopicWorkspaceOpen(false);
     setIsTopicContentCollapsed(false);
     setIsStudioExpanded(false);
@@ -589,10 +820,14 @@ const ClassroomSubjectsPage: React.FC = () => {
     setWorkspaceTab('resource');
     setSelectedWorkspaceItem('');
     setMaterialDrafts({});
+    setMaterialRecordIds({});
+    setAssessmentResourceIds({});
+    setResourceDetailsCache({});
+    setAssessmentDetailsCache({});
     setEditorBlockStyle('Paragraph');
     setEditorTitle('');
     setEditorBody('');
-    setAiGradeLevel(seededTopics[0]?.form || 'Form 4');
+    setAiGradeLevel('Form 4');
     setAiObjective('');
     setAiPrompt('');
     setAiChatInput('');
@@ -610,11 +845,8 @@ const ClassroomSubjectsPage: React.FC = () => {
     setAssessmentAiPrompt('');
     setAssessmentAiLogs([]);
     setAssessmentAttachedFileName('');
-    setSelectedTopicId((previous) => {
-      if (previous && seededTopics.some((topic) => topic.id === previous)) return previous;
-      return seededTopics[0]?.id || '';
-    });
-  }, [selectedSubjectId, setSelectedSubject, subjects]);
+    void refreshWorkspaceData();
+  }, [refreshWorkspaceData, selectedSubjectId, setSelectedSubject, subjects]);
 
   const filteredTopics = useMemo(() => {
     const query = topicQuery.trim().toLowerCase();
@@ -654,35 +886,161 @@ const ClassroomSubjectsPage: React.FC = () => {
   }, [selectedTopic, selectedWorkspaceItem, workspaceTab]);
 
   useEffect(() => {
-    if (!selectedTopic || !selectedWorkspaceItem) {
-      setEditorTitle('');
-      setEditorBody('');
-      return;
-    }
-
-    const key = getMaterialDraftKey(selectedTopic.id, workspaceTab, selectedWorkspaceItem);
-    setMaterialDrafts((previous) => {
-      if (previous[key]) return previous;
-      return {
-        ...previous,
-        [key]: buildSeedMaterialDraft(selectedTopic.title, selectedWorkspaceItem, workspaceTab),
-      };
-    });
-  }, [selectedTopic, selectedWorkspaceItem, workspaceTab]);
-
-  useEffect(() => {
     if (!selectedTopic || !selectedWorkspaceItem || !selectedMaterialKey) {
       setEditorTitle('');
       setEditorBody('');
+      if (workspaceTab === 'assessment') {
+        setIsAssessmentConfigured(false);
+      }
       return;
     }
 
-    setEditorTitle(selectedWorkspaceItem);
-    setEditorBody(
-      materialDrafts[selectedMaterialKey] ||
-        buildSeedMaterialDraft(selectedTopic.title, selectedWorkspaceItem, workspaceTab)
+    if (workspaceTab === 'assessment') {
+      return;
+    }
+
+    const persistedId = materialRecordIds[selectedMaterialKey];
+    const cachedBody = materialDrafts[selectedMaterialKey];
+    if (cachedBody) {
+      setEditorTitle(selectedWorkspaceItem);
+      setEditorBody(cachedBody);
+      return;
+    }
+
+    if (!persistedId) {
+      const fallback = buildSeedMaterialDraft(selectedTopic.title, selectedWorkspaceItem, workspaceTab);
+      setMaterialDrafts((previous) => ({ ...previous, [selectedMaterialKey]: fallback }));
+      setEditorTitle(selectedWorkspaceItem);
+      setEditorBody(fallback);
+      return;
+    }
+
+    const cachedResource = resourceDetailsCache[persistedId];
+    if (cachedResource?.contentBody != null) {
+      const body = cachedResource.contentBody || buildSeedMaterialDraft(selectedTopic.title, selectedWorkspaceItem, workspaceTab);
+      setMaterialDrafts((previous) => ({ ...previous, [selectedMaterialKey]: body }));
+      setEditorTitle(cachedResource.name || selectedWorkspaceItem);
+      setEditorBody(body);
+      return;
+    }
+
+    let cancelled = false;
+    const loadResource = async () => {
+      try {
+        const detail = await resourceService.get(persistedId);
+        if (cancelled) return;
+        const body = detail.contentBody || buildSeedMaterialDraft(selectedTopic.title, selectedWorkspaceItem, workspaceTab);
+        setResourceDetailsCache((previous) => ({ ...previous, [persistedId]: detail }));
+        setMaterialDrafts((previous) => ({ ...previous, [selectedMaterialKey]: body }));
+        setEditorTitle(detail.name || selectedWorkspaceItem);
+        setEditorBody(body);
+      } catch {
+        if (cancelled) return;
+        const fallback = buildSeedMaterialDraft(selectedTopic.title, selectedWorkspaceItem, workspaceTab);
+        setMaterialDrafts((previous) => ({ ...previous, [selectedMaterialKey]: fallback }));
+        setEditorTitle(selectedWorkspaceItem);
+        setEditorBody(fallback);
+      }
+    };
+
+    void loadResource();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    materialDrafts,
+    materialRecordIds,
+    resourceDetailsCache,
+    selectedMaterialKey,
+    selectedTopic,
+    selectedWorkspaceItem,
+    workspaceTab,
+  ]);
+
+  useEffect(() => {
+    if (workspaceTab !== 'assessment' || !selectedTopic || !selectedWorkspaceItem || !selectedMaterialKey) {
+      return;
+    }
+
+    const persistedId = materialRecordIds[selectedMaterialKey];
+    if (!persistedId) {
+      setAssessmentName(selectedWorkspaceItem);
+      setAssessmentDescription('');
+      setAssessmentQuestions([]);
+      setIsAssessmentConfigured(false);
+      return;
+    }
+
+    const cachedAssessment = assessmentDetailsCache[persistedId];
+    if (cachedAssessment) {
+      setAssessmentName(cachedAssessment.name || selectedWorkspaceItem);
+      setAssessmentType((cachedAssessment.assessmentType || 'quiz') as typeof assessmentType);
+      setAssessmentDescription(cachedAssessment.description || '');
+      setAssessmentMaxScore(String(cachedAssessment.maxScore ?? 100));
+      setAssessmentWeight(String(cachedAssessment.weightPct ?? 0));
+      setAssessmentTimeLimit(String(cachedAssessment.timeLimitMin ?? 0));
+      setAssessmentAttempts(String(cachedAssessment.attemptsAllowed ?? 1));
+      setAssessmentStatus((cachedAssessment.status || 'draft') as typeof assessmentStatus);
+      setAssessmentVisibility((cachedAssessment.visibility || 'private') as typeof assessmentVisibility);
+      setAssessmentQuestions(
+        (cachedAssessment.questions || []).map((question: any) => ({
+          id: question.id || question.questionId || `${persistedId}-${question.sequenceIndex || 0}`,
+          prompt: question.stem || '',
+          type: question.questionTypeCode === 'multiple_choice' ? 'multiple-choice' : 'short-answer',
+          marks: Number(question.maxMark || question.points || 1),
+          options: Array.isArray(question.rubricJson?.options) ? question.rubricJson.options.join(', ') : '',
+        }))
       );
-  }, [materialDrafts, selectedMaterialKey, selectedTopic, selectedWorkspaceItem, workspaceTab]);
+      setIsAssessmentConfigured(true);
+      return;
+    }
+
+    let cancelled = false;
+    const loadAssessment = async () => {
+      try {
+        const detail = await assessmentService.getAssessmentWithQuestions(persistedId);
+        if (cancelled) return;
+        setAssessmentDetailsCache((previous) => ({ ...previous, [persistedId]: detail }));
+        setAssessmentName(detail.name || selectedWorkspaceItem);
+        setAssessmentType((detail.assessmentType || 'quiz') as typeof assessmentType);
+        setAssessmentDescription(detail.description || '');
+        setAssessmentMaxScore(String(detail.maxScore ?? 100));
+        setAssessmentWeight(String(detail.weightPct ?? 0));
+        setAssessmentTimeLimit(String(detail.timeLimitMin ?? 0));
+        setAssessmentAttempts(String(detail.attemptsAllowed ?? 1));
+        setAssessmentStatus((detail.status || 'draft') as typeof assessmentStatus);
+        setAssessmentVisibility((detail.visibility || 'private') as typeof assessmentVisibility);
+        setAssessmentQuestions(
+          (detail.questions || []).map((question: any) => ({
+            id: question.id || question.questionId || `${persistedId}-${question.sequenceIndex || 0}`,
+            prompt: question.stem || '',
+            type: question.questionTypeCode === 'multiple_choice' ? 'multiple-choice' : 'short-answer',
+            marks: Number(question.maxMark || question.points || 1),
+            options: Array.isArray(question.rubricJson?.options) ? question.rubricJson.options.join(', ') : '',
+          }))
+        );
+        setIsAssessmentConfigured(true);
+      } catch {
+        if (!cancelled) {
+          setAssessmentName(selectedWorkspaceItem);
+          setAssessmentQuestions([]);
+          setIsAssessmentConfigured(false);
+        }
+      }
+    };
+
+    void loadAssessment();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    assessmentDetailsCache,
+    materialRecordIds,
+    selectedMaterialKey,
+    selectedTopic,
+    selectedWorkspaceItem,
+    workspaceTab,
+  ]);
 
   useEffect(() => {
     if (!editorSurfaceRef.current) return;
@@ -760,6 +1118,180 @@ const ClassroomSubjectsPage: React.FC = () => {
     setIsTopicWorkspaceOpen(true);
   };
 
+  const ensureWorkspaceContext = () => {
+    const currentUser = authService.getCurrentUser();
+    if (!currentUser?.id) {
+      setToastMessage('You need to be logged in to continue.');
+      return null;
+    }
+    if (!activeSchoolId) {
+      setToastMessage('School context is not available yet.');
+      return null;
+    }
+    if (!selectedSubjectId || !selectedTopic) {
+      setToastMessage('Select a subject topic first.');
+      return null;
+    }
+    return { currentUserId: currentUser.id, schoolId: activeSchoolId };
+  };
+
+  const createOrUpdateWorkspaceResource = async (
+    mode: 'draft' | 'published',
+    overrides?: {
+      title?: string;
+      body?: string;
+      type?: TopicContentType;
+      existingId?: string | null;
+      skipRefresh?: boolean;
+    }
+  ) => {
+    if (!selectedTopic) return null;
+    const context = ensureWorkspaceContext();
+    if (!context) return null;
+
+    const effectiveType = overrides?.type || workspaceTab;
+    const contentTitle = (overrides?.title || editorTitle || selectedWorkspaceItem || '').trim();
+    if (!contentTitle) {
+      setToastMessage(`Enter a ${TOPIC_CONTENT_LABELS[effectiveType].slice(0, -1).toLowerCase()} title first.`);
+      return null;
+    }
+
+    const contentBody = (overrides?.body ?? editorBody).trim();
+    const contentType = effectiveType === 'practice' ? 'practice' : effectiveType === 'assessment' ? 'assessment' : 'notes';
+    const draftKey = getMaterialDraftKey(selectedTopic.id, effectiveType, contentTitle);
+    const existingId = overrides?.existingId || materialRecordIds[draftKey] || null;
+    const payload = {
+      schoolId: context.schoolId,
+      subjectId: selectedSubjectId,
+      uploadedBy: context.currentUserId,
+      name: contentTitle,
+      originalName: contentTitle,
+      mimeType: 'text/html',
+      resType: 'content',
+      sizeBytes: new Blob([contentBody || '']).size,
+      contentType,
+      contentBody,
+      status: mode,
+      topicIds: [selectedTopic.id],
+      tags: [selectedTopic.form, effectiveType].filter(Boolean),
+    };
+
+    const saved = existingId
+      ? await resourceService.update(existingId, payload)
+      : await resourceService.create(payload);
+
+    const savedId = saved.id || existingId;
+    if (savedId) {
+      setMaterialRecordIds((previous) => ({
+        ...previous,
+        [draftKey]: savedId,
+      }));
+      setResourceDetailsCache((previous) => ({
+        ...previous,
+        [savedId]: {
+          ...(previous[savedId] || {}),
+          ...saved,
+          id: savedId,
+          name: contentTitle,
+          contentBody,
+          topicIds: [selectedTopic.id],
+          contentType,
+        },
+      }));
+      setMaterialDrafts((previous) => ({ ...previous, [draftKey]: contentBody }));
+    }
+
+    if (!overrides?.skipRefresh) {
+      await refreshWorkspaceData();
+    }
+    return savedId || null;
+  };
+
+  const persistAssessmentWorkspace = async () => {
+    if (!selectedTopic) return null;
+    const context = ensureWorkspaceContext();
+    if (!context) return null;
+    if (!assessmentName.trim()) {
+      setToastMessage('Enter an assessment name before saving.');
+      return null;
+    }
+
+    const selectedKey = selectedMaterialKey || getMaterialDraftKey(selectedTopic.id, 'assessment', assessmentName.trim());
+    const existingAssessmentId = materialRecordIds[selectedKey] || null;
+    const existingResourceId = existingAssessmentId ? assessmentResourceIds[existingAssessmentId] || null : null;
+    const resourceId = await createOrUpdateWorkspaceResource(
+      assessmentStatus === 'published' ? 'published' : 'draft',
+      {
+        title: assessmentName.trim(),
+        body: buildAssessmentResourceContent(selectedTopic.title, assessmentName.trim(), assessmentDescription, assessmentQuestions),
+        type: 'assessment',
+        existingId: existingResourceId,
+        skipRefresh: true,
+      }
+    );
+    if (!resourceId) return null;
+
+    const payload = {
+      schoolId: context.schoolId,
+      subjectId: selectedSubjectId,
+      name: assessmentName.trim(),
+      description: assessmentDescription.trim(),
+      assessmentType,
+      visibility: assessmentVisibility,
+      timeLimitMin: Number(assessmentTimeLimit) || null,
+      attemptsAllowed: Number(assessmentAttempts) || 1,
+      maxScore: Number(assessmentMaxScore) || 100,
+      weightPct: Number(assessmentWeight) || 0,
+      resourceId,
+      aiEnhanced: assessmentAiLogs.length > 0,
+      status: assessmentStatus,
+      createdBy: context.currentUserId,
+      lastModifiedBy: context.currentUserId,
+      questions: assessmentQuestions.map((question, index) => ({
+        stem: question.prompt,
+        questionTypeCode: question.type === 'multiple-choice' ? 'multiple_choice' : 'short_answer',
+        maxMark: question.marks,
+        difficulty: 2,
+        rubricJson: {
+          options: question.type === 'multiple-choice'
+            ? question.options.split(',').map((option) => option.trim()).filter(Boolean)
+            : [],
+        },
+        sequenceIndex: index + 1,
+        points: question.marks,
+      })),
+    };
+
+    const savedAssessment = existingAssessmentId
+      ? await assessmentService.updateAssessment(existingAssessmentId, payload as any)
+      : await assessmentService.createAssessment(payload as any);
+
+    const savedAssessmentId = savedAssessment?.id || existingAssessmentId;
+    if (savedAssessmentId) {
+      setAssessmentResourceIds((previous) => ({ ...previous, [savedAssessmentId]: resourceId }));
+      if (assessmentStatus === 'published') {
+        const assignment = await assessmentEnrollmentService.createAssignment({
+          assessmentId: savedAssessmentId,
+          assignedBy: context.currentUserId,
+          title: assessmentName.trim(),
+          instructions: assessmentDescription.trim() || undefined,
+          published: false,
+        });
+        const enrolledStudents = await studentService.getStudents(selectedSubjectId);
+        const studentIds = Array.isArray(enrolledStudents)
+          ? enrolledStudents.map((student) => student.id).filter((studentId): studentId is string => !!studentId)
+          : [];
+        if (assignment?.id && studentIds.length > 0) {
+          await assessmentEnrollmentService.enrollStudents(assignment.id, studentIds, 'assigned');
+          await assessmentEnrollmentService.publishAssignment(assignment.id);
+        }
+      }
+    }
+
+    await refreshWorkspaceData();
+    return savedAssessmentId || null;
+  };
+
   const handleQuickCreate = (type: TopicContentType) => {
     if (!selectedTopic) return;
     openTopicWorkspace(selectedTopic.id, type);
@@ -772,7 +1304,7 @@ const ClassroomSubjectsPage: React.FC = () => {
     setIsCreateItemModalOpen(true);
   };
 
-  const handleConfirmCreateWorkspaceItem = () => {
+  const handleConfirmCreateWorkspaceItem = async () => {
     if (!selectedTopic) return;
 
     const typeLabel = TOPIC_CONTENT_LABELS[workspaceTab].slice(0, -1).toLowerCase();
@@ -791,36 +1323,33 @@ const ClassroomSubjectsPage: React.FC = () => {
       suffix += 1;
     }
 
-    setTopics((previous) =>
-      previous.map((topic) => {
-        if (topic.id !== selectedTopic.id) return topic;
-
-        return {
-          ...topic,
-          resourcesCount: workspaceTab === 'resource' ? topic.resourcesCount + 1 : topic.resourcesCount,
-          practicesCount: workspaceTab === 'practice' ? topic.practicesCount + 1 : topic.practicesCount,
-          assessmentsCount: workspaceTab === 'assessment' ? topic.assessmentsCount + 1 : topic.assessmentsCount,
-          updatedAtLabel: 'Updated just now',
-          materials: {
-            ...topic.materials,
-            [workspaceTab]: [nextName, ...topic.materials[workspaceTab]],
-          },
-        };
-      })
-    );
-
     const draft = buildSeedMaterialDraft(selectedTopic.title, nextName, workspaceTab);
     const draftKey = getMaterialDraftKey(selectedTopic.id, workspaceTab, nextName);
-    setMaterialDrafts((previous) => ({
-      ...previous,
-      [draftKey]: draft,
-    }));
-    setSelectedWorkspaceItem(nextName);
-    setEditorTitle(nextName);
-    setEditorBody(draft);
     if (workspaceTab === 'assessment') {
-      setAssessmentName((current) => current.trim() || nextName);
+      setSelectedWorkspaceItem(nextName);
+      setAssessmentName(nextName);
+      setAssessmentDescription('');
+      setAssessmentQuestions([]);
       setIsAssessmentConfigured(true);
+      setMaterialDrafts((previous) => ({
+        ...previous,
+        [draftKey]: draft,
+      }));
+    } else {
+      try {
+        const savedId = await createOrUpdateWorkspaceResource('draft', {
+          title: nextName,
+          body: draft,
+          type: workspaceTab,
+        });
+        if (!savedId) return;
+        setSelectedWorkspaceItem(nextName);
+        setEditorTitle(nextName);
+        setEditorBody(draft);
+      } catch (error: any) {
+        setToastMessage(error?.message || `Failed to create ${typeLabel}.`);
+        return;
+      }
     }
     setIsCreateItemModalOpen(false);
     setCreateItemTitle('');
@@ -838,7 +1367,7 @@ const ClassroomSubjectsPage: React.FC = () => {
     setToastMessage(`Marked "${item}" in ${TOPIC_CONTENT_LABELS[type]} as updated.`);
   };
 
-  const handleDuplicateWorkspaceItem = (item: string) => {
+  const handleDuplicateWorkspaceItem = async (item: string) => {
     if (!selectedTopic) return;
 
     const existingNames = new Set(selectedTopic.materials[workspaceTab]);
@@ -849,95 +1378,102 @@ const ClassroomSubjectsPage: React.FC = () => {
       suffix += 1;
     }
 
-    setTopics((previous) =>
-      previous.map((topic) => {
-        if (topic.id !== selectedTopic.id) return topic;
-
-        const list = topic.materials[workspaceTab];
-        const index = list.findIndex((entry) => entry === item);
-        const nextList = [...list];
-        if (index >= 0) {
-          nextList.splice(index + 1, 0, duplicateName);
-        } else {
-          nextList.unshift(duplicateName);
-        }
-
-        return {
-          ...topic,
-          resourcesCount: workspaceTab === 'resource' ? topic.resourcesCount + 1 : topic.resourcesCount,
-          practicesCount: workspaceTab === 'practice' ? topic.practicesCount + 1 : topic.practicesCount,
-          assessmentsCount: workspaceTab === 'assessment' ? topic.assessmentsCount + 1 : topic.assessmentsCount,
-          updatedAtLabel: 'Updated just now',
-          materials: {
-            ...topic.materials,
-            [workspaceTab]: nextList,
-          },
-        };
-      })
-    );
-
     const sourceKey = getMaterialDraftKey(selectedTopic.id, workspaceTab, item);
-    const duplicateKey = getMaterialDraftKey(selectedTopic.id, workspaceTab, duplicateName);
-    const sourceBody =
-      materialDrafts[sourceKey] || buildSeedMaterialDraft(selectedTopic.title, item, workspaceTab);
-    setMaterialDrafts((previous) => ({
-      ...previous,
-      [duplicateKey]: sourceBody,
-    }));
-
-    setSelectedWorkspaceItem(duplicateName);
-    setEditorTitle(duplicateName);
-    setEditorBody(sourceBody);
-    setToastMessage(`Duplicated "${item}" as "${duplicateName}".`);
+    const sourceId = materialRecordIds[sourceKey];
+    try {
+      if (workspaceTab === 'assessment' && sourceId) {
+        const assessmentDetail = await assessmentService.getAssessmentWithQuestions(sourceId);
+        const sourceResourceId = assessmentResourceIds[sourceId] || assessmentDetail.resourceId || null;
+        let duplicatedResourceId: string | null = null;
+        if (sourceResourceId) {
+          const sourceResource = await resourceService.get(sourceResourceId);
+          duplicatedResourceId = await createOrUpdateWorkspaceResource('draft', {
+            title: duplicateName,
+            body: sourceResource.contentBody || buildAssessmentResourceContent(selectedTopic.title, duplicateName, assessmentDetail.description || '', []),
+            type: 'assessment',
+          });
+        }
+        const duplicatedAssessment = await assessmentService.createAssessment({
+          schoolId: activeSchoolId,
+          subjectId: selectedSubjectId,
+          name: duplicateName,
+          description: assessmentDetail.description || '',
+          assessmentType: assessmentDetail.assessmentType || 'quiz',
+          visibility: assessmentDetail.visibility || 'private',
+          timeLimitMin: assessmentDetail.timeLimitMin,
+          attemptsAllowed: assessmentDetail.attemptsAllowed,
+          maxScore: assessmentDetail.maxScore || 100,
+          weightPct: assessmentDetail.weightPct || 0,
+          resourceId: duplicatedResourceId,
+          aiEnhanced: assessmentDetail.aiEnhanced || false,
+          status: 'draft',
+          createdBy: authService.getCurrentUser()?.id,
+          lastModifiedBy: authService.getCurrentUser()?.id,
+          questions: (assessmentDetail.questions || []).map((question: any, index: number) => ({
+            stem: question.stem,
+            questionTypeCode: question.questionTypeCode,
+            maxMark: question.maxMark,
+            difficulty: question.difficulty,
+            rubricJson: question.rubricJson,
+            sequenceIndex: index + 1,
+            points: question.points,
+          })),
+        } as any);
+        if (duplicatedAssessment?.id && duplicatedResourceId) {
+          setAssessmentResourceIds((previous) => ({ ...previous, [duplicatedAssessment.id]: duplicatedResourceId }));
+        }
+      } else {
+        const sourceBody =
+          materialDrafts[sourceKey] || buildSeedMaterialDraft(selectedTopic.title, item, workspaceTab);
+        await createOrUpdateWorkspaceResource('draft', {
+          title: duplicateName,
+          body: sourceBody,
+          type: workspaceTab,
+        });
+      }
+      await refreshWorkspaceData();
+      setSelectedWorkspaceItem(duplicateName);
+      setEditorTitle(duplicateName);
+      setToastMessage(`Duplicated "${item}" as "${duplicateName}".`);
+    } catch (error: any) {
+      setToastMessage(error?.message || `Failed to duplicate "${item}".`);
+    }
   };
 
-  const handleDeleteWorkspaceItem = (item: string) => {
+  const handleDeleteWorkspaceItem = async (item: string) => {
     if (!selectedTopic) return;
     const confirmed = window.confirm(`Delete "${item}" from ${TOPIC_CONTENT_LABELS[workspaceTab]}?`);
     if (!confirmed) return;
 
-    let nextSelected = '';
-    setTopics((previous) =>
-      previous.map((topic) => {
-        if (topic.id !== selectedTopic.id) return topic;
-
-        const nextList = topic.materials[workspaceTab].filter((entry) => entry !== item);
-        if (selectedWorkspaceItem === item) {
-          nextSelected = nextList[0] || '';
-        }
-
-        return {
-          ...topic,
-          resourcesCount: workspaceTab === 'resource' ? Math.max(0, topic.resourcesCount - 1) : topic.resourcesCount,
-          practicesCount: workspaceTab === 'practice' ? Math.max(0, topic.practicesCount - 1) : topic.practicesCount,
-          assessmentsCount: workspaceTab === 'assessment' ? Math.max(0, topic.assessmentsCount - 1) : topic.assessmentsCount,
-          updatedAtLabel: 'Updated just now',
-          materials: {
-            ...topic.materials,
-            [workspaceTab]: nextList,
-          },
-        };
-      })
-    );
-
     const deleteKey = getMaterialDraftKey(selectedTopic.id, workspaceTab, item);
-    setMaterialDrafts((previous) => {
-      const next = { ...previous };
-      delete next[deleteKey];
-      return next;
-    });
-
-    if (selectedWorkspaceItem === item) {
-      setSelectedWorkspaceItem(nextSelected);
-      if (!nextSelected) {
+    const recordId = materialRecordIds[deleteKey];
+    try {
+      if (workspaceTab === 'assessment' && recordId) {
+        await assessmentService.deleteAssessment(recordId);
+        const linkedResourceId = assessmentResourceIds[recordId];
+        if (linkedResourceId) {
+          await resourceService.update(linkedResourceId, { status: 'archived', topicIds: [] });
+        }
+      } else if (recordId) {
+        await resourceService.update(recordId, { status: 'archived', topicIds: [] });
+      }
+      setMaterialDrafts((previous) => {
+        const next = { ...previous };
+        delete next[deleteKey];
+        return next;
+      });
+      await refreshWorkspaceData();
+      if (selectedWorkspaceItem === item) {
+        setSelectedWorkspaceItem('');
         setEditorTitle('');
         setEditorBody('');
         setSelectionActionOverlay(null);
         setSelectionActionHint(null);
       }
+      setToastMessage(`Deleted "${item}" from ${TOPIC_CONTENT_LABELS[workspaceTab]}.`);
+    } catch (error: any) {
+      setToastMessage(error?.message || `Failed to delete "${item}".`);
     }
-
-    setToastMessage(`Deleted "${item}" from ${TOPIC_CONTENT_LABELS[workspaceTab]}.`);
   };
 
   const handleEditorBodyChange = (nextBody: string) => {
@@ -1184,31 +1720,30 @@ const ClassroomSubjectsPage: React.FC = () => {
     const nextKey = getMaterialDraftKey(selectedTopic.id, workspaceTab, nextTitle);
     const nextBody = editorBody.trim() || materialDrafts[oldKey] || buildSeedMaterialDraft(selectedTopic.title, nextTitle, workspaceTab);
 
-    setTopics((previous) =>
-      previous.map((topic) => {
-        if (topic.id !== selectedTopic.id) return topic;
-        return {
-          ...topic,
-          updatedAtLabel: 'Updated just now',
-          materials: {
-            ...topic.materials,
-            [workspaceTab]: topic.materials[workspaceTab].map((item) => (item === oldTitle ? nextTitle : item)),
-          },
-        };
-      })
-    );
-
-    setMaterialDrafts((previous) => {
-      const next = { ...previous };
-      if (oldKey !== nextKey) delete next[oldKey];
-      next[nextKey] = nextBody;
-      return next;
-    });
-
-    setSelectedWorkspaceItem(nextTitle);
-    setEditorTitle(nextTitle);
-    setEditorBody(nextBody);
-    setToastMessage(`Saved "${nextTitle}" in ${TOPIC_CONTENT_LABELS[workspaceTab]}.`);
+    const persist = async () => {
+      try {
+        const existingId = materialRecordIds[oldKey] || null;
+        await createOrUpdateWorkspaceResource('draft', {
+          title: nextTitle,
+          body: nextBody,
+          type: workspaceTab,
+          existingId,
+        });
+        setMaterialDrafts((previous) => {
+          const next = { ...previous };
+          if (oldKey !== nextKey) delete next[oldKey];
+          next[nextKey] = nextBody;
+          return next;
+        });
+        setSelectedWorkspaceItem(nextTitle);
+        setEditorTitle(nextTitle);
+        setEditorBody(nextBody);
+        setToastMessage(`Saved "${nextTitle}" in ${TOPIC_CONTENT_LABELS[workspaceTab]}.`);
+      } catch (error: any) {
+        setToastMessage(error?.message || `Failed to save "${nextTitle}".`);
+      }
+    };
+    void persist();
   };
 
   const handleGenerateWithAi = (variant = false, teacherPrompt?: string) => {
@@ -1460,12 +1995,28 @@ const ClassroomSubjectsPage: React.FC = () => {
     return () => document.removeEventListener('selectionchange', handleSelectionChange);
   }, []);
 
+  const isPracticeConfigured = Boolean(
+    editorTitle.trim() || selectedWorkspaceItem || editorBody.trim()
+  );
+
   return (
     <ClassroomLayout showStudentProfileTab={false}>
       <div className="space-y-5">
         {toastMessage && (
           <div className="fixed right-6 top-24 z-50 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 shadow-lg">
             {toastMessage}
+          </div>
+        )}
+
+        {workspaceError && (
+          <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+            {workspaceError}
+          </div>
+        )}
+
+        {workspaceLoading && !isTopicWorkspaceOpen && (
+          <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500 shadow-sm">
+            Loading live workspace data...
           </div>
         )}
 
@@ -2267,11 +2818,20 @@ const ClassroomSubjectsPage: React.FC = () => {
                               <button
                                 type="button"
                                 onClick={() => {
-                                  if (!assessmentName.trim()) {
-                                    setToastMessage('Enter an assessment name before creating.');
-                                    return;
-                                  }
-                                  setToastMessage(`Assessment "${assessmentName.trim()}" created (UI preview).`);
+                                  void (async () => {
+                                    try {
+                                      const savedAssessmentId = await persistAssessmentWorkspace();
+                                      if (!savedAssessmentId) return;
+                                      setIsAssessmentConfigured(true);
+                                      setToastMessage(
+                                        assessmentStatus === 'published'
+                                          ? `Assessment "${assessmentName.trim()}" published to students.`
+                                          : `Assessment "${assessmentName.trim()}" saved.`
+                                      );
+                                    } catch (error: any) {
+                                      setToastMessage(error?.message || 'Failed to create assessment.');
+                                    }
+                                  })();
                                 }}
                                 className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-60"
                               >
@@ -2555,6 +3115,298 @@ const ClassroomSubjectsPage: React.FC = () => {
                             </aside>
                           </div>
 
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : workspaceTab === 'practice' ? (
+                  <div className="col-span-full min-h-0 overflow-hidden">
+                    <div className="mx-auto flex h-full max-w-7xl min-h-0 flex-col overflow-hidden">
+                      <div className="min-h-0 flex-1">
+                        <div className="flex h-full flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow">
+                          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 p-4">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={handleSaveMaterialDraft}
+                                className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                              >
+                                Save draft
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setIsMaterialConfigOpen(false);
+                                  setIsTopicContentCollapsed(false);
+                                  setIsTopicWorkspaceOpen(false);
+                                }}
+                                className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void (async () => {
+                                    try {
+                                      const savedPracticeId = await createOrUpdateWorkspaceResource('published', {
+                                        type: 'practice',
+                                      });
+                                      if (!savedPracticeId) return;
+                                      setToastMessage(
+                                        `Practice "${(editorTitle.trim() || selectedWorkspaceItem || 'Draft').trim()}" published.`
+                                      );
+                                    } catch (error: any) {
+                                      setToastMessage(error?.message || 'Failed to create practice.');
+                                    }
+                                  })();
+                                }}
+                                className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+                              >
+                                Create Practice
+                              </button>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setIsStudioExpanded((previous) => !previous)}
+                              className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
+                              aria-label={isStudioExpanded ? 'Collapse practice workspace' : 'Expand practice workspace'}
+                              title={isStudioExpanded ? 'Collapse' : 'Expand'}
+                            >
+                              {isStudioExpanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+                            </button>
+                          </div>
+
+                          <div className="flex min-h-0 flex-1 flex-col overflow-hidden xl:flex-row">
+                            <div className="relative z-0 min-h-0 min-w-0 flex-1 space-y-6 overflow-y-auto p-6">
+                              <section className="space-y-4">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">
+                                      Practice Canvas
+                                    </h2>
+                                    <span
+                                      className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                                        isPracticeConfigured
+                                          ? 'bg-emerald-100 text-emerald-700'
+                                          : 'bg-amber-100 text-amber-700'
+                                      }`}
+                                    >
+                                      {isPracticeConfigured ? 'Configured' : 'Not configured'}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-3">
+                                    <button
+                                      type="button"
+                                      onClick={() => setIsMaterialConfigOpen(true)}
+                                      className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                                    >
+                                      <Settings2 className="h-3.5 w-3.5" />
+                                      Configure
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div className="rounded-lg border border-slate-200 bg-white p-4">
+                                  <div className="space-y-3">
+                                    <input
+                                      value={editorTitle}
+                                      onChange={(event) => setEditorTitle(event.target.value)}
+                                      placeholder="Title for practice"
+                                      className="w-full rounded-md border border-slate-200 px-3 py-2 text-base font-semibold text-slate-900"
+                                    />
+                                    <div ref={editorOverlayHostRef} className="relative">
+                                      <div
+                                        ref={editorSurfaceRef}
+                                        contentEditable
+                                        suppressContentEditableWarning
+                                        onFocus={captureEditorSelection}
+                                        onKeyUp={captureEditorSelection}
+                                        onMouseUp={captureEditorSelection}
+                                        onInput={(event) =>
+                                          handleEditorBodyChange((event.target as HTMLDivElement).innerHTML)
+                                        }
+                                        className="min-h-[440px] w-full rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                      />
+                                      {isEditorBodyEmpty && (
+                                        <span className="pointer-events-none absolute left-3 top-2 text-sm text-slate-400">
+                                          Start writing practice content here...
+                                        </span>
+                                      )}
+                                      {selectionActionOverlay && (
+                                        <div
+                                          className="absolute z-20"
+                                          style={{ top: selectionActionOverlay.top, left: selectionActionOverlay.left }}
+                                        >
+                                          <div className="relative flex items-center">
+                                            <div className="flex flex-col gap-1 rounded-md border border-slate-200 bg-white p-1 shadow-md">
+                                              <button
+                                                type="button"
+                                                onMouseDown={preserveEditorSelectionOnMouseDown}
+                                                onMouseEnter={() => setSelectionActionHint('Make changes to this')}
+                                                onMouseLeave={() => setSelectionActionHint(null)}
+                                                onClick={() => handleSelectionAction('change')}
+                                                className="inline-flex items-center justify-center rounded-md border border-blue-200 bg-blue-50 p-1.5 text-blue-700 hover:bg-blue-100"
+                                                aria-label="Make changes to highlighted text"
+                                                title="Make changes"
+                                              >
+                                                <Pencil className="h-4 w-4" />
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onMouseDown={preserveEditorSelectionOnMouseDown}
+                                                onMouseEnter={() => setSelectionActionHint('Try something different')}
+                                                onMouseLeave={() => setSelectionActionHint(null)}
+                                                onClick={() => handleSelectionAction('different')}
+                                                className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
+                                                aria-label="Try something different on highlighted text"
+                                                title="Try differently"
+                                              >
+                                                <RefreshCw className="h-4 w-4" />
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onMouseDown={preserveEditorSelectionOnMouseDown}
+                                                onMouseEnter={() => setSelectionActionHint('Ask AI collaborator')}
+                                                onMouseLeave={() => setSelectionActionHint(null)}
+                                                onClick={() => handleSelectionAction('chat')}
+                                                className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
+                                                aria-label="Ask AI collaborator about highlighted text"
+                                                title="Ask AI"
+                                              >
+                                                <MessageSquare className="h-4 w-4" />
+                                              </button>
+                                            </div>
+                                            {selectionActionHint && (
+                                              <div className="ml-2 whitespace-nowrap rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 shadow-md">
+                                                {selectionActionHint}
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              </section>
+                            </div>
+
+                            <button
+                              type="button"
+                              className="hidden w-2 shrink-0 cursor-col-resize items-center justify-center border-l border-r border-slate-100 bg-slate-50 transition-colors hover:bg-blue-50 xl:flex"
+                              aria-label="Resize AI collaborator panel"
+                            >
+                              <GripVertical className="h-8 w-3 text-slate-400" />
+                            </button>
+
+                            <aside
+                              className={`relative z-10 overflow-hidden border-slate-100 bg-slate-50 transition-all duration-200 ${
+                                isAiCollaboratorExpanded
+                                  ? 'flex h-full flex-col p-3'
+                                  : 'flex h-full flex-col items-center gap-2 border-t p-2.5 xl:border-l xl:border-t-0'
+                              }`}
+                              style={{ width: isAiCollaboratorExpanded ? 340 : 64 }}
+                            >
+                              {isAiCollaboratorExpanded ? (
+                                <div className="flex h-full min-h-0 flex-col rounded-md border border-slate-200 bg-white p-2">
+                                  <div className="mb-3 flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                      <p className="text-sm font-semibold text-slate-900">AI Collaborator</p>
+                                      <Bot className="h-4 w-4 text-slate-600" />
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setIsAiCollaboratorExpanded((previous) => {
+                                          const next = !previous;
+                                          if (!next) setIsAiConfigOpen(false);
+                                          return next;
+                                        })
+                                      }
+                                      className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
+                                      aria-label="Collapse AI collaborator"
+                                      title="Collapse"
+                                    >
+                                      <PanelRightClose className="h-4 w-4" />
+                                    </button>
+                                  </div>
+
+                                  <div className="mb-2 flex items-center justify-between gap-2">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                      Assistant chat
+                                    </p>
+                                  </div>
+
+                                  <div className="mt-2 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+                                    {aiMessages.map((message) => (
+                                      <div
+                                        key={message.id}
+                                        className={`rounded-md px-2 py-1.5 text-xs ${
+                                          message.role === 'assistant'
+                                            ? 'bg-slate-100 text-slate-700'
+                                            : 'bg-blue-50 text-blue-800'
+                                        }`}
+                                      >
+                                        {message.text}
+                                      </div>
+                                    ))}
+                                  </div>
+
+                                  <div className="mt-2 space-y-3">
+                                    <div className="relative">
+                                      <textarea
+                                        ref={aiChatInputRef}
+                                        value={aiChatInput}
+                                        onChange={(event) => setAiChatInput(event.target.value)}
+                                        onKeyDown={(event) => {
+                                          if (event.key === 'Enter' && !event.shiftKey) {
+                                            event.preventDefault();
+                                            handleSendAiMessage();
+                                          }
+                                        }}
+                                        placeholder="Prompt AI here. Use @ to attach library references."
+                                        className="min-h-[120px] w-full resize-none rounded-md border border-slate-200 px-3 py-2 pb-12 pr-16 text-sm"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={handleSendAiMessage}
+                                        className="absolute right-2 bottom-2 inline-flex h-9 min-w-9 items-center justify-center rounded-full bg-blue-600 px-3 text-white hover:bg-blue-700 disabled:opacity-60"
+                                        aria-label="Generate on canvas"
+                                      >
+                                        <SendHorizontal className="h-4 w-4" />
+                                      </button>
+                                    </div>
+
+                                    <div className="flex items-center justify-between gap-2">
+                                      <div className="flex items-center gap-2">
+                                        <button
+                                          type="button"
+                                          onClick={() => setIsAiConfigOpen(true)}
+                                          className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 hover:text-blue-700"
+                                        >
+                                          <Settings2 className="h-3.5 w-3.5" />
+                                          Configure
+                                        </button>
+                                      </div>
+                                      <span className="text-[11px] text-slate-500">Type @ to attach reference</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : (
+                                <>
+                                  <Bot className="mt-1 h-4 w-4 text-slate-600" />
+                                  <button
+                                    type="button"
+                                    onClick={() => setIsAiCollaboratorExpanded(true)}
+                                    className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
+                                    aria-label="Expand AI collaborator panel"
+                                  >
+                                    <PanelRightOpen className="h-4 w-4" />
+                                  </button>
+                                </>
+                              )}
+                            </aside>
+                          </div>
                         </div>
                       </div>
                     </div>

@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Home, LayoutGrid, Mail, Calendar, LogOut, ChevronDown, X, Bell, Shield, Users, BookOpen, GraduationCap, Cpu, TrendingUp, Target, FileText } from 'lucide-react';
+import { Home, LayoutGrid, Mail, Calendar, LogOut, ChevronDown, Bell, Shield, Users, BookOpen, GraduationCap, Cpu, TrendingUp, Target, FileText } from 'lucide-react';
 import { PieChart, Pie, Cell } from 'recharts';
 import { authService, notificationService, studentService, subjectService } from '../../services/api';
 import { useAuth } from '../../context/AuthContext';
@@ -62,10 +62,11 @@ const Header: React.FC<HeaderProps> = ({ activeTab: _activeTab, setActiveTab, po
 
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const { selectedSubject, setSelectedSubject } = useAuth();
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSubjectMenuOpen, setIsSubjectMenuOpen] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [classSummary, setClassSummary] = useState<ClassSummary>({ totalStudents: 0, categories: [] });
+  const subjectMenuRef = useRef<HTMLDivElement | null>(null);
 
   const isTeacherPortal = portalType === 'teacher';
   const pieData: GradeCategory[] =
@@ -130,6 +131,29 @@ const Header: React.FC<HeaderProps> = ({ activeTab: _activeTab, setActiveTab, po
     const interval = setInterval(fetchStudents, 30000);
     return () => clearInterval(interval);
   }, [isTeacherPortal, selectedSubject?.id]);
+
+  useEffect(() => {
+    if (!isSubjectMenuOpen) return;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (subjectMenuRef.current?.contains(target)) return;
+      setIsSubjectMenuOpen(false);
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsSubjectMenuOpen(false);
+      }
+    };
+
+    window.addEventListener('mousedown', handlePointerDown);
+    window.addEventListener('keydown', handleEscape);
+    return () => {
+      window.removeEventListener('mousedown', handlePointerDown);
+      window.removeEventListener('keydown', handleEscape);
+    };
+  }, [isSubjectMenuOpen]);
 
   const calculateGradeDistribution = (students: Student[]): ClassSummary => {
     const gradeRanges = [
@@ -239,16 +263,16 @@ const Header: React.FC<HeaderProps> = ({ activeTab: _activeTab, setActiveTab, po
         <div>
           {isTeacherPortal ? (
             location.pathname.startsWith('/classroom') ? (
-              <div className="bg-[#ececed] p-2 shadow-md mb-2 h-[70px] w-[280px] flex items-center justify-between rounded-md">
-                <div className="relative w-[90px] h-[70px] flex items-center justify-center">
-                  <div className="rounded-full bg-white ring-1 ring-slate-300 p-0.5">
-                    <PieChart width={52} height={52}>
+              <div className="bg-[#ececed] p-2 shadow-md mb-2 h-[72px] w-[280px] flex items-center justify-between rounded-md">
+                <div className="relative flex h-[72px] w-[72px] items-center justify-center">
+                  <div className="flex h-[64px] w-[64px] items-center justify-center rounded-full bg-white ring-1 ring-slate-300 shadow-sm">
+                    <PieChart width={56} height={56}>
                       <Pie
                         data={pieData}
                         cx="50%"
                         cy="50%"
-                        innerRadius={16}
-                        outerRadius={26}
+                        innerRadius={17}
+                        outerRadius={28}
                         dataKey="count"
                         startAngle={90}
                         endAngle={-270}
@@ -261,7 +285,9 @@ const Header: React.FC<HeaderProps> = ({ activeTab: _activeTab, setActiveTab, po
                       </Pie>
                     </PieChart>
                   </div>
-                  <div className="absolute text-xs font-bold">{classSummary.totalStudents}</div>
+                  <div className="absolute rounded-full bg-white/90 px-2 py-0.5 text-xs font-bold text-slate-900 shadow-sm">
+                    {classSummary.totalStudents}
+                  </div>
                 </div>
                 <div className="flex flex-col justify-center ml-2 text-sm flex-1">
                   <div className="flex flex-wrap gap-2">
@@ -275,41 +301,71 @@ const Header: React.FC<HeaderProps> = ({ activeTab: _activeTab, setActiveTab, po
                 </div>
               </div>
             ) : (
-              <div
-                className="relative w-fit max-w-xs bg-[#ececed] p-1 flex items-center shadow-md mb-2 rounded-l-lg z-10"
-                style={{
-                  clipPath: 'polygon(0 0, 100% 0, calc(100% - 50px) 100%, 0% 100%)',
-                  paddingRight: '60px',
-                }}
-              >
-                <div className="flex items-center flex-1 gap-x-3">
-                  <div className="w-12 h-12 bg-black rounded-full flex items-center justify-center flex-shrink-0">
-                    <div className="text-white text-xs">
-                      <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
-                        <circle cx="12" cy="7" r="4"></circle>
-                      </svg>
+              <div className="relative z-10 mb-2 w-fit" ref={subjectMenuRef}>
+                <div
+                  className="w-fit max-w-xs bg-[#ececed] p-1 flex items-center shadow-md rounded-l-lg"
+                  style={{
+                    clipPath: 'polygon(0 0, 100% 0, calc(100% - 50px) 100%, 0% 100%)',
+                    paddingRight: '60px',
+                  }}
+                >
+                  <div className="flex items-center flex-1 gap-x-3">
+                    <div className="w-12 h-12 bg-black rounded-full flex items-center justify-center flex-shrink-0">
+                      <div className="text-white text-xs">
+                        <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                          <circle cx="12" cy="7" r="4"></circle>
+                        </svg>
+                      </div>
                     </div>
-                  </div>
-                  <div className="ml-3 flex-1 min-w-0">
-                    <h2 className="text-lg font-bold truncate">
-                      Mr. {currentUser?.lastName ? currentUser.lastName.charAt(0).toUpperCase() + currentUser.lastName.slice(1) : 'User'}
-                    </h2>
-                    <div>
+                    <div className="ml-3 flex-1 min-w-0">
+                      <h2 className="text-lg font-bold truncate">
+                        Mr. {currentUser?.lastName ? currentUser.lastName.charAt(0).toUpperCase() + currentUser.lastName.slice(1) : 'User'}
+                      </h2>
                       <button
                         type="button"
-                        onClick={() => setIsModalOpen(true)}
+                        onClick={() => setIsSubjectMenuOpen((prev) => !prev)}
                         className="flex items-center text-sm hover:bg-gray-100 px-2 py-1 rounded-md w-full text-left"
+                        aria-haspopup="menu"
+                        aria-expanded={isSubjectMenuOpen}
                       >
                         <span className="flex-1">{selectedSubject ? selectedSubject.code : 'Select Subject'}</span>
-                        <ChevronDown size={16} className="ml-1" />
+                        <ChevronDown size={16} className={`ml-1 transition-transform ${isSubjectMenuOpen ? 'rotate-180' : ''}`} />
                       </button>
                     </div>
-                  </div>
-                  <div className="flex-shrink-0">
-                    <span className="text-3xl font-bold">81</span>
+                    <div className="flex-shrink-0">
+                      <span className="text-3xl font-bold">81</span>
+                    </div>
                   </div>
                 </div>
+                {isSubjectMenuOpen && (
+                  <div className="absolute left-0 top-full z-50 mt-2 w-64 rounded-lg border border-slate-200 bg-white p-2 shadow-xl">
+                    {subjects.length > 0 ? (
+                      <div className="space-y-1">
+                        {subjects.map((subject) => (
+                          <button
+                            key={subject.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedSubject(subject);
+                              setIsSubjectMenuOpen(false);
+                            }}
+                            className={`w-full rounded-md border px-3 py-2 text-left transition-colors ${
+                              selectedSubject?.id === subject.id
+                                ? 'border-blue-200 bg-blue-50 text-blue-700'
+                                : 'border-transparent hover:bg-slate-50'
+                            }`}
+                          >
+                            <div className="font-medium">{subject.code}</div>
+                            <div className="text-sm text-slate-500">{subject.name}</div>
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="px-3 py-4 text-sm text-slate-500">No subjects available</div>
+                    )}
+                  </div>
+                )}
               </div>
             )
           ) : (
@@ -379,45 +435,6 @@ const Header: React.FC<HeaderProps> = ({ activeTab: _activeTab, setActiveTab, po
           );
         })}
       </nav>
-
-      {isTeacherPortal && isModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-lg w-full max-w-md max-h-[80vh] flex flex-col">
-            <div className="flex justify-between items-center p-4 border-b">
-              <h3 className="text-lg font-medium">Select Subject</h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-500">
-                <X className="h-6 w-6" />
-              </button>
-            </div>
-            <div className="p-4 overflow-y-auto">
-              {subjects.length > 0 ? (
-                <div className="space-y-2">
-                  {subjects.map((subject) => (
-                    <button
-                      key={subject.id}
-                      onClick={() => {
-                        setSelectedSubject(subject);
-                        setIsModalOpen(false);
-                      }}
-                      className={`w-full text-left p-3 rounded-md transition-colors ${
-                        selectedSubject?.id === subject.id
-                          ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                          : 'hover:bg-gray-50 border border-transparent'
-                      }`}
-                    >
-                      <div className="font-medium">{subject.code}</div>
-                      <div className="text-sm text-gray-500">{subject.name}</div>
-                    </button>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8 text-gray-500">No subjects available</div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
       <NotificationCenter isOpen={showNotifications} onClose={() => setShowNotifications(false)} />
     </header>
   );

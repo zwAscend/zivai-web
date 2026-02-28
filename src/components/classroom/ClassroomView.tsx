@@ -4,9 +4,12 @@ import { studentService, developmentService, subjectService } from '../../servic
 import { Student } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import ClassroomLayout from './ClassroomLayout';
+import TablePagination from '../ui/TablePagination';
+import { useClientPagination } from '../../hooks/useClientPagination';
 
 type StudentWithInsights = Student & {
   planName: string;
+  hasPlan: boolean;
   planProgress: number | null;
   weakness: string;
   grade: 'A' | 'B' | 'C' | 'D' | 'E' | 'U';
@@ -81,42 +84,61 @@ const ClassroomView: React.FC = () => {
       setLoading(true);
       const selectedSubjectId = subjectFilter !== 'all' ? subjectFilter : undefined;
       const rawStudents = await studentService.getStudents(selectedSubjectId);
+      const normalizedStudents = Array.isArray(rawStudents) ? rawStudents : [];
+      let plansByStudentId = new Map<string, Awaited<ReturnType<typeof developmentService.listStudentPlans>>['items'][number]>();
 
-      const studentsWithInsights = await Promise.all(
-        (Array.isArray(rawStudents) ? rawStudents : []).map(async (student: Student) => {
-          try {
-            const plans = await developmentService.getAllPlansForStudent(student.id);
-            const activePlan = plans.find((plan) => plan.status === 'Active') || plans[0];
-            const planName = activePlan?.plan?.name || 'No plan';
-            const planProgress =
-              typeof activePlan?.currentProgress === 'number' ? activePlan.currentProgress : null;
+      if (normalizedStudents.length > 0) {
+        try {
+          const response = await developmentService.listStudentPlans({
+            subjectId: selectedSubjectId,
+            size: Math.min(Math.max(normalizedStudents.length, 20), 200),
+          });
 
-            let weakestSkill = 'N/A';
-            if (Array.isArray(activePlan?.skillProgress) && activePlan!.skillProgress!.length > 0) {
-              const lowest = activePlan!.skillProgress!.reduce((lowestItem, current) =>
-                current.currentScore < lowestItem.currentScore ? current : lowestItem
-              );
-              weakestSkill = lowest.skill || 'N/A';
+          plansByStudentId = response.items.reduce((acc, plan) => {
+            const studentId = plan.student;
+            const existingPlan = acc.get(studentId);
+            if (!existingPlan) {
+              acc.set(studentId, plan);
+              return acc;
             }
 
-            return {
-              ...student,
-              planName,
-              planProgress,
-              weakness: weakestSkill,
-              grade: getGradeFromOverall(Number(student.overall) || 0),
-            } as StudentWithInsights;
-          } catch {
-            return {
-              ...student,
-              planName: 'No plan',
-              planProgress: null,
-              weakness: 'N/A',
-              grade: getGradeFromOverall(Number(student.overall) || 0),
-            } as StudentWithInsights;
-          }
-        })
-      );
+            const existingIsActive = existingPlan.status === 'Active';
+            const nextIsActive = plan.status === 'Active';
+
+            if (!existingIsActive && nextIsActive) {
+              acc.set(studentId, plan);
+            }
+
+            return acc;
+          }, new Map<string, (typeof response.items)[number]>());
+        } catch {
+          plansByStudentId = new Map();
+        }
+      }
+
+      const studentsWithInsights = normalizedStudents.map((student: Student) => {
+        const activePlan = plansByStudentId.get(student.id);
+        const planName = activePlan?.plan?.name || 'No plan';
+        const planProgress =
+          typeof activePlan?.currentProgress === 'number' ? activePlan.currentProgress : null;
+
+        let weakestSkill = 'N/A';
+        if (Array.isArray(activePlan?.skillProgress) && activePlan.skillProgress.length > 0) {
+          const lowest = activePlan.skillProgress.reduce((lowestItem, current) =>
+            current.currentScore < lowestItem.currentScore ? current : lowestItem
+          );
+          weakestSkill = lowest.skill || 'N/A';
+        }
+
+        return {
+          ...student,
+          planName,
+          hasPlan: !!activePlan,
+          planProgress,
+          weakness: weakestSkill,
+          grade: getGradeFromOverall(Number(student.overall) || 0),
+        } as StudentWithInsights;
+      });
 
       setStudents(studentsWithInsights);
       setError(null);
@@ -166,6 +188,21 @@ const ClassroomView: React.FC = () => {
       return matchesQuery && matchesPerformance && matchesEngagement && matchesGrade && matchesWeakness;
     });
   }, [students, searchQuery, performanceFilter, engagementFilter, gradeFilter, weaknessFilter]);
+
+  const {
+    currentPage,
+    pageSize,
+    totalPages,
+    totalItems,
+    paginatedItems: paginatedStudents,
+    rangeStart,
+    rangeEnd,
+    setCurrentPage,
+    setPageSize,
+  } = useClientPagination(filteredStudents, {
+    initialPageSize: 10,
+    resetKey: `${subjectFilter}|${searchQuery}|${performanceFilter}|${engagementFilter}|${gradeFilter}|${weaknessFilter}|${filteredStudents.length}`,
+  });
 
   if (error) {
     return (
@@ -218,11 +255,11 @@ const ClassroomView: React.FC = () => {
                   ))}
                 </select>
               </div>
-              <div className="flex basis-full flex-wrap gap-2 min-w-0">
+              <div className="grid basis-full w-full min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
                 <select
                   value={performanceFilter}
                   onChange={(event) => setPerformanceFilter(event.target.value)}
-                  className="w-full sm:w-[180px] px-3 py-2 text-sm border border-slate-200 rounded-md"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-md"
                 >
                   <option value="all">All performance</option>
                   <option value="excellent">Excellent</option>
@@ -233,7 +270,7 @@ const ClassroomView: React.FC = () => {
                 <select
                   value={engagementFilter}
                   onChange={(event) => setEngagementFilter(event.target.value)}
-                  className="w-full sm:w-[180px] px-3 py-2 text-sm border border-slate-200 rounded-md"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-md"
                 >
                   <option value="all">All engagement</option>
                   <option value="high">High</option>
@@ -243,7 +280,7 @@ const ClassroomView: React.FC = () => {
                 <select
                   value={gradeFilter}
                   onChange={(event) => setGradeFilter(event.target.value)}
-                  className="w-full sm:w-[180px] px-3 py-2 text-sm border border-slate-200 rounded-md"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-md"
                 >
                   <option value="all">All grades</option>
                   <option value="A">A</option>
@@ -256,7 +293,7 @@ const ClassroomView: React.FC = () => {
                 <select
                   value={weaknessFilter}
                   onChange={(event) => setWeaknessFilter(event.target.value)}
-                  className="w-full sm:w-[180px] px-3 py-2 text-sm border border-slate-200 rounded-md"
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-md"
                 >
                   <option value="all">All weaknesses</option>
                   {weaknessOptions.map((weakness) => (
@@ -280,14 +317,13 @@ const ClassroomView: React.FC = () => {
                   <th className="px-4 py-1.5 border-b text-left">Performance</th>
                   <th className="px-4 py-1.5 border-b text-left">Plan</th>
                   <th className="px-4 py-1.5 border-b text-left">Plan Performance</th>
-                  <th className="px-4 py-1.5 border-b text-left">Action</th>
                 </tr>
               </thead>
               {loading ? (
-                <ClassroomStudentsSkeleton columns={9} />
-              ) : filteredStudents.length > 0 ? (
+                <ClassroomStudentsSkeleton columns={8} />
+              ) : paginatedStudents.length > 0 ? (
                 <tbody>
-                  {filteredStudents.map((student, index) => (
+                  {paginatedStudents.map((student, index) => (
                     <tr
                       key={student.id}
                       className={`${
@@ -295,34 +331,34 @@ const ClassroomView: React.FC = () => {
                       } hover:bg-blue-50 transition-colors duration-300`}
                     >
                       <td className="px-4 py-1.5 border-b text-sm">
-                        {student.firstName} {student.lastName}
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/students/profile?studentId=${encodeURIComponent(student.id)}`)}
+                          className="font-medium text-blue-600 hover:text-blue-700"
+                        >
+                          {student.firstName} {student.lastName}
+                        </button>
                       </td>
                       <td className="px-4 py-1.5 border-b text-sm">{student.overall}</td>
                       <td className="px-4 py-1.5 border-b text-sm">{student.grade}</td>
                       <td className="px-4 py-1.5 border-b text-sm">{student.strength || 'N/A'}</td>
                       <td className="px-4 py-1.5 border-b text-sm">{student.weakness || 'N/A'}</td>
                       <td className="px-4 py-1.5 border-b text-sm">{student.performance || 'N/A'}</td>
-                      <td className="px-4 py-1.5 border-b text-sm">{student.planName}</td>
                       <td className="px-4 py-1.5 border-b text-sm">
-                        {student.planProgress === null ? 'N/A' : `${Math.round(student.planProgress)}%`}
-                      </td>
-                      <td className="px-4 py-1.5 border-b text-sm">
-                        <div className="flex items-center gap-3">
-                          <button
-                            type="button"
-                            onClick={() => navigate(`/students/profile?studentId=${encodeURIComponent(student.id)}`)}
-                            className="text-blue-600 hover:text-blue-700 font-medium"
-                          >
-                            View Profile
-                          </button>
+                        {student.hasPlan ? (
                           <button
                             type="button"
                             onClick={() => navigate(`/development/${encodeURIComponent(student.id)}`)}
-                            className="text-slate-700 hover:text-slate-900 font-medium"
+                            className="font-medium text-blue-600 hover:text-blue-700"
                           >
-                            Open Development
+                            {student.planName}
                           </button>
-                        </div>
+                        ) : (
+                          <span className="text-slate-500">{student.planName}</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-1.5 border-b text-sm">
+                        {student.planProgress === null ? 'N/A' : `${Math.round(student.planProgress)}%`}
                       </td>
                     </tr>
                   ))}
@@ -330,7 +366,7 @@ const ClassroomView: React.FC = () => {
               ) : (
                 <tbody>
                   <tr>
-                    <td colSpan={9} className="px-4 py-8 text-sm text-center text-slate-500 border-b">
+                    <td colSpan={8} className="px-4 py-8 text-sm text-center text-slate-500 border-b">
                       No students match the selected filters.
                     </td>
                   </tr>
@@ -338,6 +374,16 @@ const ClassroomView: React.FC = () => {
               )}
             </table>
           </div>
+          <TablePagination
+            currentPage={currentPage}
+            pageSize={pageSize}
+            totalItems={totalItems}
+            totalPages={totalPages}
+            rangeStart={rangeStart}
+            rangeEnd={rangeEnd}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={setPageSize}
+          />
         </div>
       </div>
     </ClassroomLayout>

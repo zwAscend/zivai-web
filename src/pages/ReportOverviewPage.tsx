@@ -5,6 +5,8 @@ import { ClassReportResponse, reportService } from '../services/reportService';
 import { useAuth } from '../context/AuthContext';
 import { Subject } from '../types';
 import { BarChart3, TrendingUp, Users, AlertTriangle, BookOpen } from 'lucide-react';
+import TablePagination from '../components/ui/TablePagination';
+import { useClientPagination } from '../hooks/useClientPagination';
 
 const ReportOverviewPage: React.FC = () => {
   const { selectedSubject, setSelectedSubject } = useAuth();
@@ -150,6 +152,21 @@ const ReportOverviewPage: React.FC = () => {
         value: gap.average
       }));
   const gradeTotal = classStudentCount || Object.values(gradeDistribution).reduce((sum, value) => sum + value, 0);
+
+  const {
+    currentPage,
+    pageSize,
+    totalPages,
+    totalItems,
+    paginatedItems: paginatedStudents,
+    rangeStart,
+    rangeEnd,
+    setCurrentPage,
+    setPageSize,
+  } = useClientPagination(report.students, {
+    initialPageSize: 10,
+    resetKey: `${selectedSubject?.id || 'all'}|${report.students.length}`,
+  });
 
   return (
     <ReportLayout>
@@ -301,7 +318,7 @@ const ReportOverviewPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {report.students.map((student) => (
+                {paginatedStudents.map((student) => (
                   <tr key={student.id} className="hover:bg-slate-50">
                     <td className="px-4 py-3 text-slate-900 font-medium">{student.name}</td>
                     <td className="px-4 py-3 text-slate-700">{Math.round(student.average)}%</td>
@@ -326,6 +343,16 @@ const ReportOverviewPage: React.FC = () => {
               </tbody>
             </table>
           </div>
+          <TablePagination
+            currentPage={currentPage}
+            pageSize={pageSize}
+            totalItems={totalItems}
+            totalPages={totalPages}
+            rangeStart={rangeStart}
+            rangeEnd={rangeEnd}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={setPageSize}
+          />
         </div>
       </div>
     </ReportLayout>

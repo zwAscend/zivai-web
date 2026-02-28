@@ -19,6 +19,7 @@ import NotFound from './components/pages/NotFound';
 import DevelopmentPage from './pages/DevelopmentPage';
 import DevelopmentOverviewPage from './pages/DevelopmentOverviewPage';
 import DevelopmentPlansPage from './pages/DevelopmentPlansPage';
+import DevelopmentPlanCreatePage from './pages/DevelopmentPlanCreatePage';
 import DevelopmentReteachPage from './pages/DevelopmentReteachPage';
 import DevelopmentPracticePage from './pages/DevelopmentPracticePage';
 import DevelopmentReteachDetailPage from './pages/DevelopmentReteachDetailPage';
@@ -154,6 +155,7 @@ function App() {
             <Route path="development" element={<Navigate to="/development/profile" replace />} />
             <Route path="development/profile" element={<DevelopmentOverviewPage />} />
             <Route path="development/plans" element={<DevelopmentPlansPage />} />
+            <Route path="development/create/:studentId/:subjectId" element={<DevelopmentPlanCreatePage />} />
             <Route path="development/reteach" element={<DevelopmentReteachPage />} />
             <Route path="development/reteach/:id" element={<DevelopmentReteachDetailPage />} />
             <Route path="development/practice" element={<DevelopmentPracticePage />} />

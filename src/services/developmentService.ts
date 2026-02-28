@@ -20,6 +20,39 @@ export interface StudentStreakSummary {
   lastActiveDate?: string | null;
 }
 
+export interface UpdateStudentPlanPayload {
+  planId?: string;
+  subjectId?: string;
+  currentProgress?: number;
+  status?: string;
+  current?: boolean;
+  startDate?: string;
+  completionDate?: string;
+  name?: string;
+  description?: string;
+  progress?: number;
+  potentialOverall?: number;
+  eta?: number;
+  performance?: string;
+  skills?: Array<{
+    name: string;
+    score?: number;
+    subskills?: Array<{
+      name: string;
+      score?: number;
+      color?: string;
+    }>;
+  }>;
+  steps?: Array<{
+    title: string;
+    type: string;
+    content?: string;
+    link?: string;
+    order?: number;
+    additionalResources?: string[];
+  }>;
+}
+
 export const developmentService = {
   getSubjectAttributes: async (subjectId: string): Promise<SubjectAttribute[]> => {
     return fetchData<SubjectAttribute[]>(`/development/attributes/subject/${subjectId}`, { cacheTtlMs: 10 * 60 * 1000 });
@@ -94,6 +127,19 @@ export const developmentService = {
     return fetchData<DevelopmentPlan>(`/development/plans/student/${studentId}/${planId}/progress`, {
       method: 'PUT',
       body: JSON.stringify(progressData),
+    });
+  },
+
+  deleteStudentPlan: async (studentPlanId: string): Promise<{ message: string }> => {
+    return fetchData<{ message: string }>(`/development/plans/student-plan/${studentPlanId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  updateStudentPlan: async (studentPlanId: string, payload: UpdateStudentPlanPayload): Promise<DevelopmentPlan> => {
+    return fetchData<DevelopmentPlan>(`/development/plans/student-plan/${studentPlanId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
     });
   },
 

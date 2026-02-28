@@ -16,16 +16,30 @@ import {
 import { useToast } from "@/components/ui/use-toast";
 import { studentService, developmentService } from '../../services/api';
 import { planningService } from '../../services/planningService';
-import { Student } from '../../types';
+import { DevelopmentPlan, Student, StudentAttributes, SubjectAttribute } from '../../types';
 import { useAuth } from '@/context/AuthContext';
 
 interface CreateDevelopmentPlanModalProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
-  onPlanCreated: (studentId: string, plan: any) => void;
+  onPlanCreated: (studentId: string, plan: DevelopmentPlan) => void;
   students: Student[];
   subjectId: string;
 }
+
+const normalizeKey = (value: string) => value.trim().toLowerCase();
+
+const getStudentSubjectId = (student: Student): string => {
+  const firstSubject = student.subjects?.[0];
+  if (!firstSubject) return '';
+  return typeof firstSubject === 'string' ? firstSubject : firstSubject.id;
+};
+
+const getStudentSubjectName = (student: Student): string => {
+  const firstSubject = student.subjects?.[0];
+  if (!firstSubject || typeof firstSubject === 'string') return '';
+  return firstSubject.name || '';
+};
 
 const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
   isOpen,
@@ -72,7 +86,7 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
     };
 
     fetchStudents();
-  }, [isOpen]);
+  }, [isOpen, students.length]);
 
   // Update selected student when ID changes
   React.useEffect(() => {
@@ -94,73 +108,77 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
       setIsGenerating(true);
       const student = students.find(s => s.id === selectedStudentId);
       if (!student) throw new Error('Selected student not found');
-      if (!selectedSubject?.id) throw new Error('No subject selected. Please select a subject first.');
 
-      const subjectId = selectedSubject.id;
-      
-      const studentAttributesResponse = await developmentService.getStudentAttributes(selectedStudentId, subjectId);
-      
-      const subjectAttributes: any[] = [];
-      const studentAttributeValues: Record<string, any> = {};
-      
-      if (Array.isArray(studentAttributesResponse)) {
-        studentAttributesResponse.forEach((item: any) => {
-          if (item.attribute && (typeof item.current === 'number' || typeof item.potential === 'number')) {
-            const attributeId = item.attribute.id;
-            if (attributeId) {
-              if (!subjectAttributes.some(attr => attr.id === attributeId)) {
-                subjectAttributes.push({
-                  id: attributeId,
-                  name: item.attribute.name || `Attribute ${attributeId}`,
-                  description: item.attribute.description || '',
-                });
-              }
+      const effectiveSubjectId = selectedSubject?.id || subjectId || getStudentSubjectId(student);
+      if (!effectiveSubjectId) {
+        throw new Error('No subject available for this student. Please select a subject first.');
+      }
 
-              studentAttributeValues[attributeId] = {
-                current: item.current || 0,
-                potential: item.potential || 0
-              };
-            }
-          }
+      const [subjectAttributesResponse, studentAttributesResponse] = await Promise.all([
+        developmentService.getSubjectAttributes(effectiveSubjectId),
+        developmentService.getStudentAttributes(selectedStudentId, effectiveSubjectId),
+      ]);
+
+      const formattedSubjectAttributes = (Array.isArray(subjectAttributesResponse) ? subjectAttributesResponse : [])
+        .map((attr: SubjectAttribute) => ({
+          id: attr.id,
+          name: attr.name || 'Unnamed Attribute',
+          description: attr.description || '',
+        }))
+        .filter((attr) => !!attr.id);
+
+      const attributeIdByName = new Map(
+        formattedSubjectAttributes.map((attr) => [normalizeKey(attr.name), attr.id])
+      );
+
+      const formattedStudentAttributes: Record<string, { current: number; potential: number }> = {};
+
+      if (studentAttributesResponse && typeof studentAttributesResponse === 'object') {
+        Object.entries(studentAttributesResponse as StudentAttributes).forEach(([key, value]) => {
+          const matchedId = attributeIdByName.get(normalizeKey(key));
+          if (!matchedId || !value || typeof value !== 'object') return;
+
+          const current = Number(value.current ?? 0);
+          const potential = Number(value.potential ?? Math.min(100, Math.round(current * 1.2)));
+
+          formattedStudentAttributes[matchedId] = {
+            current: Number.isFinite(current) ? current : 0,
+            potential: Number.isFinite(potential) ? potential : 0,
+          };
         });
       }
 
-      const targetScores = Object.entries(studentAttributeValues).reduce<Record<string, number>>(
+      if (formattedSubjectAttributes.length === 0) {
+        formattedSubjectAttributes.push({
+          id: 'overall-performance',
+          name: 'Overall Performance',
+          description: 'General performance across all subject metrics',
+        });
+      }
+
+      formattedSubjectAttributes.forEach((attribute) => {
+        if (!formattedStudentAttributes[attribute.id]) {
+          const current = student.overall || 0;
+          formattedStudentAttributes[attribute.id] = {
+            current,
+            potential: Math.min(100, Math.round(current * 1.2)),
+          };
+        }
+      });
+
+      const targetScores = Object.entries(formattedStudentAttributes).reduce<Record<string, number>>(
         (acc, [attributeId, value]) => {
-          if (value) {
-            const current = value.current || 0;
-            return {
-              ...acc,
-              [attributeId]: Math.min(Math.round(Number(current) * 1.2), 100)
-            };
-          }
-          return acc;
+          const current = Number(value.current ?? 0);
+          const target = Math.min(100, Math.round(current * 1.2));
+          return {
+            ...acc,
+            [attributeId]: target,
+          };
         },
         {}
       );
 
-      const formattedSubjectAttributes = subjectAttributes.map(attr => ({
-        id: attr.id || 'unknown',
-        name: attr.name || 'Unnamed Attribute',
-        description: attr.description || ''
-      }));
-
-      const formattedStudentAttributes = { ...studentAttributeValues };
-
-      if (formattedSubjectAttributes.length === 0) {
-        formattedSubjectAttributes.push({
-          id: 'default-attribute',
-          name: 'Overall Performance',
-          description: 'General performance across all subject metrics'
-        });
-        
-        if (Object.keys(formattedStudentAttributes).length === 0) {
-          formattedStudentAttributes['default-attribute'] = {
-            current: student.overall || 0,
-            potential: Math.min(100, Math.round((student.overall || 0) * 1.2))
-          };
-        }
-      }
+      const resolvedSubjectName = selectedSubject?.name || getStudentSubjectName(student) || 'Subject';
 
       const planData = {
         student: {
@@ -174,8 +192,8 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
           engagement: student.engagement || 0,
           subjects: student.subjects || []
         },
-        subjectId,
-        subjectName: selectedSubject?.name || 'Subject Name',
+        subjectId: effectiveSubjectId,
+        subjectName: resolvedSubjectName,
         attributes: formattedSubjectAttributes,
         studentAttributes: formattedStudentAttributes,
         targetScores
@@ -184,12 +202,15 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
       const plan = await planningService.generateDevelopmentPlan(planData as any);
 
       const planToSave = {
-        ...plan,
-        studentId: selectedStudentId,
-        subjectId,
-        status: 'active',
-        createdAt: new Date(),
-        updatedAt: new Date()
+        name: plan.name,
+        description: plan.description,
+        progress: plan.progress ?? 0,
+        potentialOverall: plan.potentialOverall ?? 0,
+        eta: plan.eta ?? 30,
+        performance: plan.performance || student.performance || 'Average',
+        subjectId: effectiveSubjectId,
+        skills: plan.skills || [],
+        steps: plan.steps || [],
       };
 
       const created = await developmentService.createSubjectPlan(planToSave as any);
@@ -202,19 +223,20 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
     } finally {
       setIsGenerating(false);
     }
-  }, [selectedStudentId, students, onPlanCreated, selectedSubject]);
+  }, [selectedStudentId, students, selectedSubject, subjectId]);
 
   const handleAssignPlan = async () => {
     if (!createdPlan || isAssigning) return;
     
     try {
       setIsAssigning(true);
-      if (!selectedSubject?.id) throw new Error('No subject selected');
+      const effectiveSubjectId = selectedSubject?.id || subjectId || (selectedStudent ? getStudentSubjectId(selectedStudent) : '');
+      if (!effectiveSubjectId) throw new Error('No subject selected');
       
       const assignedPlan = await developmentService.assignPlanToStudent(
         selectedStudentId, 
         createdPlan.id,
-        selectedSubject?.id || subjectId
+        effectiveSubjectId
       );
       
       onPlanCreated(selectedStudentId, assignedPlan);

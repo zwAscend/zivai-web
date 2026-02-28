@@ -8,7 +8,7 @@ export type AssessmentStatus = 'draft' | 'published' | 'archived';
 export type UserRole = 'student' | 'teacher' | 'admin';
 export type AttributeCategory = 'Technical' | 'Soft Skills' | 'Core Concepts' | 'Advanced' | 'Transferable';
 export type SkillColor = 'yellow' | 'cyan' | 'blue' | 'green' | 'red';
-export type StepType = 'video' | 'document' | 'assignment' | 'quiz' | 'discussion';
+export type StepType = 'video' | 'document' | 'assessment' | 'assignment' | 'quiz' | 'discussion';
 export type SubmissionType = 'file' | 'text' | 'url';
 export type SubmissionStatus = 'submitted' | 'grading' | 'graded' | 'reviewed';
 export type NotificationType = 'assignment_graded' | 'assignment_submitted' | 'plan_assigned' | 'message_received';
@@ -70,6 +70,7 @@ export interface Skill {
 export interface Step {
   title: string;
   type: StepType;
+  content?: string;
   link?: string;
   additionalResources?: string[];
   order: number;

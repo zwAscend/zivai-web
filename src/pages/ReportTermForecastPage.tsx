@@ -8,6 +8,8 @@ import { authService } from '../services/authService';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'sonner';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '../components/ui/dialog';
+import TablePagination from '../components/ui/TablePagination';
+import { useClientPagination } from '../hooks/useClientPagination';
 
 const TERM_OPTIONS = ['Term 1', 'Term 2', 'Term 3'];
 const TERM_FILTERS = ['All terms', ...TERM_OPTIONS];
@@ -203,6 +205,21 @@ const ReportTermForecastPage: React.FC = () => {
     }));
     return { completion, mastery, expectedCoverage, topicStatus };
   }, [detailTopics, detailExpectedCoverage, selectedForecast]);
+
+  const {
+    currentPage,
+    pageSize,
+    totalPages,
+    totalItems,
+    paginatedItems: paginatedDetailTopics,
+    rangeStart,
+    rangeEnd,
+    setCurrentPage,
+    setPageSize,
+  } = useClientPagination(detailStats.topicStatus, {
+    initialPageSize: 8,
+    resetKey: `${selectedForecastId || 'none'}|${detailStats.topicStatus.length}`,
+  });
 
   const formSelectedTopicIds = useMemo(
     () => normalizeExpectedTopicIds(formExpectedTopicIds),
@@ -472,7 +489,7 @@ const ReportTermForecastPage: React.FC = () => {
                       </td>
                     </tr>
                   )}
-                  {!detailLoading && detailStats.topicStatus.map((topic) => (
+                  {!detailLoading && paginatedDetailTopics.map((topic) => (
                     <tr key={topic.id}>
                       <td className="px-4 py-3 text-slate-900 font-medium">{topic.topic}</td>
                       <td className="px-4 py-3 text-slate-700">
@@ -518,6 +535,16 @@ const ReportTermForecastPage: React.FC = () => {
                 </tbody>
               </table>
             </div>
+            <TablePagination
+              currentPage={currentPage}
+              pageSize={pageSize}
+              totalItems={totalItems}
+              totalPages={totalPages}
+              rangeStart={rangeStart}
+              rangeEnd={rangeEnd}
+              onPageChange={setCurrentPage}
+              onPageSizeChange={setPageSize}
+            />
           </div>
         </div>
       </div>

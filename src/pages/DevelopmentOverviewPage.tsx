@@ -4,7 +4,6 @@ import { developmentService, studentService, subjectService } from '../services/
 import { useAuth } from '../context/AuthContext';
 import { PlanStatus, Student, Subject } from '../types';
 import DevelopmentLayout from '../components/development/DevelopmentLayout';
-import CreateDevelopmentPlanModal from '../components/resources/CreateDevelopmentPlanModal';
 import {
   ResponsiveContainer,
   PieChart,
@@ -27,8 +26,6 @@ const DevelopmentOverviewPage: React.FC = () => {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [loading, setLoading] = useState(true);
   const [subjectFilter, setSubjectFilter] = useState('');
-  const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
-  const [reloadToken, setReloadToken] = useState(0);
 
   const normalizePlanStatus = (status?: string): PlanStatus | undefined => {
     if (!status) return undefined;
@@ -120,7 +117,7 @@ const DevelopmentOverviewPage: React.FC = () => {
     };
 
     loadStudents();
-  }, [subjectFilter, reloadToken]);
+  }, [subjectFilter]);
 
   const averageOverall = useMemo(() => {
     if (students.length === 0) return 0;
@@ -276,10 +273,10 @@ const DevelopmentOverviewPage: React.FC = () => {
                 </div>
                 <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:justify-end">
                   <button
-                    onClick={() => setIsPlanModalOpen(true)}
+                    onClick={() => navigate('/development/plans')}
                     className="w-full sm:w-auto px-3 py-1.5 sm:px-4 sm:py-2 rounded-md text-xs sm:text-sm font-medium bg-blue-600 text-white hover:bg-blue-700"
                   >
-                    Generate Targeted Plan
+                    Open Plan Workspace
                   </button>
                   <button
                     onClick={() => navigate('/development/reteach')}
@@ -447,13 +444,6 @@ const DevelopmentOverviewPage: React.FC = () => {
           </div>
         </div>
       </div>
-      <CreateDevelopmentPlanModal
-        isOpen={isPlanModalOpen}
-        onOpenChange={setIsPlanModalOpen}
-        onPlanCreated={() => setReloadToken((prev) => prev + 1)}
-        students={students}
-        subjectId={subjectFilter || selectedSubject?.id || ''}
-      />
     </DevelopmentLayout>
   );
 };

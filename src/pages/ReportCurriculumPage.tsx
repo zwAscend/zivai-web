@@ -4,6 +4,8 @@ import ReportLayout from '../components/report/ReportLayout';
 import { reportService, CurriculumTopicForecast } from '../services/reportService';
 import { useAuth } from '../context/AuthContext';
 import { subjectService } from '../services/subjectService';
+import TablePagination from '../components/ui/TablePagination';
+import { useClientPagination } from '../hooks/useClientPagination';
 
 const ReportCurriculumPage: React.FC = () => {
   const { selectedSubject } = useAuth();
@@ -65,6 +67,21 @@ const ReportCurriculumPage: React.FC = () => {
       return matchesPriority && matchesQuery && matchesAffected;
     });
   }, [topics, priorityFilter, topicQuery, affectedFilter]);
+
+  const {
+    currentPage,
+    pageSize,
+    totalPages,
+    totalItems,
+    paginatedItems: paginatedTopics,
+    rangeStart,
+    rangeEnd,
+    setCurrentPage,
+    setPageSize,
+  } = useClientPagination(filteredTopics, {
+    initialPageSize: 10,
+    resetKey: `${selectedSubjectId}|${priorityFilter}|${topicQuery}|${affectedFilter}|${filteredTopics.length}`,
+  });
 
   const totalTopics = topics.length;
   const completion = totalTopics
@@ -186,7 +203,7 @@ const ReportCurriculumPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredTopics.map((topic) => (
+                {paginatedTopics.map((topic) => (
                   <tr key={topic.id}>
                     <td className="px-4 py-3 text-slate-900 font-medium">{topic.topic}</td>
                     <td className="px-4 py-3 text-slate-700">
@@ -225,6 +242,16 @@ const ReportCurriculumPage: React.FC = () => {
               </tbody>
             </table>
           </div>
+          <TablePagination
+            currentPage={currentPage}
+            pageSize={pageSize}
+            totalItems={totalItems}
+            totalPages={totalPages}
+            rangeStart={rangeStart}
+            rangeEnd={rangeEnd}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={setPageSize}
+          />
         </div>
 
         {!loading && topics.length === 0 && (

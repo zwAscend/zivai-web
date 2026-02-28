@@ -1,4 +1,3 @@
-// src/components/pages/NotFound.tsx
 import React from 'react';
 import { useLocation, Link } from 'react-router-dom';
 

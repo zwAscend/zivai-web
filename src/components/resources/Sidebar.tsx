@@ -97,7 +97,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       ]
     : mode === 'development'
       ? [
-          { id: 'development-profile', label: 'Development Profile', icon: Target, onClick: onDevelopmentProfile },
+          { id: 'development-profile', label: 'Class Profile', icon: Target, onClick: onDevelopmentProfile },
           { id: 'development-students', label: 'Student Plans', icon: ListChecks, onClick: onDevelopmentStudents },
           { id: 'development-reteach', label: 'Re-teach Cards', icon: BookOpen, onClick: onDevelopmentReteach },
           { id: 'development-student', label: 'Student Profile', icon: User, onClick: onDevelopmentStudent },

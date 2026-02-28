@@ -243,7 +243,7 @@ const DevelopmentPlanCreation: React.FC<DevelopmentPlanCreationProps> = ({
       toast.success('Development plan created successfully!');
       
       // Navigate to the development view for this student
-      navigate(`/classroom/development/${selectedStudent.id}`);
+      navigate(`/development/${selectedStudent.id}`);
       
     } catch (error: any) {
       console.error('Error creating development plan:', error);
@@ -461,7 +461,7 @@ const DevelopmentPlanCreation: React.FC<DevelopmentPlanCreationProps> = ({
                       ? 'ring-2 ring-blue-500 bg-blue-50' 
                       : 'bg-white hover:bg-gray-50'
                   }`}
-                  onClick={() => navigate(`/classroom/development/create/${student.id}/${initialSubjectId}`)}
+                  onClick={() => navigate(`/development/create/${student.id}/${initialSubjectId}`)}
                 >
                   <div className="flex items-center gap-3">
                     <div className="relative flex h-10 w-10 shrink-0 overflow-hidden rounded-full bg-gray-100">

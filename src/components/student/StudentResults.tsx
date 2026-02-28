@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { TrendingUp, TrendingDown, Award, Target, FileText } from 'lucide-react';
 import { Assessment, Result } from '../../types';
 import { assessmentService } from '../../services/api';
+import TablePagination from '../ui/TablePagination';
+import { useClientPagination } from '../../hooks/useClientPagination';
 
 interface StudentResultsProps {
   studentId: string;
@@ -102,6 +104,21 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubj
     }
     
     return typeMatch && periodMatch && queryMatch;
+  });
+
+  const {
+    currentPage,
+    pageSize,
+    totalPages,
+    totalItems,
+    paginatedItems: paginatedResults,
+    rangeStart,
+    rangeEnd,
+    setCurrentPage,
+    setPageSize,
+  } = useClientPagination(filteredResults, {
+    initialPageSize: 10,
+    resetKey: `${selectedSubjectId || 'all'}|${selectedPeriod}|${selectedType}|${searchQuery}|${filteredResults.length}`,
   });
 
   // Calculate statistics
@@ -273,7 +290,7 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubj
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {filteredResults.map((result) => (
+              {paginatedResults.map((result) => (
                 <tr key={result.result.id} className="hover:bg-gray-50">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div>
@@ -341,6 +358,17 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubj
             </tbody>
           </table>
         </div>
+
+        <TablePagination
+          currentPage={currentPage}
+          pageSize={pageSize}
+          totalItems={totalItems}
+          totalPages={totalPages}
+          rangeStart={rangeStart}
+          rangeEnd={rangeEnd}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={setPageSize}
+        />
 
         {filteredResults.length === 0 && (
           <div className="text-center py-8 text-gray-500">

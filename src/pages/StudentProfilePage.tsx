@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom';
 import StudentsLayout from '../components/students/StudentsLayout';
 import { teacherService } from '../services/teacherService';
 import { authService } from '../services/authService';
+import { studentService } from '../services/api';
 
 const getInitials = (student: { firstName?: string; lastName?: string }) =>
   `${student.firstName?.[0] || ''}${student.lastName?.[0] || ''}`.toUpperCase();
@@ -60,7 +61,34 @@ const StudentProfilePage: React.FC = () => {
           page: 0,
           size: 200,
         });
-        const items = Array.isArray(response?.items) ? response.items : [];
+        let items = Array.isArray(response?.items) ? response.items : [];
+
+        if (items.length === 0) {
+          const rawStudents = await studentService.getStudents(subjectFocusId === 'all' ? undefined : subjectFocusId).catch(() => []);
+          const normalizedQuery = studentQuery.trim().toLowerCase();
+          items = (Array.isArray(rawStudents) ? rawStudents : [])
+            .filter((student) => {
+              if (!normalizedQuery) return true;
+              const fullName = `${student.firstName || ''} ${student.lastName || ''}`.toLowerCase();
+              return fullName.includes(normalizedQuery) || (student.email || '').toLowerCase().includes(normalizedQuery);
+            })
+            .map((student) => ({
+              studentId: student.id,
+              firstName: student.firstName,
+              lastName: student.lastName,
+              email: student.email,
+              overall: student.overall ?? 0,
+              performance: student.performance ?? null,
+              engagement: student.engagement ?? null,
+              strength: student.strength ?? null,
+              subjectCount: Array.isArray(student.subjects) ? student.subjects.length : 0,
+              classCount: 0,
+              planStatus: null,
+              planProgress: null,
+              activePlanName: null,
+            }));
+        }
+
         setStudents(items);
         if (!selectedStudentId && items.length > 0) {
           setSelectedStudentId(items[0].studentId);

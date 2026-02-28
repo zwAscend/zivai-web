@@ -5,6 +5,8 @@ import { submissionService } from '../services/api';
 import { reportService, StudentReportResponse } from '../services/reportService';
 import { useAuth } from '../context/AuthContext';
 import { authService } from '../services/authService';
+import TablePagination from '../components/ui/TablePagination';
+import { useClientPagination } from '../hooks/useClientPagination';
 
 interface PendingSubmission {
   id: string;
@@ -183,6 +185,21 @@ const ReportSubmissionsPage: React.FC = () => {
     });
   }, [assessmentQuery, baseAssessmentRows, typeFilter]);
 
+  const {
+    currentPage,
+    pageSize,
+    totalPages,
+    totalItems,
+    paginatedItems: paginatedAssessmentRows,
+    rangeStart,
+    rangeEnd,
+    setCurrentPage,
+    setPageSize,
+  } = useClientPagination(filteredAssessmentRows, {
+    initialPageSize: 10,
+    resetKey: `${selectedStudentId}|${assessmentQuery}|${typeFilter}|${filteredAssessmentRows.length}`,
+  });
+
   const assessmentTypes = Array.from(new Set(baseAssessmentRows.map((assessment) => assessment.type).filter(Boolean)));
 
   return (
@@ -276,7 +293,7 @@ const ReportSubmissionsPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredAssessmentRows.map((assessment) => (
+                  {paginatedAssessmentRows.map((assessment) => (
                     <tr key={assessment.id}>
                       <td className="px-4 py-3 text-slate-900 font-medium">{assessment.name}</td>
                       <td className="px-4 py-3 text-slate-600">{assessment.type}</td>
@@ -305,6 +322,16 @@ const ReportSubmissionsPage: React.FC = () => {
                 </tbody>
               </table>
             </div>
+            <TablePagination
+              currentPage={currentPage}
+              pageSize={pageSize}
+              totalItems={totalItems}
+              totalPages={totalPages}
+              rangeStart={rangeStart}
+              rangeEnd={rangeEnd}
+              onPageChange={setCurrentPage}
+              onPageSizeChange={setPageSize}
+            />
           </div>
         </div>
       </div>

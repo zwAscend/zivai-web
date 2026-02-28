@@ -875,7 +875,7 @@ const StudentDashboard: React.FC = () => {
 
   const renderOverview = () => (
     <div className="space-y-4">
-      <section className="w-full border-y border-orange-100 bg-gradient-to-r from-amber-50 via-orange-50 to-yellow-50">
+      <section className="relative left-1/2 right-1/2 w-screen -translate-x-1/2 border-y border-orange-100 bg-gradient-to-r from-amber-50 via-orange-50 to-yellow-50">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <p className="text-lg sm:text-xl font-semibold text-slate-900">
@@ -1020,7 +1020,7 @@ const StudentDashboard: React.FC = () => {
                 homePanel === 'subjects' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-100'
               }`}
             >
-              My Subjects
+              My Plans
             </button>
             <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide mt-7">My Account</p>
             <div className="mt-3 space-y-1.5">
