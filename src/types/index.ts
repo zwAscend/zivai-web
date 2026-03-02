@@ -68,6 +68,7 @@ export interface Skill {
 
 // Step Interface (from Plan Model)
 export interface Step {
+  id?: string;
   title: string;
   type: StepType;
   content?: string;

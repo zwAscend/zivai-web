@@ -71,4 +71,23 @@ export const resourceService = {
       body: JSON.stringify(payload),
     });
   },
+
+  delete: async (resourceId: string): Promise<{ message: string }> => {
+    return fetchData<{ message: string }>(`/resources/${resourceId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  addTopics: async (resourceId: string, topicIds: string[]): Promise<ResourceItem> => {
+    return fetchData<ResourceItem>(`/resources/${resourceId}/topics`, {
+      method: 'POST',
+      body: JSON.stringify({ topicIds }),
+    });
+  },
+
+  removeTopic: async (resourceId: string, topicId: string): Promise<ResourceItem> => {
+    return fetchData<ResourceItem>(`/resources/${resourceId}/topics/${topicId}`, {
+      method: 'DELETE',
+    });
+  },
 };

@@ -1452,10 +1452,10 @@ const ClassroomSubjectsPage: React.FC = () => {
         await assessmentService.deleteAssessment(recordId);
         const linkedResourceId = assessmentResourceIds[recordId];
         if (linkedResourceId) {
-          await resourceService.update(linkedResourceId, { status: 'archived', topicIds: [] });
+          await resourceService.delete(linkedResourceId);
         }
       } else if (recordId) {
-        await resourceService.update(recordId, { status: 'archived', topicIds: [] });
+        await resourceService.delete(recordId);
       }
       setMaterialDrafts((previous) => {
         const next = { ...previous };
