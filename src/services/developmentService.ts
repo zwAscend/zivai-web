@@ -53,6 +53,15 @@ export interface UpdateStudentPlanPayload {
   }>;
 }
 
+export interface StudentPlanStepPayload {
+  title: string;
+  type: string;
+  content?: string;
+  link?: string;
+  order?: number;
+  additionalResources?: string[];
+}
+
 export const developmentService = {
   getSubjectAttributes: async (subjectId: string): Promise<SubjectAttribute[]> => {
     return fetchData<SubjectAttribute[]>(`/development/attributes/subject/${subjectId}`, { cacheTtlMs: 10 * 60 * 1000 });
@@ -140,6 +149,52 @@ export const developmentService = {
     return fetchData<DevelopmentPlan>(`/development/plans/student-plan/${studentPlanId}`, {
       method: 'PUT',
       body: JSON.stringify(payload),
+    });
+  },
+
+  addStudentPlanStep: async (studentPlanId: string, payload: StudentPlanStepPayload): Promise<DevelopmentPlan> => {
+    return fetchData<DevelopmentPlan>(`/development/plans/student-plan/${studentPlanId}/steps`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  updateStudentPlanStep: async (studentPlanId: string, stepId: string, payload: StudentPlanStepPayload): Promise<DevelopmentPlan> => {
+    return fetchData<DevelopmentPlan>(`/development/plans/student-plan/${studentPlanId}/steps/${stepId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  deleteStudentPlanStep: async (studentPlanId: string, stepId: string): Promise<DevelopmentPlan> => {
+    return fetchData<DevelopmentPlan>(`/development/plans/student-plan/${studentPlanId}/steps/${stepId}`, {
+      method: 'DELETE',
+    });
+  },
+
+  reorderStudentPlanSteps: async (studentPlanId: string, stepIds: string[]): Promise<DevelopmentPlan> => {
+    return fetchData<DevelopmentPlan>(`/development/plans/student-plan/${studentPlanId}/steps/reorder`, {
+      method: 'PUT',
+      body: JSON.stringify({ stepIds }),
+    });
+  },
+
+  publishStudentPlan: async (studentPlanId: string): Promise<DevelopmentPlan> => {
+    return fetchData<DevelopmentPlan>(`/development/plans/student-plan/${studentPlanId}/publish`, {
+      method: 'POST',
+    });
+  },
+
+  unpublishStudentPlan: async (studentPlanId: string): Promise<DevelopmentPlan> => {
+    return fetchData<DevelopmentPlan>(`/development/plans/student-plan/${studentPlanId}/unpublish`, {
+      method: 'POST',
+    });
+  },
+
+  getPublishedStudentPlans: async (studentId: string, subjectId?: string): Promise<DevelopmentPlan[]> => {
+    const query = subjectId ? `?subjectId=${encodeURIComponent(subjectId)}` : '';
+    return fetchData<DevelopmentPlan[]>(`/students/${studentId}/development-plans${query}`, {
+      cacheTtlMs: 60 * 1000,
     });
   },
 

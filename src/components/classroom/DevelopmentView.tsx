@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { developmentService, studentService, subjectService } from '../../services/api';
-import { DevelopmentPlan, Skill, SkillColor, Step, Student, Subject } from '../../types';
+import { DevelopmentPlan, Step, Student, Subject } from '../../types';
 import { useToast } from '@/components/ui/use-toast';
 import {
   Bold,
@@ -46,6 +46,15 @@ const formatStepType = (value?: string) => {
   return value.charAt(0).toUpperCase() + value.slice(1);
 };
 
+const normalizeSkillKey = (value?: string) =>
+  (value || '')
+    .toLowerCase()
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+
+const stripHtml = (value?: string) => (value || '').replace(/<[^>]+>/g, ' ');
+
 const getOverallGrade = (overall?: number): string => {
   if (typeof overall !== 'number' || Number.isNaN(overall)) return 'N/A';
   if (overall >= 80) return 'A';
@@ -68,10 +77,6 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
   const [currentDisplayPlan, setCurrentDisplayPlan] = useState<DevelopmentPlan | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [expandedSkill, setExpandedSkill] = useState<{ skillIndex: number | null; subskillIndex: number | null }>({
-    skillIndex: null,
-    subskillIndex: null,
-  });
   const [isPlanSidebarCollapsed, setIsPlanSidebarCollapsed] = useState(false);
   const [isStudentsPanelCollapsed, setIsStudentsPanelCollapsed] = useState(false);
 
@@ -82,7 +87,8 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
   const [isStepWorkspaceMaximized, setIsStepWorkspaceMaximized] = useState(false);
   const [isStepAiCollapsed, setIsStepAiCollapsed] = useState(false);
   const [isPersistingPlan, setIsPersistingPlan] = useState(false);
-  const [isCreatingStarterPlan, setIsCreatingStarterPlan] = useState(false);
+  const [isCriticalSkillsCollapsed, setIsCriticalSkillsCollapsed] = useState(true);
+  const [isAddressedSkillsCollapsed, setIsAddressedSkillsCollapsed] = useState(true);
   const [editingStepIndex, setEditingStepIndex] = useState<number | null>(null);
   const [stepWorkspaceDraft, setStepWorkspaceDraft] = useState<Step>({
     title: '',
@@ -123,6 +129,19 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
       ? (isStudentsPanelCollapsed ? 'lg:col-span-12' : 'lg:col-span-9')
       : (isStudentsPanelCollapsed ? 'lg:col-span-9' : 'lg:col-span-6');
 
+  const selectPlanForSubject = (plans: DevelopmentPlan[], subjectId?: string) => {
+    const scopedPlans = subjectId
+      ? plans.filter((plan) => plan.plan?.subjectId === subjectId)
+      : plans;
+    return (
+      scopedPlans.find((plan) => plan.status === 'Active') ||
+      scopedPlans[0] ||
+      plans.find((plan) => plan.status === 'Active') ||
+      plans[0] ||
+      null
+    );
+  };
+
   const filteredStudents = useMemo(() => {
     const query = studentSearch.trim().toLowerCase();
     if (!query) return allStudents;
@@ -135,24 +154,6 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
     });
   }, [allStudents, studentSearch]);
 
-  const getCurrentSkills = (): { mainSkills: Skill[] } => {
-    if (!currentDisplayPlan?.plan?.skills) return { mainSkills: [] };
-    return {
-      mainSkills: currentDisplayPlan.plan.skills.map((skill) => {
-        const progress = currentDisplayPlan.skillProgress?.find((item) => item.skill === skill.name);
-        return {
-          ...skill,
-          score: progress?.currentScore || skill.score,
-          subskills: skill.subskills.map((sub) => ({
-            ...sub,
-            color: (sub.score > 70 ? 'cyan' : 'yellow') as SkillColor,
-          })),
-        };
-      }),
-    };
-  };
-
-  const currentSkills = getCurrentSkills();
   const sortedStepEntries = useMemo(() => {
     if (!currentDisplayPlan?.plan?.steps?.length) {
       return [] as Array<{ step: Step; index: number; order: number }>;
@@ -162,11 +163,185 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
       .sort((a, b) => a.order - b.order);
   }, [currentDisplayPlan]);
 
+  const skillCanvasInsights = useMemo(() => {
+    const planSkills = currentDisplayPlan?.plan?.skills || [];
+    const skillProgress = currentDisplayPlan?.skillProgress || [];
+    const attributeEntries = Object.entries(selectedStudent?.attributes || {});
+    const stepCoverageTexts = sortedStepEntries.map(({ step }) => ({
+      title: step.title || 'Untitled step',
+      text: normalizeSkillKey([step.title, stripHtml(step.content), step.link].filter(Boolean).join(' ')),
+    }));
+
+    type SkillInsight = {
+      key: string;
+      name: string;
+      current: number | null;
+      target: number | null;
+      gap: number;
+      source: 'attribute' | 'plan';
+      supportingTopics: string[];
+    };
+
+    const insights = new Map<string, SkillInsight>();
+    const attributeLookup = new Map(
+      attributeEntries.map(([name, values]) => [
+        normalizeSkillKey(name),
+        {
+          name,
+          current: typeof values?.current === 'number' ? values.current : null,
+          target: typeof values?.potential === 'number' ? values.potential : null,
+        },
+      ])
+    );
+
+    const registerInsight = (
+      name: string,
+      current: number | null,
+      target: number | null,
+      source: 'attribute' | 'plan'
+    ) => {
+      const key = normalizeSkillKey(name);
+      if (!key) return;
+
+      const safeCurrent = typeof current === 'number' && !Number.isNaN(current) ? current : null;
+      const safeTarget = typeof target === 'number' && !Number.isNaN(target) ? target : null;
+      const gap = safeCurrent === null || safeTarget === null ? 0 : Math.max(safeTarget - safeCurrent, 0);
+      const existing = insights.get(key);
+
+      if (!existing) {
+        insights.set(key, {
+          key,
+          name,
+          current: safeCurrent,
+          target: safeTarget,
+          gap,
+          source,
+          supportingTopics: [],
+        });
+        return;
+      }
+
+      existing.current = safeCurrent ?? existing.current;
+      existing.target = safeTarget ?? existing.target;
+      existing.gap = Math.max(existing.gap, gap);
+      if (source === 'attribute') {
+        existing.source = 'attribute';
+      }
+    };
+
+    attributeEntries.forEach(([name, values]) => {
+      registerInsight(
+        name,
+        typeof values?.current === 'number' ? values.current : null,
+        typeof values?.potential === 'number' ? values.potential : null,
+        'attribute'
+      );
+    });
+
+    planSkills.forEach((skill) => {
+      const progressMatch = skillProgress.find(
+        (item) => normalizeSkillKey(item.skill) === normalizeSkillKey(skill.name)
+      );
+      const attributeMatch = attributeLookup.get(normalizeSkillKey(skill.name));
+
+      registerInsight(
+        skill.name,
+        progressMatch?.currentScore ?? attributeMatch?.current ?? null,
+        progressMatch?.targetScore ?? attributeMatch?.target ?? skill.score ?? null,
+        'plan'
+      );
+
+      skill.subskills.forEach((subskill) => {
+        const subskillAttribute = attributeLookup.get(normalizeSkillKey(subskill.name));
+        registerInsight(
+          subskill.name,
+          subskillAttribute?.current ?? null,
+          subskillAttribute?.target ?? subskill.score ?? null,
+          'attribute'
+        );
+      });
+    });
+
+    const rankedCriticalSkills = Array.from(insights.values())
+      .map((item) => ({
+        ...item,
+        currentDisplay: item.current === null ? 'N/A' : `${Math.round(item.current)}%`,
+        targetDisplay: item.target === null ? 'N/A' : `${Math.round(item.target)}%`,
+        priorityScore:
+          (item.current === null ? 25 : 100 - item.current) +
+          item.gap * 1.5 +
+          (item.source === 'attribute' ? 15 : 0),
+      }))
+      .filter((item) => item.current === null || item.current < 75 || item.gap > 0)
+      .sort((a, b) => {
+        if (b.priorityScore !== a.priorityScore) return b.priorityScore - a.priorityScore;
+        const aCurrent = a.current ?? -1;
+        const bCurrent = b.current ?? -1;
+        return aCurrent - bCurrent;
+      });
+
+    const criticalSkills = rankedCriticalSkills.slice(0, 5);
+    const criticalSkillKeys = new Set(criticalSkills.map((item) => item.key));
+    const addressedSkills: Array<{
+      key: string;
+      name: string;
+      currentDisplay: string;
+      targetDisplay: string;
+      matchedSteps: string[];
+      coverageNote: string;
+    }> = [];
+
+    criticalSkills.forEach((skill) => {
+      const matchedSteps = stepCoverageTexts
+        .filter((entry) => entry.text.includes(skill.key))
+        .map((entry) => entry.title);
+
+      if (matchedSteps.length > 0) {
+        addressedSkills.push({
+          key: skill.key,
+          name: skill.name,
+          currentDisplay: skill.currentDisplay,
+          targetDisplay: skill.targetDisplay,
+          matchedSteps,
+          coverageNote: `${matchedSteps.length} step${matchedSteps.length > 1 ? 's' : ''} currently target this gap`,
+        });
+      }
+    });
+
+    if (!addressedSkills.length && sortedStepEntries.length > 0) {
+      planSkills
+        .filter((skill) => criticalSkillKeys.has(normalizeSkillKey(skill.name)))
+        .slice(0, 4)
+        .forEach((skill) => {
+          const insight = criticalSkills.find((item) => item.key === normalizeSkillKey(skill.name));
+          addressedSkills.push({
+            key: normalizeSkillKey(skill.name),
+            name: skill.name,
+            currentDisplay: insight?.currentDisplay || 'N/A',
+            targetDisplay: insight?.targetDisplay || `${Math.round(skill.score)}%`,
+            matchedSteps: sortedStepEntries.slice(0, 2).map(({ step }) => step.title || 'Untitled step'),
+            coverageNote: 'Tracked in the current development workflow',
+          });
+        });
+    }
+
+    return {
+      criticalSkills,
+      addressedSkills: addressedSkills.slice(0, 4),
+      mostCriticalSkill: criticalSkills[0] || null,
+    };
+  }, [currentDisplayPlan, selectedStudent?.attributes, sortedStepEntries]);
+
   useEffect(() => {
     setIsStepWorkspaceOpen(false);
     setEditingStepIndex(null);
     setIsStepWorkspaceMaximized(false);
     setIsStepAiCollapsed(false);
+  }, [currentDisplayPlan?.id]);
+
+  useEffect(() => {
+    setIsCriticalSkillsCollapsed(true);
+    setIsAddressedSkillsCollapsed(true);
   }, [currentDisplayPlan?.id]);
 
   useEffect(() => {
@@ -208,11 +383,10 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
         const studentData = await studentService.getStudent(initialStudentId);
         setSelectedStudent(studentData);
 
+        const subjectId = studentsSubjectFilter || getStudentPrimarySubjectId(studentData);
         const plansData = await developmentService.getAllPlansForStudent(initialStudentId);
         setAllStudentDevelopmentPlans(plansData);
-
-        const activePlan = plansData.find((plan) => plan.status === 'Active');
-        setCurrentDisplayPlan(activePlan || plansData[0] || null);
+        setCurrentDisplayPlan(selectPlanForSubject(plansData, subjectId));
 
         if (!studentsSubjectFilter) {
           const primarySubjectId = getStudentPrimarySubjectId(studentData);
@@ -245,11 +419,10 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
       const studentData = await studentService.getStudent(newStudentId);
       setSelectedStudent(studentData);
 
+      const subjectId = studentsSubjectFilter || getStudentPrimarySubjectId(studentData);
       const plansData = await developmentService.getAllPlansForStudent(newStudentId);
       setAllStudentDevelopmentPlans(plansData);
-
-      const activePlan = plansData.find((plan) => plan.status === 'Active');
-      setCurrentDisplayPlan(activePlan || plansData[0] || null);
+      setCurrentDisplayPlan(selectPlanForSubject(plansData, subjectId));
     } catch (err: any) {
       console.error('Error fetching student or development plans on select:', err);
       setError(err.message || 'Failed to load data for selected student.');
@@ -266,59 +439,12 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
       const newPlanItem = updatedPlans.find((plan) =>
         plan.id === newPlan.id || plan.plan.id === newPlan.plan.id
       );
-      const activePlan = updatedPlans.find((plan) => plan.status === 'Active');
-      setCurrentDisplayPlan(newPlanItem || activePlan || updatedPlans[0] || null);
+      const { subjectId } = getActiveSubjectContext();
+      setCurrentDisplayPlan(newPlanItem || selectPlanForSubject(updatedPlans, subjectId));
       toast.success('Development plan created successfully');
     } catch (err) {
       console.error('Error handling new plan:', err);
       toast.error('Failed to load the new plan');
-    }
-  };
-
-  const createManualStarterPlan = async () => {
-    if (!selectedStudent) return;
-
-    const { subjectId, subjectName } = getActiveSubjectContext();
-    if (!subjectId) {
-      toast.error('Select a subject before creating a development plan');
-      return;
-    }
-
-    const fullName = `${selectedStudent.firstName} ${selectedStudent.lastName}`.trim();
-
-    try {
-      setIsCreatingStarterPlan(true);
-      const createdPlan = await developmentService.createSubjectPlan({
-        name: `${fullName} ${subjectName} Development Plan`,
-        description: `Manual development plan for ${fullName} in ${subjectName}.`,
-        progress: 0,
-        potentialOverall: Math.max(70, Number(selectedStudent.overall || 0)),
-        eta: 14,
-        performance: 'Tracking',
-        skills: [],
-        steps: [],
-        subjectId,
-      });
-
-      const assignedPlan = await developmentService.assignPlanToStudent(selectedStudent.id, createdPlan.id, subjectId);
-      await handlePlanCreated(selectedStudent.id, assignedPlan);
-
-      setEditingStepIndex(null);
-      setStepWorkspaceDraft({
-        title: '',
-        type: 'document',
-        content: '',
-        order: 1,
-        link: '',
-        additionalResources: [],
-      });
-      setIsStepWorkspaceOpen(true);
-      toast.success('Development plan created. Add the first step to get started.');
-    } catch (err) {
-      console.error('Failed to create starter development plan:', err);
-      toast.error('Failed to create development plan');
-    } finally {
-      setIsCreatingStarterPlan(false);
     }
   };
 
@@ -334,18 +460,20 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
     navigate(`/development/create/${selectedStudent.id}/${subjectId}`);
   };
 
+  useEffect(() => {
+    if (!allStudentDevelopmentPlans.length) {
+      setCurrentDisplayPlan(null);
+      return;
+    }
+    const { subjectId } = getActiveSubjectContext();
+    setCurrentDisplayPlan(selectPlanForSubject(allStudentDevelopmentPlans, subjectId));
+  }, [allStudentDevelopmentPlans, selectedStudent, studentsSubjectFilter]);
+
   const syncUpdatedPlanInState = (updatedPlan: DevelopmentPlan) => {
     setAllStudentDevelopmentPlans((previous) =>
       previous.map((plan) => (plan.id === updatedPlan.id ? updatedPlan : plan))
     );
     setCurrentDisplayPlan((previous) => (previous?.id === updatedPlan.id ? updatedPlan : previous));
-  };
-
-  const persistStudentPlanUpdate = async (payload: Record<string, unknown>) => {
-    if (!currentDisplayPlan) return null;
-    const updatedPlan = await developmentService.updateStudentPlan(currentDisplayPlan.id, payload);
-    syncUpdatedPlanInState(updatedPlan);
-    return updatedPlan;
   };
 
   const openStepWorkspace = (index?: number) => {
@@ -395,29 +523,33 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
       link: stepWorkspaceDraft.link || '',
     };
 
-    const existingSteps = [...(currentDisplayPlan.plan.steps || [])];
-    if (editingStepIndex === null) {
-      existingSteps.push(normalizedStep);
-    } else {
-      existingSteps[editingStepIndex] = normalizedStep;
-    }
-    const normalized = existingSteps
-      .map((step, idx) => ({ ...step, order: idx + 1, content: step.content || '' }))
-      .sort((a, b) => (a.order || 0) - (b.order || 0));
-
     try {
       setIsPersistingPlan(true);
-      await persistStudentPlanUpdate({
-        steps: normalized.map((step, idx) => ({
-          title: step.title,
-          type: step.type,
-          content: step.content || '',
-          link: step.link || '',
-          order: step.order || idx + 1,
-          additionalResources: step.additionalResources || [],
-        })),
-      });
+      const updatedPlan =
+        editingStepIndex === null
+          ? await developmentService.addStudentPlanStep(currentDisplayPlan.id, {
+              title: normalizedStep.title,
+              type: normalizedStep.type,
+              content: normalizedStep.content || '',
+              link: normalizedStep.link || '',
+              order: normalizedStep.order,
+              additionalResources: normalizedStep.additionalResources || [],
+            })
+          : await developmentService.updateStudentPlanStep(
+              currentDisplayPlan.id,
+              currentDisplayPlan.plan.steps[editingStepIndex].id as string,
+              {
+                title: normalizedStep.title,
+                type: normalizedStep.type,
+                content: normalizedStep.content || '',
+                link: normalizedStep.link || '',
+                order: normalizedStep.order,
+                additionalResources: normalizedStep.additionalResources || [],
+              }
+            );
+      syncUpdatedPlanInState(updatedPlan);
       setIsStepWorkspaceOpen(false);
+      setEditingStepIndex(null);
       toast.success(editingStepIndex === null ? 'Step added' : 'Step updated');
     } catch (err) {
       console.error('Failed to save step:', err);
@@ -487,22 +619,16 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
 
   const deleteStep = async (index: number) => {
     if (!currentDisplayPlan) return;
-    const nextSteps = [...(currentDisplayPlan.plan.steps || [])]
-      .filter((_, idx) => idx !== index)
-      .map((step, idx) => ({ ...step, order: idx + 1, content: step.content || '' }));
+    const stepId = currentDisplayPlan.plan.steps[index]?.id;
+    if (!stepId) {
+      toast.error('This step cannot be removed because it has no persisted id yet');
+      return;
+    }
 
     try {
       setIsPersistingPlan(true);
-      await persistStudentPlanUpdate({
-        steps: nextSteps.map((step, idx) => ({
-          title: step.title,
-          type: step.type,
-          content: step.content || '',
-          link: step.link || '',
-          order: step.order || idx + 1,
-          additionalResources: step.additionalResources || [],
-        })),
-      });
+      const updatedPlan = await developmentService.deleteStudentPlanStep(currentDisplayPlan.id, stepId);
+      syncUpdatedPlanInState(updatedPlan);
       if (editingStepIndex === index) {
         closeStepWorkspace();
       }
@@ -626,38 +752,11 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
         ) : null}
         {!currentDisplayPlan ? (
           <div className="flex h-full min-h-[280px] items-center justify-center">
-            <div className="max-w-2xl rounded-lg border border-dashed border-slate-300 bg-white p-6 text-center">
-              <h2 className="text-base font-semibold text-slate-900">No development plan assigned</h2>
+            <div className="rounded-lg border border-dashed border-slate-300 bg-white px-6 py-5 text-center">
+              <h2 className="text-base font-semibold text-slate-900">Loading development plan</h2>
               <p className="mt-2 text-sm text-slate-600">
-                Start a plan directly in the normal step workflow, or open the AI builder if you want help generating the initial structure for {fullName}.
+                The workspace will open as soon as the starter plan is available for {fullName}.
               </p>
-              <div className="mt-5 grid gap-3 text-left md:grid-cols-2">
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                  <p className="text-sm font-semibold text-slate-900">Manual creation</p>
-                  <p className="mt-1 text-xs text-slate-600">
-                    Create an empty plan, then add plan steps, resources, practices, and guidance yourself in the existing workspace.
-                  </p>
-                  <button
-                    className="mt-4 inline-flex rounded-md bg-blue-900 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60"
-                    onClick={createManualStarterPlan}
-                    disabled={isCreatingStarterPlan}
-                  >
-                    {isCreatingStarterPlan ? 'Creating plan...' : 'Create Manually'}
-                  </button>
-                </div>
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-                  <p className="text-sm font-semibold text-slate-900">AI-assisted creation</p>
-                  <p className="mt-1 text-xs text-slate-600">
-                    Use AI to draft the starting plan from learner signals, then refine the plan before publishing.
-                  </p>
-                  <button
-                    className="mt-4 inline-flex rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
-                    onClick={openAiPlanBuilder}
-                  >
-                    Use AI Assistance
-                  </button>
-                </div>
-              </div>
             </div>
           </div>
         ) : isStepWorkspaceOpen ? (
@@ -1012,61 +1111,127 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
             </div>
 
             <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <div className="mb-3 flex items-center justify-between">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Skill Canvas</h2>
-                <span className="text-xs text-slate-500">{currentSkills.mainSkills.length} skills</span>
+                <span className="text-xs text-slate-500">
+                  {skillCanvasInsights.mostCriticalSkill
+                    ? `Most critical: ${skillCanvasInsights.mostCriticalSkill.name}`
+                    : 'No critical skill identified'}
+                </span>
               </div>
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-                {currentSkills.mainSkills.map((skill, skillIndex) => (
-                  <div
-                    key={skillIndex}
-                    className={`rounded-lg border border-slate-200 p-3 transition ${
-                      expandedSkill.skillIndex === skillIndex ? 'ring-1 ring-blue-300 border-blue-300' : 'hover:border-slate-300'
-                    }`}
+                <div className="rounded-lg border border-rose-200 bg-rose-50/50 p-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsCriticalSkillsCollapsed((prev) => !prev)}
+                    className="flex w-full items-center justify-between text-left"
                   >
-                    <button
-                      type="button"
-                      className="w-full text-left"
-                      onClick={() =>
-                        setExpandedSkill((prev) => ({
-                          skillIndex: prev.skillIndex === skillIndex ? null : skillIndex,
-                          subskillIndex: null,
-                        }))
-                      }
-                    >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-semibold text-slate-900">{skill.name}</p>
-                          <p className="text-xs text-slate-500">Score {skill.score}</p>
-                        </div>
-                        <span className={`text-xs transition-transform ${expandedSkill.skillIndex === skillIndex ? 'rotate-180' : ''}`}>▼</span>
-                      </div>
-                    </button>
-
-                    <div
-                      className={`overflow-hidden transition-all duration-300 ${
-                        expandedSkill.skillIndex === skillIndex ? 'max-h-[360px] mt-2' : 'max-h-0'
-                      }`}
-                    >
-                      <div className="space-y-2">
-                        {skill.subskills.map((subskill, subIndex) => (
-                          <div key={subIndex} className="rounded-md border border-slate-200 bg-slate-50 p-2">
-                            <div className="flex items-center justify-between text-xs">
-                              <span className="font-medium text-slate-700">{subskill.name}</span>
-                              <span className="font-semibold text-slate-900">{subskill.score}</span>
-                            </div>
-                            <div className="mt-1 h-1.5 w-full rounded-full bg-slate-200 overflow-hidden">
-                              <div
-                                className={`h-full rounded-full ${subskill.color === 'yellow' ? 'bg-amber-400' : 'bg-cyan-500'}`}
-                                style={{ width: `${subskill.score}%` }}
-                              />
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">Top critical skills needing attention</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-full bg-white px-2 py-1 text-xs font-semibold text-rose-700">
+                        {skillCanvasInsights.criticalSkills.length}
+                      </span>
+                      <ChevronRight
+                        className={`h-4 w-4 text-slate-500 transition-transform ${
+                          isCriticalSkillsCollapsed ? '' : 'rotate-90'
+                        }`}
+                      />
+                    </div>
+                  </button>
+                  {!isCriticalSkillsCollapsed ? (
+                    <div className="mt-3 space-y-2">
+                      {skillCanvasInsights.criticalSkills.length ? (
+                        skillCanvasInsights.criticalSkills.map((skill, index) => (
+                          <div
+                            key={skill.key}
+                            className={`rounded-lg border bg-white px-3 py-2 ${
+                              index === 0 ? 'border-rose-300' : 'border-slate-200'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-semibold text-slate-900">{skill.name}</p>
+                              {index === 0 ? (
+                                <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-700">
+                                  Most critical
+                                </span>
+                              ) : null}
                             </div>
                           </div>
-                        ))}
-                      </div>
+                        ))
+                      ) : (
+                        <div className="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-4 text-sm text-slate-500">
+                          No critical skills identified yet.
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  ) : null}
+                </div>
+
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3">
+                  <button
+                    type="button"
+                    onClick={() => setIsAddressedSkillsCollapsed((prev) => !prev)}
+                    className="flex w-full items-center justify-between text-left"
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">Critical skills being addressed</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-full bg-white px-2 py-1 text-xs font-semibold text-emerald-700">
+                        {skillCanvasInsights.addressedSkills.length}
+                      </span>
+                      <ChevronRight
+                        className={`h-4 w-4 text-slate-500 transition-transform ${
+                          isAddressedSkillsCollapsed ? '' : 'rotate-90'
+                        }`}
+                      />
+                    </div>
+                  </button>
+                  {!isAddressedSkillsCollapsed ? (
+                    <div className="mt-3 space-y-2">
+                      {skillCanvasInsights.addressedSkills.length ? (
+                        skillCanvasInsights.addressedSkills.map((skill) => (
+                          <div key={skill.key} className="rounded-lg border border-slate-200 bg-white p-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <p className="text-sm font-semibold text-slate-900">{skill.name}</p>
+                                <p className="mt-1 text-xs text-slate-500">{skill.coverageNote}</p>
+                              </div>
+                              <div className="text-right text-xs text-slate-500">
+                                <div>
+                                  Current:{' '}
+                                  <span className="font-semibold text-slate-900">{skill.currentDisplay}</span>
+                                </div>
+                                <div>
+                                  Target:{' '}
+                                  <span className="font-semibold text-slate-900">{skill.targetDisplay}</span>
+                                </div>
+                              </div>
+                            </div>
+                            {skill.matchedSteps.length ? (
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {skill.matchedSteps.map((stepTitle) => (
+                                  <span
+                                    key={`${skill.key}-${stepTitle}`}
+                                    className="rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-medium text-emerald-700"
+                                  >
+                                    {stepTitle}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-4 text-sm text-slate-500">
+                          No critical skills are clearly addressed in the current plan yet.
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
               </div>
             </div>
 
