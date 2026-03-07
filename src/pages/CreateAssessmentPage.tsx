@@ -8,7 +8,6 @@ import { authService } from '../services/authService';
 import { assessmentEnrollmentService } from '../services/assessmentEnrollmentService';
 import { subjectService } from '../services/subjectService';
 import { schoolService, SchoolItem } from '../services/schoolService';
-import { studentService } from '../services/studentService';
 import { aiService } from '../services/aiService';
 import { Subject, SubjectAttribute } from '../types';
 import { ArrowUp, Bot, GripVertical, Maximize2, Minimize2, PanelRightClose, PanelRightOpen, Paperclip, Settings2, X } from 'lucide-react';
@@ -684,28 +683,14 @@ const CreateAssessmentPage: React.FC = () => {
       });
 
       if (manualForm.status === 'published' && createdAssessment?.id) {
-        const assignment = await assessmentEnrollmentService.createAssignment({
+        await assessmentEnrollmentService.publishAssessmentToSubjectStudents({
           assessmentId: createdAssessment.id,
+          subjectId: manualForm.subjectId,
           assignedBy: currentUser.id,
           title: manualForm.name.trim(),
           instructions: manualForm.description.trim() || undefined,
-          published: false,
+          statusCode: 'assigned',
         });
-
-        const enrolledStudents = await studentService.getStudents(manualForm.subjectId);
-        const studentIds = Array.isArray(enrolledStudents)
-          ? enrolledStudents
-              .map((student) => student.id)
-              .filter((studentId): studentId is string => !!studentId)
-          : [];
-
-        if (assignment?.id && studentIds.length > 0) {
-          await assessmentEnrollmentService.enrollStudents(assignment.id, studentIds, 'assigned');
-        }
-
-        if (assignment?.id) {
-          await assessmentEnrollmentService.publishAssignment(assignment.id);
-        }
       }
 
       toast.success('Assessment created successfully');

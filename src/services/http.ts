@@ -124,6 +124,7 @@ export async function fetchData<T = any>(endpoint: string, options: FetchOptions
   const cacheTtlMs = options.cacheTtlMs ?? DEFAULT_GET_CACHE_TTL_MS;
   const useCache = isGet && !options.skipCache && options.cache !== 'no-store';
   const shouldForceRefresh = !!options.forceRefresh;
+  const { skipCache, cacheTtlMs: _cacheTtlMs, forceRefresh, ...requestOptions } = options;
 
   if (useCache && !shouldForceRefresh) {
     const cached = responseCache.get(cacheKey);
@@ -141,15 +142,16 @@ export async function fetchData<T = any>(endpoint: string, options: FetchOptions
     }
   }
 
-  const defaultHeaders: HeadersInit = {
-    'Content-Type': 'application/json',
-  };
+  const isMultipartBody =
+    typeof FormData !== 'undefined' && requestOptions.body instanceof FormData;
+  const defaultHeaders: HeadersInit = {};
+  if (!isMultipartBody) {
+    defaultHeaders['Content-Type'] = 'application/json';
+  }
 
   if (token) {
     defaultHeaders['Authorization'] = `Bearer ${token}`;
   }
-
-  const { skipCache, cacheTtlMs: _cacheTtlMs, forceRefresh, ...requestOptions } = options;
 
   const requestPromise = (async () => {
     const response = await fetch(`${API_URL}${endpoint}`, {

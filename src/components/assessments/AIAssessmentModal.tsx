@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Dialog, DialogContent } from '../ui/dialog';
 import { Button } from '@/components/ui/button';
-import { 
+import {
   Loader2, 
   ChevronRight, 
   ChevronLeft, 
@@ -12,10 +12,10 @@ import {
   Maximize2,
   Minimize2
 } from 'lucide-react';
-import axios from 'axios';
 import { toast } from 'sonner';
 import { Question, Assessment, SubjectAttribute, AssessmentType } from '@/types';
 import { aiService } from '@/services/aiService';
+import { subjectService } from '@/services/subjectService';
 import { DetailsStep } from './AIAssessmentSteps/DetailsStep';
 import { GenerateStep } from './AIAssessmentSteps/GenerateStep';
 import { ReviewStep } from './AIAssessmentSteps/ReviewStep';
@@ -107,18 +107,10 @@ export function AIAssessmentModal({
   const fetchSubjects = async () => {
     try {
       setIsLoading(true);
-      const token = localStorage.getItem('token');
-      if (!token) {
-        toast.error('Authentication required');
-        return;
-      }
+      const response = await subjectService.getTeachingSubjects();
 
-      const response = await axios.get('http://localhost:5000/api/subjects/teaching', {
-        headers: { 'Authorization': `Bearer ${token}` }
-      });
-
-      if (response.data && Array.isArray(response.data)) {
-        const subjectsWithIds = response.data.map((subject: any) => ({
+      if (response && Array.isArray(response)) {
+        const subjectsWithIds = response.map((subject: any) => ({
           ...subject,
           id: subject.id,
           code: subject.code || '',

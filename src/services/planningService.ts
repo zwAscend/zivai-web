@@ -182,9 +182,9 @@ export const planningService = {
     return payload;
   },
 
-  async assignPlanToStudent(studentId: string, planId: string, subjectId: string): Promise<DevelopmentPlan> {
+  async assignPlanToStudent(studentId: string, planId: string, subjectId: string): Promise<DevelopmentPlan> {
     try {
-      const createdPlan = await fetchData<DevelopmentPlan>(`/api/development/plans/student/${studentId}/assign`, {
+      const createdPlan = await fetchData<DevelopmentPlan>(`/development/plans/student/${studentId}/assign`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -201,9 +201,9 @@ export const planningService = {
     }
   },
 
-  async updatePlanProgress(developmentPlanId: string, progress: number, skillProgress: Record<string, number>) {
+  async updatePlanProgress(developmentPlanId: string, progress: number, skillProgress: Record<string, number>) {
     try {
-      const response = await fetchData<DevelopmentPlan>(`/api/development/plans/${developmentPlanId}/progress`, {
+      const response = await fetchData<DevelopmentPlan>(`/development/plans/${developmentPlanId}/progress`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -222,7 +222,11 @@ export const planningService = {
 
   async getStudentDevelopmentPlan(studentId: string): Promise<DevelopmentPlan | null> {
     try {
-      return await fetchData<DevelopmentPlan>(`/api/students/${studentId}/development-plan`);
+      const plans = await fetchData<DevelopmentPlan[]>(`/students/${studentId}/development-plans`);
+      if (!Array.isArray(plans) || plans.length === 0) {
+        return null;
+      }
+      return plans[0];
     } catch (error) {
       console.error('Error fetching development plan:', error);
       return null;
