@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlignJustify,
+  AlertCircle,
   ArrowUp,
   ArrowLeft,
   Bold,
   Bot,
+  CheckCircle2,
   Code2,
   Copy,
   GripVertical,
@@ -16,6 +18,7 @@ import {
   Maximize2,
   MessageSquare,
   Minimize2,
+  Loader2,
   PanelRightClose,
   PanelRightOpen,
   Paperclip,
@@ -73,6 +76,11 @@ type AiChatMessage = {
   role: 'teacher' | 'assistant';
   text: string;
 };
+type WorkspaceOperationFeedback = {
+  status: 'loading' | 'success' | 'error';
+  title: string;
+  message: string;
+};
 type SelectionActionType = 'change' | 'different' | 'chat';
 type AssessmentQuestionType = 'short-answer' | 'multiple-choice';
 type AssessmentQuestion = {
@@ -110,13 +118,6 @@ type TopicCoverage = {
   updatedAtLabel: string;
   materials: Record<TopicContentType, string[]>;
 };
-
-const FALLBACK_SUBJECTS: TeachingSubject[] = [
-  { id: '4b68d0ec-99bb-4ee0-adcc-831d73fb6285', code: 'CS', name: 'Computer Science' },
-  { id: '0115954d-b482-4489-ac5d-7fb2ca784954', code: 'MATH', name: 'Mathematics' },
-  { id: '7300bd0c-67b9-4e63-b297-b359bee30f60', code: 'ENG', name: 'English Language' },
-  { id: '6bd8425e-c9ff-4e36-b7e5-fd1501f599e0', code: 'PHY', name: 'Physics' },
-];
 
 const TOPIC_TEMPLATES: Record<string, TopicCoverage[]> = {
   'computer science': [
@@ -324,7 +325,6 @@ const TOPIC_TEMPLATES: Record<string, TopicCoverage[]> = {
 const getTopicMissingTypes = (topic: TopicCoverage): TopicContentType[] => {
   const missing: TopicContentType[] = [];
   if (topic.resourcesCount === 0) missing.push('resource');
-  if (topic.practicesCount === 0) missing.push('practice');
   if (topic.assessmentsCount === 0) missing.push('assessment');
   return missing;
 };
@@ -332,15 +332,30 @@ const getTopicMissingTypes = (topic: TopicCoverage): TopicContentType[] => {
 const toTopicCoverageStatus = (topic: TopicCoverage) => {
   const missing = getTopicMissingTypes(topic);
   if (missing.length === 0) return 'Complete';
-  if (missing.length === 1) return `Missing ${missing[0]}`;
+  if (missing.length === 1) return `Missing ${getTopicContentLabelLower(missing[0], true)}`;
   return 'Missing multiple';
 };
 
 const TOPIC_CONTENT_LABELS: Record<TopicContentType, string> = {
   resource: 'Resources',
   practice: 'Practices',
-  assessment: 'Assessments',
+  assessment: 'Practices',
 };
+const TOPIC_CONTENT_SINGULAR_LABELS: Record<TopicContentType, string> = {
+  resource: 'Resource',
+  practice: 'Practice',
+  assessment: 'Practice',
+};
+
+const getTopicContentLabel = (type: TopicContentType, singular = false) =>
+  singular ? TOPIC_CONTENT_SINGULAR_LABELS[type] : TOPIC_CONTENT_LABELS[type];
+
+const getTopicContentLabelLower = (type: TopicContentType, singular = false) =>
+  getTopicContentLabel(type, singular).toLowerCase();
+
+const WORKSPACE_CONTENT_TYPES: TopicContentType[] = ['resource', 'assessment'];
+const normalizeWorkspaceTab = (type: TopicContentType): TopicContentType =>
+  type === 'practice' ? 'assessment' : type;
 
 const getMaterialDraftKey = (topicId: string, type: TopicContentType, item: string) =>
   `${topicId}::${type}::${item}`;
@@ -407,7 +422,7 @@ Grade level: ${gradeLevel}
 Objective: ${objectiveLine}
 ${variantLine}
 
-Assessment brief:
+Practice brief:
 - Design 5 items: 2 recall, 2 application, 1 reasoning.
 - Focus topic: ${topicTitle}.
 
@@ -537,7 +552,7 @@ const buildAssessmentResourceContent = (
 
 Topic: ${topicTitle}
 
-${assessmentDescription || 'Assessment description pending.'}
+${assessmentDescription || 'Practice description pending.'}
 
 Questions:
 ${questionLines}`;
@@ -571,9 +586,6 @@ const ClassroomSubjectsPage: React.FC = () => {
   const [isMaterialConfigOpen, setIsMaterialConfigOpen] = useState(false);
   const [isAssessmentConfigOpen, setIsAssessmentConfigOpen] = useState(false);
   const [isAssessmentConfigured, setIsAssessmentConfigured] = useState(false);
-  const [isCreateItemModalOpen, setIsCreateItemModalOpen] = useState(false);
-  const [createItemTitle, setCreateItemTitle] = useState('');
-  const [createItemNotes, setCreateItemNotes] = useState('');
   const [workspaceTab, setWorkspaceTab] = useState<TopicContentType>('resource');
   const [selectedWorkspaceItem, setSelectedWorkspaceItem] = useState('');
   const [materialDrafts, setMaterialDrafts] = useState<Record<string, string>>({});
@@ -599,6 +611,7 @@ const ClassroomSubjectsPage: React.FC = () => {
   const [assessmentAiLogs, setAssessmentAiLogs] = useState<string[]>([]);
   const [assessmentAttachedFileName, setAssessmentAttachedFileName] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [workspaceOperationFeedback, setWorkspaceOperationFeedback] = useState<WorkspaceOperationFeedback | null>(null);
   const editorSurfaceRef = useRef<HTMLDivElement | null>(null);
   const editorOverlayHostRef = useRef<HTMLDivElement | null>(null);
   const editorImageInputRef = useRef<HTMLInputElement | null>(null);
@@ -733,9 +746,9 @@ const ClassroomSubjectsPage: React.FC = () => {
           name: subject.name,
           grades: Array.isArray(subject.grades) ? subject.grades : [],
         }));
-        setSubjects(normalized.length ? normalized : FALLBACK_SUBJECTS);
+        setSubjects(normalized);
       } catch {
-        setSubjects(FALLBACK_SUBJECTS);
+        setSubjects([]);
       }
     };
     loadSubjects();
@@ -756,7 +769,10 @@ const ClassroomSubjectsPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!subjects.length) return;
+    if (!subjects.length) {
+      setSelectedSubjectId('');
+      return;
+    }
 
     const selectedId = selectedSubject?.id;
     if (selectedId && subjects.some((subject) => subject.id === selectedId)) {
@@ -772,11 +788,18 @@ const ClassroomSubjectsPage: React.FC = () => {
     const current = subjects.find((subject) => subject.id === selectedSubjectId);
     if (!current) return;
 
-    setSelectedSubject({
+    const nextSelectedSubject = {
       id: current.id,
       code: current.code || '',
       name: current.name,
-    });
+    };
+    if (
+      selectedSubject?.id !== nextSelectedSubject.id ||
+      selectedSubject?.code !== nextSelectedSubject.code ||
+      selectedSubject?.name !== nextSelectedSubject.name
+    ) {
+      setSelectedSubject(nextSelectedSubject);
+    }
     setIsTopicWorkspaceOpen(false);
     setIsTopicContentCollapsed(false);
     setIsStudioExpanded(false);
@@ -785,13 +808,12 @@ const ClassroomSubjectsPage: React.FC = () => {
     setIsMaterialConfigOpen(false);
     setIsAssessmentConfigOpen(false);
     setIsAssessmentConfigured(false);
-    setIsCreateItemModalOpen(false);
-    setCreateItemTitle('');
-    setCreateItemNotes('');
     setSelectionActionOverlay(null);
     setSelectionActionHint(null);
     setWorkspaceTab('resource');
     setSelectedWorkspaceItem('');
+    setTopics([]);
+    setSelectedTopicId('');
     setMaterialDrafts({});
     setMaterialRecordIds({});
     setAssessmentResourceIds({});
@@ -819,7 +841,15 @@ const ClassroomSubjectsPage: React.FC = () => {
     setAssessmentAiLogs([]);
     setAssessmentAttachedFileName('');
     void refreshWorkspaceData();
-  }, [refreshWorkspaceData, selectedSubjectId, setSelectedSubject, subjects]);
+  }, [
+    refreshWorkspaceData,
+    selectedSubject?.code,
+    selectedSubject?.id,
+    selectedSubject?.name,
+    selectedSubjectId,
+    setSelectedSubject,
+    subjects,
+  ]);
 
   const filteredTopics = useMemo(() => {
     const query = topicQuery.trim().toLowerCase();
@@ -842,6 +872,12 @@ const ClassroomSubjectsPage: React.FC = () => {
     () => topics.find((topic) => topic.id === selectedTopicId) || null,
     [selectedTopicId, topics]
   );
+
+  useEffect(() => {
+    if (workspaceTab === 'practice') {
+      setWorkspaceTab('assessment');
+    }
+  }, [workspaceTab]);
 
   useEffect(() => {
     if (!selectedTopic) {
@@ -874,7 +910,7 @@ const ClassroomSubjectsPage: React.FC = () => {
 
     const persistedId = materialRecordIds[selectedMaterialKey];
     const cachedBody = materialDrafts[selectedMaterialKey];
-    if (cachedBody) {
+    if (cachedBody !== undefined) {
       setEditorTitle(selectedWorkspaceItem);
       setEditorBody(cachedBody);
       return;
@@ -882,7 +918,9 @@ const ClassroomSubjectsPage: React.FC = () => {
 
     if (!persistedId) {
       const fallback = buildSeedMaterialDraft(selectedTopic.title, selectedWorkspaceItem, workspaceTab);
-      setMaterialDrafts((previous) => ({ ...previous, [selectedMaterialKey]: fallback }));
+      setMaterialDrafts((previous) => (
+        previous[selectedMaterialKey] === fallback ? previous : { ...previous, [selectedMaterialKey]: fallback }
+      ));
       setEditorTitle(selectedWorkspaceItem);
       setEditorBody(fallback);
       return;
@@ -891,7 +929,9 @@ const ClassroomSubjectsPage: React.FC = () => {
     const cachedResource = resourceDetailsCache[persistedId];
     if (cachedResource?.contentBody != null) {
       const body = cachedResource.contentBody || buildSeedMaterialDraft(selectedTopic.title, selectedWorkspaceItem, workspaceTab);
-      setMaterialDrafts((previous) => ({ ...previous, [selectedMaterialKey]: body }));
+      setMaterialDrafts((previous) => (
+        previous[selectedMaterialKey] === body ? previous : { ...previous, [selectedMaterialKey]: body }
+      ));
       setEditorTitle(cachedResource.name || selectedWorkspaceItem);
       setEditorBody(body);
       return;
@@ -904,13 +944,17 @@ const ClassroomSubjectsPage: React.FC = () => {
         if (cancelled) return;
         const body = detail.contentBody || buildSeedMaterialDraft(selectedTopic.title, selectedWorkspaceItem, workspaceTab);
         setResourceDetailsCache((previous) => ({ ...previous, [persistedId]: detail }));
-        setMaterialDrafts((previous) => ({ ...previous, [selectedMaterialKey]: body }));
+        setMaterialDrafts((previous) => (
+          previous[selectedMaterialKey] === body ? previous : { ...previous, [selectedMaterialKey]: body }
+        ));
         setEditorTitle(detail.name || selectedWorkspaceItem);
         setEditorBody(body);
       } catch {
         if (cancelled) return;
         const fallback = buildSeedMaterialDraft(selectedTopic.title, selectedWorkspaceItem, workspaceTab);
-        setMaterialDrafts((previous) => ({ ...previous, [selectedMaterialKey]: fallback }));
+        setMaterialDrafts((previous) => (
+          previous[selectedMaterialKey] === fallback ? previous : { ...previous, [selectedMaterialKey]: fallback }
+        ));
         setEditorTitle(selectedWorkspaceItem);
         setEditorBody(fallback);
       }
@@ -1066,6 +1110,7 @@ const ClassroomSubjectsPage: React.FC = () => {
 
   const openTopicWorkspace = (topicId: string, tab: TopicContentType = 'resource') => {
     const topic = topics.find((topicItem) => topicItem.id === topicId);
+    const normalizedTab = normalizeWorkspaceTab(tab);
     setSelectedTopicId(topicId);
     setIsStudioExpanded(false);
     setIsTopicContentCollapsed(false);
@@ -1073,17 +1118,14 @@ const ClassroomSubjectsPage: React.FC = () => {
     setIsAiConfigOpen(false);
     setIsMaterialConfigOpen(false);
     setIsAssessmentConfigOpen(false);
-    setIsCreateItemModalOpen(false);
-    setCreateItemTitle('');
-    setCreateItemNotes('');
     setSelectionActionOverlay(null);
     setSelectionActionHint(null);
-    setWorkspaceTab(tab);
+    setWorkspaceTab(normalizedTab);
     setSelectedWorkspaceItem('');
     if (topic) {
       setAiGradeLevel(topic.form);
       setAiObjective(topic.title);
-      if (tab === 'assessment') {
+      if (normalizedTab === 'assessment') {
         setIsAssessmentConfigured(topic.assessmentsCount > 0);
         setAssessmentQuestions([]);
       }
@@ -1116,6 +1158,7 @@ const ClassroomSubjectsPage: React.FC = () => {
       type?: TopicContentType;
       existingId?: string | null;
       skipRefresh?: boolean;
+      skipFeedback?: boolean;
     }
   ) => {
     if (!selectedTopic) return null;
@@ -1125,11 +1168,16 @@ const ClassroomSubjectsPage: React.FC = () => {
     const effectiveType = overrides?.type || workspaceTab;
     const contentTitle = (overrides?.title || editorTitle || selectedWorkspaceItem || '').trim();
     if (!contentTitle) {
-      setToastMessage(`Enter a ${TOPIC_CONTENT_LABELS[effectiveType].slice(0, -1).toLowerCase()} title first.`);
+      setToastMessage(`Enter a ${getTopicContentLabelLower(effectiveType, true)} title first.`);
       return null;
     }
 
     const contentBody = (overrides?.body ?? editorBody).trim();
+    if (effectiveType !== 'assessment' && !contentBody) {
+      setToastMessage(`Add content to this ${getTopicContentLabelLower(effectiveType, true)} before saving.`);
+      return null;
+    }
+
     const contentType = effectiveType === 'practice'
       ? 'practice'
       : effectiveType === 'assessment'
@@ -1137,6 +1185,7 @@ const ClassroomSubjectsPage: React.FC = () => {
         : 'lesson_plan';
     const draftKey = getMaterialDraftKey(selectedTopic.id, effectiveType, contentTitle);
     const existingId = overrides?.existingId || materialRecordIds[draftKey] || null;
+    const materialLabel = getTopicContentLabelLower(effectiveType, true);
     const payload = {
       schoolId: context.schoolId,
       subjectId: selectedSubjectId,
@@ -1153,35 +1202,65 @@ const ClassroomSubjectsPage: React.FC = () => {
       tags: [selectedTopic.form, effectiveType].filter(Boolean),
     };
 
-    const saved = existingId
-      ? await resourceService.update(existingId, payload)
-      : await resourceService.create(payload);
-
-    const savedId = saved.id || existingId;
-    if (savedId) {
-      setMaterialRecordIds((previous) => ({
-        ...previous,
-        [draftKey]: savedId,
-      }));
-      setResourceDetailsCache((previous) => ({
-        ...previous,
-        [savedId]: {
-          ...(previous[savedId] || {}),
-          ...saved,
-          id: savedId,
-          name: contentTitle,
-          contentBody,
-          topicIds: [selectedTopic.id],
-          contentType,
-        },
-      }));
-      setMaterialDrafts((previous) => ({ ...previous, [draftKey]: contentBody }));
+    if (!overrides?.skipFeedback) {
+      setWorkspaceOperationFeedback({
+        status: 'loading',
+        title: `${existingId ? 'Updating' : 'Creating'} ${materialLabel}`,
+        message: mode === 'published'
+          ? `Publishing "${contentTitle}"...`
+          : `Saving "${contentTitle}" as draft...`,
+      });
     }
 
-    if (!overrides?.skipRefresh) {
-      await refreshWorkspaceData();
+    try {
+      const saved = existingId
+        ? await resourceService.update(existingId, payload)
+        : await resourceService.create(payload);
+
+      const savedId = saved.id || existingId;
+      if (savedId) {
+        setMaterialRecordIds((previous) => ({
+          ...previous,
+          [draftKey]: savedId,
+        }));
+        setResourceDetailsCache((previous) => ({
+          ...previous,
+          [savedId]: {
+            ...(previous[savedId] || {}),
+            ...saved,
+            id: savedId,
+            name: contentTitle,
+            contentBody,
+            topicIds: [selectedTopic.id],
+            contentType,
+          },
+        }));
+        setMaterialDrafts((previous) => ({ ...previous, [draftKey]: contentBody }));
+      }
+
+      if (!overrides?.skipRefresh) {
+        await refreshWorkspaceData();
+      }
+
+      if (!overrides?.skipFeedback) {
+        const resultVerb = existingId ? 'updated' : mode === 'published' ? 'published' : 'created';
+        setWorkspaceOperationFeedback({
+          status: 'success',
+          title: `${toTitleCase(materialLabel)} ${resultVerb}`,
+          message: `"${contentTitle}" was ${resultVerb} successfully.`,
+        });
+      }
+      return savedId || null;
+    } catch (error: any) {
+      if (!overrides?.skipFeedback) {
+        setWorkspaceOperationFeedback({
+          status: 'error',
+          title: `Failed to ${mode === 'published' ? 'publish' : 'save'} ${materialLabel}`,
+          message: error?.message || 'Please try again.',
+        });
+      }
+      throw error;
     }
-    return savedId || null;
   };
 
   const persistAssessmentWorkspace = async () => {
@@ -1189,77 +1268,100 @@ const ClassroomSubjectsPage: React.FC = () => {
     const context = ensureWorkspaceContext();
     if (!context) return null;
     if (!assessmentName.trim()) {
-      setToastMessage('Enter an assessment name before saving.');
+      setToastMessage('Enter a practice name before saving.');
       return null;
     }
 
     const selectedKey = selectedMaterialKey || getMaterialDraftKey(selectedTopic.id, 'assessment', assessmentName.trim());
     const existingAssessmentId = materialRecordIds[selectedKey] || null;
     const existingResourceId = existingAssessmentId ? assessmentResourceIds[existingAssessmentId] || null : null;
-    const resourceId = await createOrUpdateWorkspaceResource(
-      assessmentStatus === 'published' ? 'published' : 'draft',
-      {
-        title: assessmentName.trim(),
-        body: buildAssessmentResourceContent(selectedTopic.title, assessmentName.trim(), assessmentDescription, assessmentQuestions),
-        type: 'assessment',
-        existingId: existingResourceId,
-        skipRefresh: true,
-      }
-    );
-    if (!resourceId) return null;
+    setWorkspaceOperationFeedback({
+      status: 'loading',
+      title: `${existingAssessmentId ? 'Updating' : 'Creating'} practice`,
+      message: `Processing "${assessmentName.trim()}"...`,
+    });
 
-    const payload = {
-      schoolId: context.schoolId,
-      subjectId: selectedSubjectId,
-      name: assessmentName.trim(),
-      description: assessmentDescription.trim(),
-      assessmentType,
-      visibility: assessmentVisibility,
-      timeLimitMin: Number(assessmentTimeLimit) || null,
-      attemptsAllowed: Number(assessmentAttempts) || 1,
-      maxScore: Number(assessmentMaxScore) || 100,
-      weightPct: Number(assessmentWeight) || 0,
-      resourceId,
-      aiEnhanced: assessmentAiLogs.length > 0,
-      status: assessmentStatus,
-      createdBy: context.currentUserId,
-      lastModifiedBy: context.currentUserId,
-      questions: assessmentQuestions.map((question, index) => ({
-        stem: question.prompt,
-        questionTypeCode: question.type === 'multiple-choice' ? 'multiple_choice' : 'short_answer',
-        maxMark: question.marks,
-        difficulty: 2,
-        rubricJson: {
-          options: question.type === 'multiple-choice'
-            ? question.options.split(',').map((option) => option.trim()).filter(Boolean)
-            : [],
-        },
-        sequenceIndex: index + 1,
-        points: question.marks,
-      })),
-    };
-
-    const savedAssessment = existingAssessmentId
-      ? await assessmentService.updateAssessment(existingAssessmentId, payload as any)
-      : await assessmentService.createAssessment(payload as any);
-
-    const savedAssessmentId = savedAssessment?.id || existingAssessmentId;
-    if (savedAssessmentId) {
-      setAssessmentResourceIds((previous) => ({ ...previous, [savedAssessmentId]: resourceId }));
-      if (assessmentStatus === 'published') {
-        await assessmentEnrollmentService.publishAssessmentToSubjectStudents({
-          assessmentId: savedAssessmentId,
-          subjectId: selectedSubjectId,
-          assignedBy: context.currentUserId,
+    try {
+      const resourceId = await createOrUpdateWorkspaceResource(
+        assessmentStatus === 'published' ? 'published' : 'draft',
+        {
           title: assessmentName.trim(),
-          instructions: assessmentDescription.trim() || undefined,
-          statusCode: 'assigned',
-        });
-      }
-    }
+          body: buildAssessmentResourceContent(selectedTopic.title, assessmentName.trim(), assessmentDescription, assessmentQuestions),
+          type: 'assessment',
+          existingId: existingResourceId,
+          skipRefresh: true,
+          skipFeedback: true,
+        }
+      );
+      if (!resourceId) return null;
 
-    await refreshWorkspaceData();
-    return savedAssessmentId || null;
+      const payload = {
+        schoolId: context.schoolId,
+        subjectId: selectedSubjectId,
+        name: assessmentName.trim(),
+        description: assessmentDescription.trim(),
+        assessmentType,
+        visibility: assessmentVisibility,
+        timeLimitMin: Number(assessmentTimeLimit) || null,
+        attemptsAllowed: Number(assessmentAttempts) || 1,
+        maxScore: Number(assessmentMaxScore) || 100,
+        weightPct: Number(assessmentWeight) || 0,
+        resourceId,
+        aiEnhanced: assessmentAiLogs.length > 0,
+        status: assessmentStatus,
+        createdBy: context.currentUserId,
+        lastModifiedBy: context.currentUserId,
+        questions: assessmentQuestions.map((question, index) => ({
+          stem: question.prompt,
+          questionTypeCode: question.type === 'multiple-choice' ? 'multiple_choice' : 'short_answer',
+          maxMark: question.marks,
+          difficulty: 2,
+          rubricJson: {
+            options: question.type === 'multiple-choice'
+              ? question.options.split(',').map((option) => option.trim()).filter(Boolean)
+              : [],
+          },
+          sequenceIndex: index + 1,
+          points: question.marks,
+        })),
+      };
+
+      const savedAssessment = existingAssessmentId
+        ? await assessmentService.updateAssessment(existingAssessmentId, payload as any)
+        : await assessmentService.createAssessment(payload as any);
+
+      const savedAssessmentId = savedAssessment?.id || existingAssessmentId;
+      if (savedAssessmentId) {
+        setAssessmentResourceIds((previous) => ({ ...previous, [savedAssessmentId]: resourceId }));
+        if (assessmentStatus === 'published') {
+          await assessmentEnrollmentService.publishAssessmentToSubjectStudents({
+            assessmentId: savedAssessmentId,
+            subjectId: selectedSubjectId,
+            assignedBy: context.currentUserId,
+            title: assessmentName.trim(),
+            instructions: assessmentDescription.trim() || undefined,
+            statusCode: 'assigned',
+          });
+        }
+      }
+
+      await refreshWorkspaceData();
+      setWorkspaceOperationFeedback({
+        status: 'success',
+        title: assessmentStatus === 'published' ? 'Practice published' : 'Practice saved',
+        message: assessmentStatus === 'published'
+          ? `"${assessmentName.trim()}" is now available to students.`
+          : `"${assessmentName.trim()}" was saved as draft.`,
+      });
+      return savedAssessmentId || null;
+    } catch (error: any) {
+      setWorkspaceOperationFeedback({
+        status: 'error',
+        title: 'Practice save failed',
+        message: error?.message || 'Please try again.',
+      });
+      throw error;
+    }
   };
 
   const handleQuickCreate = (type: TopicContentType) => {
@@ -1269,64 +1371,31 @@ const ClassroomSubjectsPage: React.FC = () => {
 
   const handleCreateWorkspaceItem = () => {
     if (!selectedTopic) return;
-    setCreateItemTitle('');
-    setCreateItemNotes('');
-    setIsCreateItemModalOpen(true);
-  };
-
-  const handleConfirmCreateWorkspaceItem = async () => {
-    if (!selectedTopic) return;
-
-    const typeLabel = TOPIC_CONTENT_LABELS[workspaceTab].slice(0, -1).toLowerCase();
-    const baseTitle = createItemTitle.trim();
-    if (!baseTitle) {
-      setToastMessage(`Enter a ${typeLabel} title to create a new item.`);
+    setSelectedWorkspaceItem('');
+    setSelectionActionOverlay(null);
+    setSelectionActionHint(null);
+    if (workspaceTab === 'assessment') {
+      setAssessmentName('');
+      setAssessmentType('quiz');
+      setAssessmentDescription('');
+      setAssessmentMaxScore('100');
+      setAssessmentWeight('0');
+      setAssessmentTimeLimit('0');
+      setAssessmentAttempts('1');
+      setAssessmentStatus('draft');
+      setAssessmentVisibility('private');
+      setAssessmentQuestions([]);
+      setAssessmentAiPrompt('');
+      setAssessmentAiLogs([]);
+      setAssessmentAttachedFileName('');
+      setIsAssessmentConfigured(false);
+      setToastMessage('Start creating a new practice on the canvas.');
       return;
     }
 
-    const withNotes = createItemNotes.trim() ? `${baseTitle} - ${createItemNotes.trim()}` : baseTitle;
-    const existingNames = new Set(selectedTopic.materials[workspaceTab]);
-    let nextName = withNotes;
-    let suffix = 2;
-    while (existingNames.has(nextName)) {
-      nextName = `${withNotes} (${suffix})`;
-      suffix += 1;
-    }
-
-    const draft = buildSeedMaterialDraft(selectedTopic.title, nextName, workspaceTab);
-    const draftKey = getMaterialDraftKey(selectedTopic.id, workspaceTab, nextName);
-    if (workspaceTab === 'assessment') {
-      setSelectedWorkspaceItem(nextName);
-      setAssessmentName(nextName);
-      setAssessmentDescription('');
-      setAssessmentQuestions([]);
-      setIsAssessmentConfigured(true);
-      setMaterialDrafts((previous) => ({
-        ...previous,
-        [draftKey]: draft,
-      }));
-    } else {
-      try {
-        const savedId = await createOrUpdateWorkspaceResource('draft', {
-          title: nextName,
-          body: draft,
-          type: workspaceTab,
-        });
-        if (!savedId) return;
-        setSelectedWorkspaceItem(nextName);
-        setEditorTitle(nextName);
-        setEditorBody(draft);
-      } catch (error: any) {
-        setToastMessage(error?.message || `Failed to create ${typeLabel}.`);
-        return;
-      }
-    }
-    setIsCreateItemModalOpen(false);
-    setCreateItemTitle('');
-    setCreateItemNotes('');
-    setToastMessage(
-      `${workspaceTab === 'assessment' ? 'Created' : 'Added'} "${nextName}" in ${TOPIC_CONTENT_LABELS[workspaceTab]}.`
-    );
+    setEditorTitle('');
+    setEditorBody('');
+    setToastMessage(`Start creating a new ${getTopicContentLabelLower(workspaceTab, true)}.`);
   };
 
   const handleMarkItemUpdated = (type: TopicContentType, item: string) => {
@@ -1395,11 +1464,12 @@ const ClassroomSubjectsPage: React.FC = () => {
       } else {
         const sourceBody =
           materialDrafts[sourceKey] || buildSeedMaterialDraft(selectedTopic.title, item, workspaceTab);
-        await createOrUpdateWorkspaceResource('draft', {
+        const duplicatedId = await createOrUpdateWorkspaceResource('draft', {
           title: duplicateName,
           body: sourceBody,
           type: workspaceTab,
         });
+        if (!duplicatedId) return;
       }
       await refreshWorkspaceData();
       setSelectedWorkspaceItem(duplicateName);
@@ -1687,12 +1757,18 @@ const ClassroomSubjectsPage: React.FC = () => {
   };
 
   const handleSaveMaterialDraft = () => {
-    if (!selectedTopic || !selectedWorkspaceItem) {
-      setToastMessage('Select a material item first.');
+    if (!selectedTopic) {
+      setToastMessage('Select a topic first.');
       return;
     }
 
-    const oldTitle = selectedWorkspaceItem;
+    const activeItem = selectedWorkspaceItem || ensureActiveWorkspaceItem();
+    if (!activeItem) {
+      setToastMessage('Enter a title to create a new draft.');
+      return;
+    }
+
+    const oldTitle = activeItem;
     const nextTitle = editorTitle.trim() || oldTitle;
     const oldKey = getMaterialDraftKey(selectedTopic.id, workspaceTab, oldTitle);
     const nextKey = getMaterialDraftKey(selectedTopic.id, workspaceTab, nextTitle);
@@ -1701,12 +1777,13 @@ const ClassroomSubjectsPage: React.FC = () => {
     const persist = async () => {
       try {
         const existingId = materialRecordIds[oldKey] || null;
-        await createOrUpdateWorkspaceResource('draft', {
+        const savedId = await createOrUpdateWorkspaceResource('draft', {
           title: nextTitle,
           body: nextBody,
           type: workspaceTab,
           existingId,
         });
+        if (!savedId) return;
         setMaterialDrafts((previous) => {
           const next = { ...previous };
           if (oldKey !== nextKey) delete next[oldKey];
@@ -1745,12 +1822,13 @@ const ClassroomSubjectsPage: React.FC = () => {
     const persist = async () => {
       try {
         const existingId = materialRecordIds[oldKey] || null;
-        await createOrUpdateWorkspaceResource('published', {
+        const savedId = await createOrUpdateWorkspaceResource('published', {
           title: nextTitle,
           body: nextBody,
           type: workspaceTab,
           existingId,
         });
+        if (!savedId) return;
         setMaterialDrafts((previous) => {
           const next = { ...previous };
           if (oldKey !== nextKey) delete next[oldKey];
@@ -1861,7 +1939,7 @@ const ClassroomSubjectsPage: React.FC = () => {
     setAssessmentAiLogs((previous) => [
       ...previous,
       `Prompt: ${prompt}`,
-      'AI generated a draft suggestion for the assessment canvas.',
+      'AI generated a draft suggestion for the practice canvas.',
     ]);
     setAssessmentAiPrompt('');
   };
@@ -2010,6 +2088,12 @@ const ClassroomSubjectsPage: React.FC = () => {
   }, [toastMessage]);
 
   useEffect(() => {
+    if (!workspaceOperationFeedback || workspaceOperationFeedback.status === 'loading') return;
+    const timeoutId = window.setTimeout(() => setWorkspaceOperationFeedback(null), 4200);
+    return () => window.clearTimeout(timeoutId);
+  }, [workspaceOperationFeedback]);
+
+  useEffect(() => {
     const handleSelectionChange = () => {
       captureEditorSelection();
     };
@@ -2020,6 +2104,7 @@ const ClassroomSubjectsPage: React.FC = () => {
   const isPracticeConfigured = Boolean(
     editorTitle.trim() || selectedWorkspaceItem || editorBody.trim()
   );
+  const isWorkspaceActionLoading = workspaceOperationFeedback?.status === 'loading';
 
   return (
     <ClassroomLayout
@@ -2033,8 +2118,53 @@ const ClassroomSubjectsPage: React.FC = () => {
       onClassroomSubject={() => setWorkspaceNavView('subject')}
     >
       <div className="space-y-5">
+        {workspaceOperationFeedback && (
+          <div
+            className={`fixed right-6 top-24 z-50 w-[min(420px,calc(100vw-2rem))] rounded-md border px-3 py-2 shadow-lg ${
+              workspaceOperationFeedback.status === 'loading'
+                ? 'border-blue-200 bg-blue-50'
+                : workspaceOperationFeedback.status === 'success'
+                  ? 'border-emerald-200 bg-emerald-50'
+                  : 'border-rose-200 bg-rose-50'
+            }`}
+          >
+            <div className="flex items-start gap-2">
+              {workspaceOperationFeedback.status === 'loading' ? (
+                <Loader2 className="mt-0.5 h-4 w-4 animate-spin text-blue-700" />
+              ) : workspaceOperationFeedback.status === 'success' ? (
+                <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-700" />
+              ) : (
+                <AlertCircle className="mt-0.5 h-4 w-4 text-rose-700" />
+              )}
+              <div>
+                <p
+                  className={`text-sm font-semibold ${
+                    workspaceOperationFeedback.status === 'loading'
+                      ? 'text-blue-800'
+                      : workspaceOperationFeedback.status === 'success'
+                        ? 'text-emerald-800'
+                        : 'text-rose-800'
+                  }`}
+                >
+                  {workspaceOperationFeedback.title}
+                </p>
+                <p
+                  className={`text-xs ${
+                    workspaceOperationFeedback.status === 'loading'
+                      ? 'text-blue-700'
+                      : workspaceOperationFeedback.status === 'success'
+                        ? 'text-emerald-700'
+                        : 'text-rose-700'
+                  }`}
+                >
+                  {workspaceOperationFeedback.message}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
         {toastMessage && (
-          <div className="fixed right-6 top-24 z-50 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 shadow-lg">
+          <div className={`fixed right-6 z-50 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 shadow-lg ${workspaceOperationFeedback ? 'top-44' : 'top-24'}`}>
             {toastMessage}
           </div>
         )}
@@ -2095,63 +2225,72 @@ const ClassroomSubjectsPage: React.FC = () => {
         )}
 
         {workspaceLoading && !isTopicWorkspaceOpen && (
-          <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500 shadow-sm">
-            Loading live workspace data...
-          </div>
-        )}
+          <div className="space-y-5">
+            <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap">
+                  <div className="h-10 w-full rounded-md bg-slate-200 sm:w-72 animate-pulse" />
+                  <div className="h-10 w-full rounded-md bg-slate-200 sm:w-52 animate-pulse" />
+                  <div className="h-10 w-full rounded-md bg-slate-200 sm:w-36 animate-pulse" />
+                  <div className="h-10 w-full rounded-md bg-slate-200 sm:w-40 animate-pulse" />
+                </div>
+                <div className="h-9 w-56 rounded-md bg-slate-200 animate-pulse" />
+              </div>
+            </div>
 
-        {isCreateItemModalOpen && selectedTopic && (
-          <div
-            className="fixed inset-0 z-[65] flex items-center justify-center bg-slate-900/35 p-4"
-            onClick={() => setIsCreateItemModalOpen(false)}
-          >
-            <div
-              className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-4 shadow-2xl"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <div className="mb-3">
-                <p className="text-sm font-semibold text-slate-900">
-                  {workspaceTab === 'assessment' ? 'Create assessment' : `Add ${TOPIC_CONTENT_LABELS[workspaceTab].slice(0, -1).toLowerCase()}`}
-                </p>
-                <p className="text-xs text-slate-500">{selectedTopic.title}</p>
+            <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.5fr_1fr]">
+              <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="space-y-4">
+                  {Array.from({ length: 3 }).map((_, unitIndex) => (
+                    <div key={`unit-skeleton-${unitIndex}`} className="rounded-lg border border-slate-200 overflow-hidden">
+                      <div className="flex items-center justify-between bg-slate-50 px-3 py-2">
+                        <div className="h-4 w-36 rounded bg-slate-200 animate-pulse" />
+                        <div className="h-3 w-16 rounded bg-slate-200 animate-pulse" />
+                      </div>
+                      <div className="divide-y divide-slate-100">
+                        {Array.from({ length: 2 }).map((_, topicIndex) => (
+                          <div key={`topic-skeleton-${unitIndex}-${topicIndex}`} className="px-3 py-3">
+                            <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+                              <div className="min-w-0 space-y-2">
+                                <div className="h-4 w-64 rounded bg-slate-200 animate-pulse" />
+                                <div className="h-3 w-40 rounded bg-slate-200 animate-pulse" />
+                              </div>
+                              <div className="grid grid-cols-3 gap-2">
+                                <div className="h-7 w-14 rounded bg-slate-200 animate-pulse" />
+                                <div className="h-7 w-14 rounded bg-slate-200 animate-pulse" />
+                                <div className="h-7 w-14 rounded bg-slate-200 animate-pulse" />
+                              </div>
+                            </div>
+                            <div className="mt-2 h-1.5 w-full rounded-full bg-slate-200 animate-pulse" />
+                            <div className="mt-2 h-3 w-52 rounded bg-slate-200 animate-pulse" />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
 
-              <div className="space-y-3">
-                <label className="block text-xs font-semibold text-slate-600">
-                  Title
-                  <input
-                    value={createItemTitle}
-                    onChange={(event) => setCreateItemTitle(event.target.value)}
-                    placeholder={`Enter ${TOPIC_CONTENT_LABELS[workspaceTab].slice(0, -1).toLowerCase()} title`}
-                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
-                  />
-                </label>
-                <label className="block text-xs font-semibold text-slate-600">
-                  Notes (optional)
-                  <input
-                    value={createItemNotes}
-                    onChange={(event) => setCreateItemNotes(event.target.value)}
-                    placeholder="Add optional notes"
-                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
-                  />
-                </label>
-              </div>
-
-              <div className="mt-4 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setIsCreateItemModalOpen(false)}
-                  className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleConfirmCreateWorkspaceItem}
-                  className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
-                >
-                  {workspaceTab === 'assessment' ? 'Create' : 'Add'}
-                </button>
+              <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm space-y-4">
+                <div className="space-y-2">
+                  <div className="h-3 w-32 rounded bg-slate-200 animate-pulse" />
+                  <div className="h-6 w-56 rounded bg-slate-200 animate-pulse" />
+                  <div className="h-3 w-28 rounded bg-slate-200 animate-pulse" />
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="h-16 rounded-md bg-slate-200 animate-pulse" />
+                  <div className="h-16 rounded-md bg-slate-200 animate-pulse" />
+                  <div className="h-16 rounded-md bg-slate-200 animate-pulse" />
+                </div>
+                <div className="space-y-2">
+                  {Array.from({ length: 3 }).map((_, itemIndex) => (
+                    <div key={`content-skeleton-${itemIndex}`} className="rounded-md border border-slate-200 p-2">
+                      <div className="h-3 w-28 rounded bg-slate-200 animate-pulse" />
+                      <div className="mt-2 h-3 w-full rounded bg-slate-200 animate-pulse" />
+                      <div className="mt-1 h-3 w-4/5 rounded bg-slate-200 animate-pulse" />
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
@@ -2167,7 +2306,7 @@ const ClassroomSubjectsPage: React.FC = () => {
               onClick={(event) => event.stopPropagation()}
             >
               <div className="mb-3 flex items-center justify-between">
-                <p className="text-sm font-semibold text-slate-900">Assessment Configuration</p>
+                <p className="text-sm font-semibold text-slate-900">Practice Configuration</p>
                 <button
                   type="button"
                   onClick={() => setIsAssessmentConfigOpen(false)}
@@ -2178,15 +2317,6 @@ const ClassroomSubjectsPage: React.FC = () => {
               </div>
 
               <div className="space-y-4">
-                <div>
-                  <label className="text-xs text-gray-500">Assessment Name</label>
-                  <input
-                    value={assessmentName}
-                    onChange={(event) => setAssessmentName(event.target.value)}
-                    className="w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
-                    placeholder="Enter assessment name"
-                  />
-                </div>
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div>
                     <label className="text-xs text-gray-500">Subject</label>
@@ -2203,7 +2333,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                     </select>
                   </div>
                   <div>
-                    <label className="text-xs text-gray-500">Assessment Type</label>
+                    <label className="text-xs text-gray-500">Practice Type</label>
                     <select
                       value={assessmentType}
                       onChange={(event) => setAssessmentType(event.target.value as typeof assessmentType)}
@@ -2308,7 +2438,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                   onClick={() => {
                     setIsAssessmentConfigured(true);
                     setIsAssessmentConfigOpen(false);
-                    setToastMessage('Assessment configuration saved.');
+                    setToastMessage('Practice configuration saved.');
                   }}
                   className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
                 >
@@ -2361,7 +2491,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                   <input
                     value={editorTitle}
                     onChange={(event) => setEditorTitle(event.target.value)}
-                    placeholder={`Title for ${TOPIC_CONTENT_LABELS[workspaceTab].slice(0, -1).toLowerCase()}`}
+                    placeholder={`Title for ${getTopicContentLabelLower(workspaceTab, true)}`}
                     className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
                   />
                 </label>
@@ -2435,7 +2565,7 @@ const ClassroomSubjectsPage: React.FC = () => {
           </div>
         )}
 
-        {!isTopicWorkspaceOpen && (
+        {!isTopicWorkspaceOpen && !workspaceLoading && (
           <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap">
@@ -2502,7 +2632,7 @@ const ClassroomSubjectsPage: React.FC = () => {
           </div>
         )}
 
-        {!isTopicWorkspaceOpen && (
+        {!isTopicWorkspaceOpen && !workspaceLoading && (
           <div className="grid grid-cols-1 xl:grid-cols-[1.5fr_1fr] gap-5">
             <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
               {view === 'overview' ? (
@@ -2537,7 +2667,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                                     <span className="font-medium">{toTopicCoverageStatus(topic)}</span>
                                   </div>
                                 </div>
-                                <div className="grid grid-cols-3 gap-2 text-xs text-slate-600">
+                                <div className="grid grid-cols-2 gap-2 text-xs text-slate-600">
                                   <span className="relative group inline-flex justify-center">
                                     <span className="rounded-md border border-slate-200 px-2 py-1">R: {topic.resourcesCount}</span>
                                     <span className="pointer-events-none absolute -top-8 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded bg-slate-900 px-2 py-1 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100">
@@ -2545,15 +2675,9 @@ const ClassroomSubjectsPage: React.FC = () => {
                                     </span>
                                   </span>
                                   <span className="relative group inline-flex justify-center">
-                                    <span className="rounded-md border border-slate-200 px-2 py-1">P: {topic.practicesCount}</span>
+                                    <span className="rounded-md border border-slate-200 px-2 py-1">P: {topic.assessmentsCount}</span>
                                     <span className="pointer-events-none absolute -top-8 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded bg-slate-900 px-2 py-1 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100">
-                                      Practices: {topic.practicesCount}
-                                    </span>
-                                  </span>
-                                  <span className="relative group inline-flex justify-center">
-                                    <span className="rounded-md border border-slate-200 px-2 py-1">A: {topic.assessmentsCount}</span>
-                                    <span className="pointer-events-none absolute -top-8 left-1/2 z-10 -translate-x-1/2 whitespace-nowrap rounded bg-slate-900 px-2 py-1 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100">
-                                      Assessments: {topic.assessmentsCount}
+                                      Practices: {topic.assessmentsCount}
                                     </span>
                                   </span>
                                 </div>
@@ -2571,7 +2695,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                                 />
                               </div>
                               <div className="mt-1 text-xs text-slate-500">
-                                Mastery {topic.masteryPercent}% {missingTypes.length ? `• Missing ${missingTypes.join(', ')}` : ''}
+                                Mastery {topic.masteryPercent}% {missingTypes.length ? `• Missing ${missingTypes.map((type) => getTopicContentLabelLower(type, true)).join(', ')}` : ''}
                               </div>
                             </button>
                           );
@@ -2591,7 +2715,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                           <div>
                             <p className="text-sm font-semibold text-slate-900">{row.topicTitle}</p>
                             <p className="text-xs text-slate-600">{row.unit} • {row.form}</p>
-                            <p className="text-xs text-amber-700 mt-1">Missing {row.missingType}</p>
+                            <p className="text-xs text-amber-700 mt-1">Missing {getTopicContentLabelLower(row.missingType, true)}</p>
                           </div>
                           <button
                             onClick={() => openMissingItemComposer(row.topicId, row.missingType)}
@@ -2625,27 +2749,23 @@ const ClassroomSubjectsPage: React.FC = () => {
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div className="grid grid-cols-2 gap-2 text-xs">
                     <div className={`rounded-md border p-2 ${selectedTopic.resourcesCount === 0 ? 'border-rose-200 bg-rose-50' : 'border-slate-200 bg-slate-50'}`}>
                       <p className="text-slate-500">Resources</p>
                       <p className="text-sm font-semibold text-slate-900">{selectedTopic.resourcesCount}</p>
                     </div>
-                    <div className={`rounded-md border p-2 ${selectedTopic.practicesCount === 0 ? 'border-rose-200 bg-rose-50' : 'border-slate-200 bg-slate-50'}`}>
-                      <p className="text-slate-500">Practices</p>
-                      <p className="text-sm font-semibold text-slate-900">{selectedTopic.practicesCount}</p>
-                    </div>
                     <div className={`rounded-md border p-2 ${selectedTopic.assessmentsCount === 0 ? 'border-rose-200 bg-rose-50' : 'border-slate-200 bg-slate-50'}`}>
-                      <p className="text-slate-500">Assessments</p>
+                      <p className="text-slate-500">Practices</p>
                       <p className="text-sm font-semibold text-slate-900">{selectedTopic.assessmentsCount}</p>
                     </div>
                   </div>
 
                   <div className="space-y-2">
                     <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Topic content</p>
-                    {(['resource', 'practice', 'assessment'] as TopicContentType[]).map((type) => (
+                    {WORKSPACE_CONTENT_TYPES.map((type) => (
                       <div key={type} className="rounded-md border border-slate-200 p-2">
                         <div className="flex items-center justify-between">
-                          <p className="text-xs font-semibold text-slate-700 capitalize">{type}</p>
+                          <p className="text-xs font-semibold text-slate-700">{getTopicContentLabel(type, true)}</p>
                           <button
                             onClick={() => handleQuickCreate(type)}
                             className="text-xs font-medium text-blue-600 hover:text-blue-700"
@@ -2744,7 +2864,7 @@ const ClassroomSubjectsPage: React.FC = () => {
 
                   {isTopicContentCollapsed ? (
                     <div className="space-y-1">
-                      {(['resource', 'practice', 'assessment'] as TopicContentType[]).map((type) => (
+                      {WORKSPACE_CONTENT_TYPES.map((type) => (
                         <button
                           key={type}
                           type="button"
@@ -2767,7 +2887,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                           Content types
                         </p>
                         <div className="space-y-1">
-                          {(['resource', 'practice', 'assessment'] as TopicContentType[]).map((type) => (
+                          {WORKSPACE_CONTENT_TYPES.map((type) => (
                             <button
                               key={type}
                               type="button"
@@ -2792,10 +2912,20 @@ const ClassroomSubjectsPage: React.FC = () => {
                           <button
                             type="button"
                             onClick={handleCreateWorkspaceItem}
-                            className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-blue-600 hover:bg-slate-100"
+                            disabled={isWorkspaceActionLoading}
+                            className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-blue-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
                           >
-                            <Plus className="h-3 w-3" />
-                            {workspaceTab === 'assessment' ? 'Create' : 'Add'}
+                            {isWorkspaceActionLoading ? (
+                              <>
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                                Working...
+                              </>
+                            ) : (
+                              <>
+                                <Plus className="h-3 w-3" />
+                                {workspaceTab === 'assessment' ? 'Create' : 'Add'}
+                              </>
+                            )}
                           </button>
                         </div>
                         <div className="max-h-56 space-y-1 overflow-y-auto">
@@ -2879,10 +3009,10 @@ const ClassroomSubjectsPage: React.FC = () => {
                             <div className="flex flex-wrap items-center gap-2">
                               <button
                                 type="button"
-                                onClick={() => setToastMessage('Assessment preview is in progress (UI preview).')}
+                                onClick={() => setToastMessage('Practice preview is in progress (UI preview).')}
                                 className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
                               >
-                                Preview Assessment
+                                Preview Practice
                               </button>
                               <button
                                 type="button"
@@ -2905,24 +3035,32 @@ const ClassroomSubjectsPage: React.FC = () => {
                                       setIsAssessmentConfigured(true);
                                       setToastMessage(
                                         assessmentStatus === 'published'
-                                          ? `Assessment "${assessmentName.trim()}" published to students.`
-                                          : `Assessment "${assessmentName.trim()}" saved.`
+                                          ? `Practice "${assessmentName.trim()}" published to students.`
+                                          : `Practice "${assessmentName.trim()}" saved.`
                                       );
                                     } catch (error: any) {
-                                      setToastMessage(error?.message || 'Failed to create assessment.');
+                                      setToastMessage(error?.message || 'Failed to create practice.');
                                     }
                                   })();
                                 }}
-                                className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+                                disabled={isWorkspaceActionLoading}
+                                className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
                               >
-                                Create Assessment
+                                {isWorkspaceActionLoading ? (
+                                  <>
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    Processing...
+                                  </>
+                                ) : (
+                                  'Create Practice'
+                                )}
                               </button>
                             </div>
                             <button
                               type="button"
                               onClick={() => setIsStudioExpanded((previous) => !previous)}
                               className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
-                              aria-label={isStudioExpanded ? 'Collapse assessment workspace' : 'Expand assessment workspace'}
+                              aria-label={isStudioExpanded ? 'Collapse practice workspace' : 'Expand practice workspace'}
                               title={isStudioExpanded ? 'Collapse' : 'Expand'}
                             >
                               {isStudioExpanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
@@ -2935,7 +3073,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                                 <div className="flex items-center justify-between">
                                   <div className="flex items-center gap-2">
                                     <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">
-                                      Question Canvas
+                                      Practice Canvas
                                     </h2>
                                     <span
                                       className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
@@ -2956,18 +3094,29 @@ const ClassroomSubjectsPage: React.FC = () => {
                                       <Settings2 className="h-3.5 w-3.5" />
                                       Configure
                                     </button>
-                                    <button
-                                      type="button"
-                                      onClick={handleAddAssessmentQuestion}
-                                      className="text-sm text-blue-600 hover:text-blue-700"
-                                    >
-                                      + Add question
+                                      <button
+                                        type="button"
+                                        onClick={handleAddAssessmentQuestion}
+                                        className="text-sm text-blue-600 hover:text-blue-700"
+                                      >
+                                      + Add practice question
                                     </button>
                                   </div>
                                 </div>
+                                <div className="rounded-lg border border-slate-200 bg-white p-4">
+                                  <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                    Practice name
+                                    <input
+                                      value={assessmentName}
+                                      onChange={(event) => setAssessmentName(event.target.value)}
+                                      placeholder="Enter practice name"
+                                      className="mt-2 w-full rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-900"
+                                    />
+                                  </label>
+                                </div>
                                 {assessmentQuestions.length === 0 ? (
                                   <div className="rounded-lg border border-dashed border-gray-300 p-6 text-sm text-gray-500">
-                                    No questions yet. Add a question or ask AI collaborator to draft on the canvas.
+                                    No practice questions yet. Add a question or ask AI collaborator to draft on the canvas.
                                   </div>
                                 ) : (
                                   <div className="space-y-3">
@@ -3078,7 +3227,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                                         </span>
                                         <div className="min-w-0">
                                           <p className="truncate text-sm font-semibold text-slate-800">AI Collaborator</p>
-                                          <p className="text-[11px] text-slate-500">Assessment drafting assistant</p>
+                                          <p className="text-[11px] text-slate-500">Practice drafting assistant</p>
                                         </div>
                                       </div>
                                       <button
@@ -3209,9 +3358,17 @@ const ClassroomSubjectsPage: React.FC = () => {
                               <button
                                 type="button"
                                 onClick={handleSaveMaterialDraft}
-                                className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                                disabled={isWorkspaceActionLoading}
+                                className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
                               >
-                                Save draft
+                                {isWorkspaceActionLoading ? (
+                                  <>
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    Processing...
+                                  </>
+                                ) : (
+                                  'Save draft'
+                                )}
                               </button>
                               <button
                                 type="button"
@@ -3241,9 +3398,17 @@ const ClassroomSubjectsPage: React.FC = () => {
                                     }
                                   })();
                                 }}
-                                className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:opacity-60"
+                                disabled={isWorkspaceActionLoading}
+                                className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
                               >
-                                Create Practice
+                                {isWorkspaceActionLoading ? (
+                                  <>
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    Processing...
+                                  </>
+                                ) : (
+                                  'Create Practice'
+                                )}
                               </button>
                             </div>
                             <button
@@ -3499,10 +3664,15 @@ const ClassroomSubjectsPage: React.FC = () => {
                     <button
                       type="button"
                       onClick={handleSaveMaterialDraft}
-                      className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                      disabled={isWorkspaceActionLoading}
+                      className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      <Save className="h-3.5 w-3.5" />
-                      Save draft
+                      {isWorkspaceActionLoading ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Save className="h-3.5 w-3.5" />
+                      )}
+                      {isWorkspaceActionLoading ? 'Processing...' : 'Save draft'}
                     </button>
                     <button
                       type="button"
@@ -3533,10 +3703,15 @@ const ClassroomSubjectsPage: React.FC = () => {
                     <button
                       type="button"
                       onClick={handlePublishMaterial}
-                      className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+                      disabled={isWorkspaceActionLoading}
+                      className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      <ArrowUp className="h-3.5 w-3.5" />
-                      Publish
+                      {isWorkspaceActionLoading ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <ArrowUp className="h-3.5 w-3.5" />
+                      )}
+                      {isWorkspaceActionLoading ? 'Processing...' : 'Publish'}
                     </button>
                   </div>
                   <button
@@ -3711,7 +3886,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                     <input
                       value={editorTitle}
                       onChange={(event) => setEditorTitle(event.target.value)}
-                      placeholder={`Title for ${workspaceTab}`}
+                      placeholder={`Title for ${getTopicContentLabelLower(workspaceTab, true)}`}
                       className="w-full rounded-md border border-slate-200 px-3 py-2 text-base font-semibold text-slate-900"
                     />
                     <div ref={editorOverlayHostRef} className="relative">
@@ -3730,7 +3905,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                       />
                       {isEditorBodyEmpty && (
                         <span className="pointer-events-none absolute left-3 top-2 text-sm text-slate-400">
-                          Start writing {workspaceTab} content here...
+                          Start writing {getTopicContentLabelLower(workspaceTab, true)} content here...
                         </span>
                       )}
                       {selectionActionOverlay && (

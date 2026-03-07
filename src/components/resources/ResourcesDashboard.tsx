@@ -102,6 +102,16 @@ const normalizeEditorHtmlContent = (value: string) => {
     return normalized;
 };
 
+const stripHtmlToText = (value: string) => value
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const buildFallbackResourceTitle = (contentType: ResourceContentType) =>
+    `${getResourceContentTypeLabel(contentType)} ${new Date().toLocaleString()}`;
+
 // --- Component Starts ---
 const ResourcesDashboard: React.FC = () => {
 
@@ -226,6 +236,14 @@ const ResourcesDashboard: React.FC = () => {
 
         loadCurriculumTopics();
     }, [noteForm.subjectId]);
+
+    useEffect(() => {
+        if (noteForm.subjectId || subjects.length === 0) return;
+        setNoteForm((prev) => ({
+            ...prev,
+            subjectId: subjects[0].id,
+        }));
+    }, [noteForm.subjectId, subjects]);
 
     // --- Event Handlers ---
     const handleUploadClick = (subject?: Subject) => {
@@ -651,6 +669,20 @@ const ResourcesDashboard: React.FC = () => {
     const handleGenerateNotes = () => {
         setSelectedClass(null);
         setActiveAction('generate-notes');
+        setPersistedResourceId(null);
+        setContentType('notes');
+        setSelectedReferenceResourceIds([]);
+        setContentFiles([]);
+        setNoteForm((prev) => ({
+            ...prev,
+            resourceId: '',
+            topicId: '',
+            title: '',
+            instructions: '',
+            content: '',
+            status: 'draft',
+            scheduledFor: '',
+        }));
     };
 
     const handleGenerateOnCanvas = () => {
@@ -710,14 +742,22 @@ const ResourcesDashboard: React.FC = () => {
     };
 
     const persistResource = async (mode: 'draft' | 'publish' | 'schedule') => {
-        if (!noteForm.title.trim()) {
-            toast.error('Please provide a title before saving.');
-            return null;
-        }
-        if (!noteForm.subjectId) {
+        const resolvedSubjectId = noteForm.subjectId || subjects[0]?.id || '';
+        if (!resolvedSubjectId) {
             toast.error('Select a subject before saving.');
             return null;
         }
+
+        const plainTextContent = stripHtmlToText(noteForm.content || '');
+        if (!plainTextContent) {
+            toast.error('Add resource content before saving.');
+            return null;
+        }
+
+        const derivedTitle = plainTextContent.slice(0, 80);
+        const resolvedTitle = (noteForm.title || '').trim()
+            || derivedTitle
+            || buildFallbackResourceTitle(contentType);
 
         const currentUser = authService.getCurrentUser();
         if (!currentUser?.id) {
@@ -743,10 +783,10 @@ const ResourcesDashboard: React.FC = () => {
 
         const payload = {
             schoolId: activeSchoolId,
-            subjectId: noteForm.subjectId,
+            subjectId: resolvedSubjectId,
             uploadedBy: currentUser.id,
-            name: noteForm.title.trim(),
-            originalName: noteForm.title.trim(),
+            name: resolvedTitle,
+            originalName: resolvedTitle,
             mimeType: 'text/html',
             resType: 'content',
             sizeBytes: new Blob([noteForm.content || '']).size,
@@ -763,19 +803,27 @@ const ResourcesDashboard: React.FC = () => {
             : await resourceService.create(payload);
 
         setPersistedResourceId(saved.id);
-        setNoteForm((prev) => ({ ...prev, resourceId: saved.id }));
+        setNoteForm((prev) => ({
+            ...prev,
+            resourceId: saved.id,
+            subjectId: resolvedSubjectId,
+            title: resolvedTitle,
+        }));
         fetchDashboardData();
         return saved;
     };
 
     const handleSaveDraft = async () => {
-        if (!noteForm.title.trim()) {
-            toast.error('Please provide a title before saving.');
-            return;
-        }
         const saved = await persistResource('draft');
         if (!saved) return;
-        setDraftNotes((prev) => [{ ...noteForm, resourceId: saved.id, status: 'draft' }, ...prev.filter((draft) => draft.resourceId !== saved.id)]);
+        const savedTitle = saved?.name || noteForm.title;
+        setDraftNotes((prev) => [{
+            ...noteForm,
+            title: savedTitle,
+            subjectId: noteForm.subjectId || subjects[0]?.id || '',
+            resourceId: saved.id,
+            status: 'draft'
+        }, ...prev.filter((draft) => draft.resourceId !== saved.id)]);
         toast.success('Draft saved.');
     };
 
@@ -1207,6 +1255,12 @@ const ResourcesDashboard: React.FC = () => {
                                             </button>
                                         </div>
                                         <div className="space-y-3 p-3">
+                                            <input
+                                                className="w-full rounded-md border border-slate-200 px-3 py-2 text-base font-semibold text-slate-900"
+                                                placeholder="Title for resource"
+                                                value={noteForm.title}
+                                                onChange={(e) => setNoteForm((prev) => ({ ...prev, title: e.target.value }))}
+                                            />
                                             <div className="relative" ref={resourceOverlayHostRef}>
                                                 <div
                                                     ref={resourceEditorRef}
