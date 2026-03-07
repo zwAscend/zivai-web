@@ -210,7 +210,7 @@ const DevelopmentPlanCreation: React.FC<DevelopmentPlanCreationProps> = ({
   };
 
   // Create the development plan
-  const handleCreatePlan = async () => {
+  const handleCreatePlan = async (mode: 'ai' | 'manual') => {
     if (!selectedStudent || !initialSubjectId) return;
     
     setIsCreating(true);
@@ -226,18 +226,26 @@ const DevelopmentPlanCreation: React.FC<DevelopmentPlanCreationProps> = ({
         return accumulator;
       }, {});
 
-      // Generate the plan using the planning service
-      const generatedPlan = await planningService.generateDevelopmentPlan({
+      const generationParams = {
         student: selectedStudent,
         subjectId: initialSubjectId,
         attributes: selectedAttributes,
         studentAttributes: studentAttributes || {},
         targetScores,
         subjectName: selectedSubject?.name || 'Selected subject',
-      });
+      };
+
+      const generatedPlan = mode === 'ai'
+        ? await planningService.generateDevelopmentPlan(generationParams)
+        : planningService.generateLocalPlan(generationParams);
+
+      const normalizedPlan = {
+        ...generatedPlan,
+        name: planName.trim(),
+      };
       
       // Save the plan
-      await developmentService.createSubjectPlan(generatedPlan);
+      await developmentService.createSubjectPlan(normalizedPlan as any);
       
       // Show success message
       toast.success('Development plan created successfully!');
@@ -286,10 +294,17 @@ const DevelopmentPlanCreation: React.FC<DevelopmentPlanCreationProps> = ({
                 Cancel
               </Button>
               <Button 
-                onClick={handleCreatePlan}
+                variant="outline"
+                onClick={() => handleCreatePlan('manual')}
                 disabled={isCreating || (selectedSkills.size === 0 && selectedSubskills.size === 0) || !planName.trim()}
               >
-                {isCreating ? 'Creating...' : 'Create Plan'}
+                {isCreating ? 'Creating...' : 'Create Manually'}
+              </Button>
+              <Button 
+                onClick={() => handleCreatePlan('ai')}
+                disabled={isCreating || (selectedSkills.size === 0 && selectedSubskills.size === 0) || !planName.trim()}
+              >
+                {isCreating ? 'Creating...' : 'Generate with AI'}
               </Button>
             </div>
           </div>

@@ -1,6 +1,5 @@
 // src/components/resources/ResourcesDashboard.tsx
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import axios from 'axios';
 import { clsx } from 'clsx';
 import {
     AlignJustify,
@@ -43,6 +42,12 @@ import { authService } from '../../services/authService';
 import { curriculumService, CurriculumTopic } from '../../services/curriculumService';
 import { resourceService } from '../../services/resourceService';
 import { schoolService, SchoolItem } from '../../services/schoolService';
+import { fetchData } from '../../services/http';
+import {
+    RESOURCE_CONTENT_TYPES,
+    ResourceContentType,
+    getResourceContentTypeLabel,
+} from '../../constants/resourceContentTypes';
 
 // --- Type Definitions ---
 export interface Subject {
@@ -85,6 +90,18 @@ const escapeHtml = (value: string) => value
 
 const textToHtml = (value: string) => escapeHtml(value).replace(/\n/g, '<br />');
 
+const normalizeEditorHtmlContent = (value: string) => {
+    let normalized = value;
+    for (let index = 0; index < 5; index += 1) {
+        const decoded = normalized.replace(/&amp;([a-zA-Z#0-9]+;)/g, '&$1');
+        if (decoded === normalized) {
+            break;
+        }
+        normalized = decoded;
+    }
+    return normalized;
+};
+
 // --- Component Starts ---
 const ResourcesDashboard: React.FC = () => {
 
@@ -99,7 +116,7 @@ const ResourcesDashboard: React.FC = () => {
     const [isContentGenerating, setIsContentGenerating] = useState(false);
     const [isContentExpanded, setIsContentExpanded] = useState(false);
     const [isAiPanelCollapsed, setIsAiPanelCollapsed] = useState(false);
-    const [contentType, setContentType] = useState('Notes');
+    const [contentType, setContentType] = useState<ResourceContentType>('notes');
     const [contentFiles, setContentFiles] = useState<File[]>([]);
     const [selectedReferenceResourceIds, setSelectedReferenceResourceIds] = useState<string[]>([]);
     const contextFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -144,21 +161,14 @@ const ResourcesDashboard: React.FC = () => {
     const workspaceConfigButtonRef = useRef<HTMLButtonElement | null>(null);
     const workspaceConfigMenuRef = useRef<HTMLDivElement | null>(null);
 
-    const API_URL = 'http://localhost:5000';
-
     const fetchDashboardData = useCallback(async () => {
         setLoading(true);
-        const token = localStorage.getItem('token');
-        if (!token) { setLoading(false); return; }
         try {
-            const config = { headers: { 'Authorization': `Bearer ${token}` } };
-            const [subjectsRes, countsRes, recentRes] = await Promise.all([
-                axios.get(`${API_URL}/api/subjects/teaching`, config),
-                axios.get(`${API_URL}/api/resources/counts`, config),
-                axios.get(`${API_URL}/api/resources/recent?limit=5`, config)
+            const [subjectData, countsData, recentData] = await Promise.all([
+                fetchData<any[]>('/subjects/teaching', { forceRefresh: true }),
+                fetchData<Record<string, any>>('/resources/counts', { forceRefresh: true }),
+                fetchData<RecentUpload[]>('/resources/recent?limit=5', { forceRefresh: true }),
             ]);
-            const subjectData = subjectsRes.data || [];
-            const countsData = countsRes.data || {};
             const updatedSubjects = subjectData.map((subject: any) => ({
                 ...subject,
                 resourceCount: countsData[subject.id]?.count || 0,
@@ -169,7 +179,7 @@ const ResourcesDashboard: React.FC = () => {
                 others: countsData[subject.id]?.others || 0,
             }));
             setSubjects(updatedSubjects);
-            setRecentUploads(recentRes.data || []);
+            setRecentUploads(Array.isArray(recentData) ? recentData : []);
         } catch (error) { console.error('Error fetching dashboard data:', error);
         } finally { setLoading(false); }
     }, []);
@@ -241,7 +251,7 @@ const ResourcesDashboard: React.FC = () => {
     const handleCreateLessonPlan = () => {
         setSelectedClass(null);
         setActiveAction('generate-notes');
-        setContentType('Lesson Summary');
+        setContentType('lesson_plan');
         setPersistedResourceId(null);
         setNoteForm((prev) => ({
             ...prev,
@@ -255,7 +265,7 @@ const ResourcesDashboard: React.FC = () => {
     const handleViewLessonPlan = (subject: Subject) => {
         setSelectedClass(null);
         setActiveAction('generate-notes');
-        setContentType('Lesson Summary');
+        setContentType('lesson_plan');
         setPersistedResourceId(null);
         setNoteForm((prev) => ({
             ...prev,
@@ -428,7 +438,7 @@ const ResourcesDashboard: React.FC = () => {
               <body>
                 <div class="meta">
                   <h1>${escapeHtml(title)}</h1>
-                  <p>${escapeHtml(contentType)}${subjectName ? ` • ${escapeHtml(subjectName)}` : ''} • ${escapeHtml(noteForm.grade)}</p>
+                  <p>${escapeHtml(getResourceContentTypeLabel(contentType))}${subjectName ? ` • ${escapeHtml(subjectName)}` : ''} • ${escapeHtml(noteForm.grade)}</p>
                   <p>Status: ${escapeHtml(noteForm.status === 'publish' ? 'Publish Now' : noteForm.status === 'schedule' ? 'Schedule' : 'Draft')}</p>
                 </div>
                 <div class="content">${content}</div>
@@ -557,10 +567,26 @@ const ResourcesDashboard: React.FC = () => {
         resourceEditorRef.current?.focus();
         document.execCommand(command, false, value);
         if (resourceEditorRef.current) {
+            const content = normalizeEditorHtmlContent(resourceEditorRef.current?.innerHTML || '');
             setNoteForm((prev) => ({
                 ...prev,
-                content: resourceEditorRef.current?.innerHTML || '',
+                content,
             }));
+        }
+    };
+
+    const handleResourceEditorBodyChange = (rawContent: string) => {
+        const content = normalizeEditorHtmlContent(rawContent);
+        setNoteForm((prev) => ({
+            ...prev,
+            content,
+        }));
+    };
+
+    const handleResourceEditorKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+        if (event.key === 'Tab') {
+            event.preventDefault();
+            applyContentEditorCommand('insertHTML', '&nbsp;&nbsp;&nbsp;&nbsp;');
         }
     };
 
@@ -672,7 +698,7 @@ const ResourcesDashboard: React.FC = () => {
                     text: 'Done. I generated a draft and inserted it into the content canvas.',
                     details: [
                         `Title: ${noteForm.title}`,
-                        `Content type: ${contentType}`,
+                        `Content type: ${getResourceContentTypeLabel(contentType)}`,
                         selectedReferenceNames.length > 0 ? `References attached: ${selectedReferenceNames.length}` : '',
                         contentFiles.length > 0 ? `Context files used: ${contentFiles.length}` : '',
                     ].filter(Boolean),
@@ -1050,13 +1076,13 @@ const ResourcesDashboard: React.FC = () => {
                                                                 <select
                                                                     className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
                                                                     value={contentType}
-                                                                    onChange={(e) => setContentType(e.target.value)}
+                                                                    onChange={(e) => setContentType(e.target.value as ResourceContentType)}
                                                                 >
-                                                                    <option>Notes</option>
-                                                                    <option>Worksheet</option>
-                                                                    <option>Slides</option>
-                                                                    <option>Revision Pack</option>
-                                                                    <option>Lesson Summary</option>
+                                                                    {RESOURCE_CONTENT_TYPES.map((type) => (
+                                                                        <option key={type} value={type}>
+                                                                            {getResourceContentTypeLabel(type)}
+                                                                        </option>
+                                                                    ))}
                                                                 </select>
                                                             </div>
                                                             <div className="md:col-span-2 xl:col-span-3">
@@ -1123,7 +1149,9 @@ const ResourcesDashboard: React.FC = () => {
                                                 <span className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600">Resources</span>
                                                 <span className="text-xs text-slate-500">Resource Workspace</span>
                                             </div>
-                                            <span className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600">{contentType}</span>
+                                            <span className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600">
+                                                {getResourceContentTypeLabel(contentType)}
+                                            </span>
                                         </div>
                                         <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2">
                                             <button type="button" onClick={() => applyContentEditorCommand('undo')} className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100" aria-label="Undo" title="Undo">
@@ -1184,9 +1212,9 @@ const ResourcesDashboard: React.FC = () => {
                                                     ref={resourceEditorRef}
                                                     contentEditable
                                                     suppressContentEditableWarning
+                                                    onKeyDown={handleResourceEditorKeyDown}
                                                     onInput={(e) => {
-                                                        const content = (e.currentTarget as HTMLDivElement).innerHTML;
-                                                        setNoteForm((prev) => ({ ...prev, content }));
+                                                        handleResourceEditorBodyChange((e.currentTarget as HTMLDivElement).innerHTML);
                                                     }}
                                                     className="min-h-[440px] w-full rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                                                 />

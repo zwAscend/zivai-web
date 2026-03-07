@@ -98,7 +98,7 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
     }
   }, [selectedStudentId, students]);
 
-  const handleCreatePlan = React.useCallback(async () => {
+  const handleCreatePlan = React.useCallback(async (mode: 'ai' | 'manual') => {
     if (!selectedStudentId) {
       showToast('Error', 'Please select a student', 'destructive');
       return;
@@ -199,7 +199,9 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
         targetScores
       };
 
-      const plan = await planningService.generateDevelopmentPlan(planData as any);
+      const plan = mode === 'ai'
+        ? await planningService.generateDevelopmentPlan(planData as any)
+        : planningService.generateLocalPlan(planData as any);
 
       const planToSave = {
         name: plan.name,
@@ -269,7 +271,7 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
                     Create Development Plan
                   </DialogTitle>
                   <DialogDescription className="text-purple-100 mt-1">
-                    Generate a personalized learning plan using AI
+                    Create a personalized plan manually or generate one with AI
                   </DialogDescription>
                 </div>
               </div>
@@ -395,7 +397,7 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
                 {selectedStudent ? (
                   <div className="flex items-center gap-2">
                     <CheckCircle className="w-4 h-4 text-green-500" />
-                    Ready to generate plan for {selectedStudent.firstName}
+                    Ready to create a plan for {selectedStudent.firstName}
                   </div>
                 ) : (
                   'Select a student to continue'
@@ -411,9 +413,17 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
                   Cancel
                 </Button>
                 <Button
-                  onClick={handleCreatePlan}
+                  variant="outline"
+                  onClick={() => handleCreatePlan('manual')}
+                  disabled={!selectedStudentId || isGenerating}
+                  className="min-w-[160px]"
+                >
+                  Create Manually
+                </Button>
+                <Button
                   disabled={!selectedStudentId || isGenerating}
                   className="min-w-[140px] bg-purple-600 hover:bg-purple-700"
+                  onClick={() => handleCreatePlan('ai')}
                 >
                   {isGenerating ? (
                     <>
@@ -423,7 +433,7 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
                   ) : (
                     <>
                       <Sparkles className="w-4 h-4 mr-2" />
-                      Generate Plan
+                      Generate with AI
                     </>
                   )}
                 </Button>
@@ -448,7 +458,7 @@ const CreateDevelopmentPlanModal: React.FC<CreateDevelopmentPlanModalProps> = ({
                     Review Development Plan
                   </DialogTitle>
                   <DialogDescription className="text-green-100 mt-1">
-                    Review the AI-generated plan before assigning to student
+                    Review the plan before assigning it to the student
                   </DialogDescription>
                 </div>
               </div>

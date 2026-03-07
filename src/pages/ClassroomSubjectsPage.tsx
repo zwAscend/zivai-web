@@ -39,13 +39,13 @@ import {
   assessmentEnrollmentService,
   assessmentService,
   schoolService,
-  studentService,
   subjectService,
 } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { authService } from '../services/authService';
 import { curriculumService, CurriculumTopicWithResources } from '../services/curriculumService';
 import { ResourceItem, resourceService } from '../services/resourceService';
+import { normalizeResourceContentType } from '../constants/resourceContentTypes';
 
 type TeachingSubject = {
   id: string;
@@ -57,6 +57,7 @@ type TeachingSubject = {
 type FormLevel = 'Form 3' | 'Form 4';
 type TopicContentType = 'resource' | 'practice' | 'assessment';
 type WorkspaceView = 'overview' | 'missing';
+type ClassroomWorkspaceNavView = 'my-subjects' | 'subject';
 type EditorBlockStyle =
   | 'Paragraph'
   | 'Title'
@@ -353,7 +354,8 @@ const toTitleCase = (value: string) =>
 
 const toEditorHtml = (value: string) => {
   const hasHtmlTags = /<\/?[a-z][\s\S]*>/i.test(value);
-  if (hasHtmlTags) return value;
+  const hasHtmlEntities = /&(?:[a-zA-Z]+|#\d+);/.test(value);
+  if (hasHtmlTags || hasHtmlEntities) return value;
 
   return value
     .replace(/&/g, '&amp;')
@@ -362,51 +364,19 @@ const toEditorHtml = (value: string) => {
     .replace(/\n/g, '<br />');
 };
 
-const buildSeedMaterialDraft = (topicTitle: string, itemTitle: string, type: TopicContentType) => {
-  const itemLabel = itemTitle || `${toTitleCase(type)} draft`;
-  if (type === 'assessment') {
-    return `${itemLabel}
-
-Estimated time: 10-15 minutes
-
-1. Write one short-answer question on "${topicTitle}".
-2. Add one application question that checks understanding in context.
-3. Add a marking guide with model points.
-
-Teacher notes:
-- Adjust difficulty for mixed-ability learners.
-- Add an extension item for advanced learners.`;
+const normalizeEditorContent = (value: string) => {
+  let normalized = value;
+  for (let index = 0; index < 5; index += 1) {
+    const decoded = normalized.replace(/&amp;([a-zA-Z#0-9]+;)/g, '&$1');
+    if (decoded === normalized) {
+      break;
+    }
+    normalized = decoded;
   }
-
-  if (type === 'practice') {
-    return `${itemLabel}
-
-Practice objective:
-Learners should apply core ideas from "${topicTitle}" in short tasks.
-
-Practice tasks:
-1. Warm-up retrieval (2 minutes)
-2. Guided task with worked example
-3. Independent practice (exit check)
-
-Feedback:
-- Identify the most common error.
-- Add one re-teach prompt.`;
-  }
-
-  return `${itemLabel}
-
-Learning objective:
-By the end of this material, learners should explain and apply key ideas in "${topicTitle}".
-
-Core explanation:
-- Define the concept clearly.
-- Provide a worked example.
-- Include one real-world use case.
-
-Quick check:
-- Add 2 short questions to confirm understanding.`;
+  return normalized;
 };
+
+const buildSeedMaterialDraft = (_topicTitle: string, _itemTitle: string, _type: TopicContentType) => '';
 
 const buildAiGeneratedDraft = ({
   topicTitle,
@@ -588,6 +558,7 @@ const ClassroomSubjectsPage: React.FC = () => {
   const [assessmentDetailsCache, setAssessmentDetailsCache] = useState<Record<string, any>>({});
   const [selectedTopicId, setSelectedTopicId] = useState('');
   const [view, setView] = useState<WorkspaceView>('overview');
+  const [workspaceNavView, setWorkspaceNavView] = useState<ClassroomWorkspaceNavView>('subject');
 
   const [topicQuery, setTopicQuery] = useState('');
   const [formFilter, setFormFilter] = useState<'all' | FormLevel>('all');
@@ -697,10 +668,12 @@ const ClassroomSubjectsPage: React.FC = () => {
       const nextTopics = topicRows.map((topic) => {
         const topicResources = resourcesByTopicId.get(topic.id) || [];
         const lessonResources = topicResources.filter((resource) => {
-          const contentType = (resource.contentType || '').toLowerCase();
-          return contentType !== 'practice' && contentType !== 'assessment';
+          const normalizedType = normalizeResourceContentType(resource.contentType);
+          return normalizedType === 'lesson_plan' || normalizedType === 'notes';
         });
-        const practiceResources = topicResources.filter((resource) => (resource.contentType || '').toLowerCase() === 'practice');
+        const practiceResources = topicResources.filter(
+          (resource) => normalizeResourceContentType(resource.contentType) === 'practice'
+        );
         const topicAssessments = assessmentsByTopicId.get(topic.id) || [];
 
         lessonResources.forEach((resource) => {
@@ -1157,7 +1130,11 @@ const ClassroomSubjectsPage: React.FC = () => {
     }
 
     const contentBody = (overrides?.body ?? editorBody).trim();
-    const contentType = effectiveType === 'practice' ? 'practice' : effectiveType === 'assessment' ? 'assessment' : 'notes';
+    const contentType = effectiveType === 'practice'
+      ? 'practice'
+      : effectiveType === 'assessment'
+        ? 'assessment_material'
+        : 'lesson_plan';
     const draftKey = getMaterialDraftKey(selectedTopic.id, effectiveType, contentTitle);
     const existingId = overrides?.existingId || materialRecordIds[draftKey] || null;
     const payload = {
@@ -1270,21 +1247,14 @@ const ClassroomSubjectsPage: React.FC = () => {
     if (savedAssessmentId) {
       setAssessmentResourceIds((previous) => ({ ...previous, [savedAssessmentId]: resourceId }));
       if (assessmentStatus === 'published') {
-        const assignment = await assessmentEnrollmentService.createAssignment({
+        await assessmentEnrollmentService.publishAssessmentToSubjectStudents({
           assessmentId: savedAssessmentId,
+          subjectId: selectedSubjectId,
           assignedBy: context.currentUserId,
           title: assessmentName.trim(),
           instructions: assessmentDescription.trim() || undefined,
-          published: false,
+          statusCode: 'assigned',
         });
-        const enrolledStudents = await studentService.getStudents(selectedSubjectId);
-        const studentIds = Array.isArray(enrolledStudents)
-          ? enrolledStudents.map((student) => student.id).filter((studentId): studentId is string => !!studentId)
-          : [];
-        if (assignment?.id && studentIds.length > 0) {
-          await assessmentEnrollmentService.enrollStudents(assignment.id, studentIds, 'assigned');
-          await assessmentEnrollmentService.publishAssignment(assignment.id);
-        }
       }
     }
 
@@ -1477,11 +1447,12 @@ const ClassroomSubjectsPage: React.FC = () => {
   };
 
   const handleEditorBodyChange = (nextBody: string) => {
-    setEditorBody(nextBody);
+    const normalizedBody = normalizeEditorContent(nextBody);
+    setEditorBody(normalizedBody);
     if (!selectedMaterialKey) return;
     setMaterialDrafts((previous) => ({
       ...previous,
-      [selectedMaterialKey]: nextBody,
+      [selectedMaterialKey]: normalizedBody,
     }));
   };
 
@@ -1683,6 +1654,13 @@ const ClassroomSubjectsPage: React.FC = () => {
     executeEditorCommand('formatBlock', blockMap[style as keyof typeof blockMap]);
   };
 
+  const handleEditorKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      executeEditorCommand('insertHTML', '&nbsp;&nbsp;&nbsp;&nbsp;');
+    }
+  };
+
   const ensureActiveWorkspaceItem = () => {
     if (!selectedTopic) return null;
     if (selectedWorkspaceItem) return selectedWorkspaceItem;
@@ -1741,6 +1719,50 @@ const ClassroomSubjectsPage: React.FC = () => {
         setToastMessage(`Saved "${nextTitle}" in ${TOPIC_CONTENT_LABELS[workspaceTab]}.`);
       } catch (error: any) {
         setToastMessage(error?.message || `Failed to save "${nextTitle}".`);
+      }
+    };
+    void persist();
+  };
+
+  const handlePublishMaterial = () => {
+    if (!selectedTopic) {
+      setToastMessage('Select a topic first.');
+      return;
+    }
+
+    const activeItem = selectedWorkspaceItem || ensureActiveWorkspaceItem();
+    if (!activeItem) {
+      setToastMessage('Select or create a material item first.');
+      return;
+    }
+
+    const oldTitle = activeItem;
+    const nextTitle = editorTitle.trim() || oldTitle;
+    const oldKey = getMaterialDraftKey(selectedTopic.id, workspaceTab, oldTitle);
+    const nextKey = getMaterialDraftKey(selectedTopic.id, workspaceTab, nextTitle);
+    const nextBody = editorBody.trim() || materialDrafts[oldKey] || buildSeedMaterialDraft(selectedTopic.title, nextTitle, workspaceTab);
+
+    const persist = async () => {
+      try {
+        const existingId = materialRecordIds[oldKey] || null;
+        await createOrUpdateWorkspaceResource('published', {
+          title: nextTitle,
+          body: nextBody,
+          type: workspaceTab,
+          existingId,
+        });
+        setMaterialDrafts((previous) => {
+          const next = { ...previous };
+          if (oldKey !== nextKey) delete next[oldKey];
+          next[nextKey] = nextBody;
+          return next;
+        });
+        setSelectedWorkspaceItem(nextTitle);
+        setEditorTitle(nextTitle);
+        setEditorBody(nextBody);
+        setToastMessage(`Published "${nextTitle}" in ${TOPIC_CONTENT_LABELS[workspaceTab]}.`);
+      } catch (error: any) {
+        setToastMessage(error?.message || `Failed to publish "${nextTitle}".`);
       }
     };
     void persist();
@@ -2000,7 +2022,16 @@ const ClassroomSubjectsPage: React.FC = () => {
   );
 
   return (
-    <ClassroomLayout showStudentProfileTab={false}>
+    <ClassroomLayout
+      showStudentProfileTab={false}
+      classroomWorkspaceNav
+      activeClassroomAction={workspaceNavView === 'my-subjects' ? 'classroom-my-subjects' : 'classroom-subject'}
+      onClassroomMySubjects={() => {
+        setWorkspaceNavView('my-subjects');
+        setIsTopicWorkspaceOpen(false);
+      }}
+      onClassroomSubject={() => setWorkspaceNavView('subject')}
+    >
       <div className="space-y-5">
         {toastMessage && (
           <div className="fixed right-6 top-24 z-50 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 shadow-lg">
@@ -2008,6 +2039,55 @@ const ClassroomSubjectsPage: React.FC = () => {
           </div>
         )}
 
+        {workspaceNavView === 'my-subjects' ? (
+          <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">My Subjects</h2>
+                <p className="text-sm text-slate-500">Subjects currently assigned to you for teaching.</p>
+              </div>
+            </div>
+
+            {subjects.length === 0 ? (
+              <p className="text-sm text-slate-500">No assigned subjects found.</p>
+            ) : (
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {subjects.map((subject) => {
+                  const isSelected = selectedSubjectId === subject.id;
+                  return (
+                    <div
+                      key={subject.id}
+                      className={`rounded-lg border p-4 ${isSelected ? 'border-blue-200 bg-blue-50/40' : 'border-slate-200 bg-white'}`}
+                    >
+                      <p className="text-xs text-slate-500">{subject.code || 'SUBJECT'}</p>
+                      <h3 className="mt-1 text-sm font-semibold text-slate-900">{subject.name}</h3>
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {(subject.grades && subject.grades.length > 0 ? subject.grades : ['All forms']).map((grade) => (
+                          <span key={`${subject.id}-${grade}`} className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">
+                            {grade}
+                          </span>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedSubjectId(subject.id);
+                          setWorkspaceNavView('subject');
+                          setView('overview');
+                          setIsTopicWorkspaceOpen(false);
+                        }}
+                        className="mt-3 inline-flex items-center rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                      >
+                        Open Subject Workspace
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
         {workspaceError && (
           <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
             {workspaceError}
@@ -3222,6 +3302,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                                         suppressContentEditableWarning
                                         onFocus={captureEditorSelection}
                                         onKeyUp={captureEditorSelection}
+                                        onKeyDown={handleEditorKeyDown}
                                         onMouseUp={captureEditorSelection}
                                         onInput={(event) =>
                                           handleEditorBodyChange((event.target as HTMLDivElement).innerHTML)
@@ -3449,6 +3530,14 @@ const ClassroomSubjectsPage: React.FC = () => {
                       <Settings2 className="h-3.5 w-3.5" />
                       Configure
                     </button>
+                    <button
+                      type="button"
+                      onClick={handlePublishMaterial}
+                      className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+                    >
+                      <ArrowUp className="h-3.5 w-3.5" />
+                      Publish
+                    </button>
                   </div>
                   <button
                     type="button"
@@ -3632,6 +3721,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                         suppressContentEditableWarning
                         onFocus={captureEditorSelection}
                         onKeyUp={captureEditorSelection}
+                        onKeyDown={handleEditorKeyDown}
                         onMouseUp={captureEditorSelection}
                         onInput={(event) =>
                           handleEditorBodyChange((event.target as HTMLDivElement).innerHTML)
@@ -3805,6 +3895,8 @@ const ClassroomSubjectsPage: React.FC = () => {
             </div>
           </div>
           </div>
+        )}
+          </>
         )}
       </div>
     </ClassroomLayout>

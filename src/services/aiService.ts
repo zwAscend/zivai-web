@@ -100,13 +100,22 @@ export const aiService = {
       let attributesObject: Record<string, any> = {};
       
       if (isArrayOfStrings) {
-        // If we have string IDs, fetch the attribute details
-        const attributes = await Promise.all(
-          (params.attributes as string[]).map(attrId => 
-            fetchData<SubjectAttribute>(`/api/subjects/attributes/${attrId}`)
-              .catch(() => ({ id: attrId, name: `Attribute ${attrId}`, description: '' }))
-          )
+        // If we have attribute IDs, resolve them from the subject attribute catalog.
+        let subjectAttributes: SubjectAttribute[] = [];
+        try {
+          subjectAttributes = await fetchData<SubjectAttribute[]>(
+            `/development/attributes/subject/${params.subjectId}`
+          );
+        } catch (catalogError) {
+          console.warn('Failed to load subject attributes for AI generation:', catalogError);
+        }
+
+        const subjectAttributeById = new Map(
+          (Array.isArray(subjectAttributes) ? subjectAttributes : []).map((attr) => [attr.id, attr])
         );
+        const attributes = (params.attributes as string[]).map((attrId) => (
+          subjectAttributeById.get(attrId) || { id: attrId, name: `Attribute ${attrId}`, description: '' }
+        ));
         attributeNames = attributes.map(attr => attr.name);
         
         // Create attributes object for the API

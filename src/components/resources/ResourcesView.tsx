@@ -14,7 +14,7 @@ import {
   XCircle,
 } from 'lucide-react';
 
-import axios from 'axios';
+import { fetchData } from '../../services/http';
 // Removed DndContext and related imports as requested
 // import { DndContext, closestCenter, DragEndEvent, UniqueIdentifier } from '@dnd-kit/core';
 // import { arrayMove, SortableContext, verticalListSortingStrategy, rectSortingStrategy } from '@dnd-kit/sortable';
@@ -96,8 +96,6 @@ interface ResourcesViewProps {
   onBack: () => void;
   onUploadClick?: () => void;
 }
-
-const API_URL = 'http://localhost:5000';
 
 const ResourcesView: React.FC<ResourcesViewProps> = ({
   classId,
@@ -230,16 +228,8 @@ const ResourcesView: React.FC<ResourcesViewProps> = ({
   }, [classId]);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
     if (!classId) {
       setIsLoading(false);
-      return;
-    }
-
-    if (!token) {
-      console.error('No authentication token found');
-      setIsLoading(false);
-      setError('Authentication required. Please log in.');
       return;
     }
 
@@ -249,11 +239,11 @@ const ResourcesView: React.FC<ResourcesViewProps> = ({
       try {
         let fetchedSubjectInfo = null;
         try {
-          const subjectsResponse = await axios.get(`${API_URL}/api/subjects/teaching`, {
-            headers: { 'Authorization': `Bearer ${token}` }
+          const subjectsResponse = await fetchData<any[]>('/subjects/teaching', {
+            forceRefresh: true,
           });
-          if (Array.isArray(subjectsResponse.data)) {
-            const currentSubject = subjectsResponse.data.find(
+          if (Array.isArray(subjectsResponse)) {
+            const currentSubject = subjectsResponse.find(
               (subject: any) => subject.id === classId
             );
             if (currentSubject) {
@@ -265,13 +255,13 @@ const ResourcesView: React.FC<ResourcesViewProps> = ({
           }
 
           if (!fetchedSubjectInfo) {
-            const subjectResponse = await axios.get(`${API_URL}/api/subjects/${classId}`, {
-              headers: { 'Authorization': `Bearer ${token}` }
+            const subjectResponse = await fetchData<any>(`/subjects/${classId}`, {
+              forceRefresh: true,
             });
-            if (subjectResponse.data) {
+            if (subjectResponse) {
               fetchedSubjectInfo = {
-                name: subjectResponse.data.name || 'Unnamed Subject',
-                code: subjectResponse.data.code || ''
+                name: subjectResponse.name || 'Unnamed Subject',
+                code: subjectResponse.code || ''
               };
             }
           }
@@ -284,11 +274,11 @@ const ResourcesView: React.FC<ResourcesViewProps> = ({
         }
         setSubjectInfo(fetchedSubjectInfo);
 
-        const resourcesResponse = await axios.get(`${API_URL}/api/resources/subject/${classId}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
+        const resourcesResponse = await fetchData<any[]>(`/resources/subject/${classId}`, {
+          forceRefresh: true,
         });
 
-        const transformedResources: Resource[] = resourcesResponse.data.map(transformResource);
+        const transformedResources: Resource[] = (Array.isArray(resourcesResponse) ? resourcesResponse : []).map(transformResource);
         setResources(transformedResources);
 
         const counts = {
@@ -304,7 +294,7 @@ const ResourcesView: React.FC<ResourcesViewProps> = ({
         console.error('Error fetching data:', error);
         setResources([]);
         setSubjectInfo(null);
-        setError(error.response?.data?.message || 'Failed to load resources.');
+        setError(error?.message || 'Failed to load resources.');
       } finally {
         setIsLoading(false);
       }
@@ -367,25 +357,13 @@ const ResourcesView: React.FC<ResourcesViewProps> = ({
     setError(null);
 
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.post(
-        `${API_URL}/api/resources/upload`,
-        formData,
-        {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-            'Authorization': `Bearer ${token}`
-          },
-          onUploadProgress: (progressEvent) => {
-            const progress = Math.round(
-              (progressEvent.loaded * 100) / (progressEvent.total || 1)
-            );
-            setUploadProgress(progress);
-          }
-        }
-      );
+      setUploadProgress(15);
+      const response = await fetchData<{ resource?: any }>('/resources/upload', {
+        method: 'POST',
+        body: formData,
+      });
 
-      const newResource = transformResource(response.data.resource);
+      const newResource = transformResource(response.resource);
       setResources(prevResources => [newResource, ...prevResources]);
 
       setFileCounts(prevCounts => {
@@ -400,10 +378,11 @@ const ResourcesView: React.FC<ResourcesViewProps> = ({
       });
 
       setShowUploadModal(false);
+      setUploadProgress(100);
 
     } catch (error: any) {
       console.error('Upload failed:', error);
-      setError(error.response?.data?.message || 'Failed to upload resource. Please try again.');
+      setError(error?.message || 'Failed to upload resource. Please try again.');
     } finally {
       setIsUploading(false);
       setUploadProgress(0);
@@ -422,15 +401,14 @@ const ResourcesView: React.FC<ResourcesViewProps> = ({
     setPreviewUrl(null);
 
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/api/resources/download/${resource.id}`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+      const response = await fetchData<{ url?: string }>(`/resources/download/${resource.id}`, {
+        forceRefresh: true,
       });
-      setPreviewUrl(response.data.url);
+      setPreviewUrl(response.url || null);
       setPreviewLoading(false);
     } catch (error: any) {
       console.error('Error fetching preview URL:', error);
-      setPreviewError(error.response?.data?.message || 'Failed to load preview.');
+      setPreviewError(error?.message || 'Failed to load preview.');
       setPreviewLoading(false);
     }
   }, []);
