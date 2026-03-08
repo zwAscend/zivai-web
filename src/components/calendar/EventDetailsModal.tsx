@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
@@ -34,6 +34,7 @@ const EventDetailsModal: React.FC<EventDetailsModalProps> = ({
   onDelete,
   canEdit = true
 }) => {
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   if (!event) return null;
 
   const formatEventDate = (start: Date | string, end?: Date | string, allDay?: boolean) => {
@@ -76,10 +77,9 @@ const EventDetailsModal: React.FC<EventDetailsModalProps> = ({
   };
 
   const handleDelete = () => {
-    if (window.confirm('Are you sure you want to delete this event?')) {
-      onDelete?.(event.id);
-      onClose();
-    }
+    onDelete?.(event.id);
+    setIsDeleteConfirmOpen(false);
+    onClose();
   };
 
   return (
@@ -252,14 +252,37 @@ const EventDetailsModal: React.FC<EventDetailsModalProps> = ({
             <div className="flex items-center justify-between">
               <div>
                 {onDelete && (
-                  <Button
-                    variant="outline"
-                    onClick={handleDelete}
-                    className="text-red-600 border-red-300 hover:bg-red-50"
-                  >
-                    <Trash2 className="w-4 h-4 mr-2" />
-                    Delete Event
-                  </Button>
+                  <div>
+                    <Button
+                      variant="outline"
+                      onClick={() => setIsDeleteConfirmOpen(true)}
+                      className="text-red-600 border-red-300 hover:bg-red-50"
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Delete Event
+                    </Button>
+                    {isDeleteConfirmOpen && (
+                      <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3">
+                        <p className="text-sm font-semibold text-red-800">Delete this event?</p>
+                        <p className="mt-1 text-xs text-red-700">This action cannot be undone.</p>
+                        <div className="mt-3 flex items-center justify-end gap-2">
+                          <Button
+                            variant="outline"
+                            onClick={() => setIsDeleteConfirmOpen(false)}
+                            className="h-8 px-3 text-xs"
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            onClick={handleDelete}
+                            className="h-8 bg-red-600 px-3 text-xs text-white hover:bg-red-700"
+                          >
+                            Delete
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 )}
               </div>
               

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   BookOpen,
@@ -42,15 +43,23 @@ interface CurriculumPractice {
   target: string;
 }
 
+interface CurriculumAssessment {
+  id: string;
+  title: string;
+  status: string;
+}
+
 interface CurriculumTopic {
   id: string;
   title: string;
   masteryPercent: number;
   learn: CurriculumResource[];
   practice: CurriculumPractice[];
+  practiceMaterials: CurriculumResource[];
+  assessments: CurriculumAssessment[];
 }
 
-type TopicContentItemKind = 'learn' | 'practice';
+type TopicContentItemKind = 'learn' | 'practice' | 'assessment';
 
 interface TopicContentItem {
   id: string;
@@ -58,6 +67,7 @@ interface TopicContentItem {
   kind: TopicContentItemKind;
   resource?: CurriculumResource;
   practice?: CurriculumPractice;
+  assessment?: CurriculumAssessment;
 }
 
 interface CurriculumUnit {
@@ -134,16 +144,29 @@ const getTopicContentItems = (topic: CurriculumTopic): TopicContentItem[] => [
     kind: 'learn' as const,
     resource,
   })),
+  ...topic.practiceMaterials.map((resource) => ({
+    id: `learn-${resource.id}`,
+    title: resource.title,
+    kind: 'learn' as const,
+    resource,
+  })),
   ...topic.practice.map((practice) => ({
     id: `practice-${practice.id}`,
     title: practice.title,
     kind: 'practice' as const,
     practice,
   })),
+  ...topic.assessments.map((assessment) => ({
+    id: `assessment-${assessment.id}`,
+    title: assessment.title,
+    kind: 'assessment' as const,
+    assessment,
+  })),
 ];
 
 const getUpNextLabelForContentItem = (item: TopicContentItem) => {
   if (item.kind === 'practice') return 'quiz';
+  if (item.kind === 'assessment') return 'assessment';
   if (!item.resource) return 'lesson';
   if (item.resource.type === 'video') return 'video';
   if (item.resource.type === 'notes') return 'notes';
@@ -211,11 +234,30 @@ const mapSubjectOverviewToUnits = (
 
   return (overview.units || []).map((unit) => {
     const mappedTopics: CurriculumTopic[] = (unit.topics || []).map((topic) => {
-      const topicResources = (resourcesByTopicId.get(topic.topicId) || []).slice(0, 4);
-      const learnResources: CurriculumResource[] = topicResources.slice(0, 2).map((resource) => ({
+      const topicResources = resourcesByTopicId.get(topic.topicId) || [];
+      const practiceResources = topicResources.filter((resource) => normalizeText(resource.contentType) === 'practice');
+      const assessmentResources = topicResources.filter((resource) => normalizeText(resource.contentType) === 'assessment_material');
+      const learnTopicResources = topicResources.filter((resource) => {
+        const normalized = normalizeText(resource.contentType);
+        return normalized !== 'practice' && normalized !== 'assessment_material';
+      });
+
+      const learnResources: CurriculumResource[] = learnTopicResources.slice(0, 4).map((resource) => ({
         id: resource.id,
         title: resource.name || resource.originalName || 'Learning resource',
         type: getResourceTypeFromItem(resource),
+      }));
+
+      const practiceMaterials: CurriculumResource[] = practiceResources.slice(0, 4).map((resource) => ({
+        id: resource.id,
+        title: resource.name || resource.originalName || 'Practice material',
+        type: 'notes',
+      }));
+
+      const assessments: CurriculumAssessment[] = assessmentResources.slice(0, 4).map((resource) => ({
+        id: resource.id,
+        title: resource.name || resource.originalName || 'Assessment',
+        status: normalizeText(resource.status) || 'published',
       }));
 
       const practiceCount = Math.max(1, Math.min(12, Number(topic.questionCount || 0)));
@@ -234,6 +276,8 @@ const mapSubjectOverviewToUnits = (
         masteryPercent: Math.max(0, Math.min(100, Math.round(topic.masteryPercent || 0))),
         learn: learnResources,
         practice: practiceItems,
+        practiceMaterials,
+        assessments,
       };
     });
 
@@ -404,6 +448,7 @@ const mapAiQuestionsToPractice = (
 };
 
 const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, selectedSubjectId, subjects }) => {
+  const navigate = useNavigate();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isSubjectOverviewActive, setIsSubjectOverviewActive] = useState(false);
   const [selectedUnitIndex, setSelectedUnitIndex] = useState(0);
@@ -1223,7 +1268,11 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                           <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">Item {index + 1}</p>
                           <p className="text-sm font-semibold text-slate-800 truncate">{item.title}</p>
                           <p className="text-xs text-slate-500 mt-0.5 capitalize">
-                            {item.kind === 'practice' ? `${practiceStatus || 'not-started'} • quiz` : `${item.resource?.type || 'notes'} • learn`}
+                            {item.kind === 'practice'
+                              ? `${practiceStatus || 'not-started'} • quiz`
+                              : item.kind === 'assessment'
+                                ? `${item.assessment?.status || 'published'} • assessment`
+                                : `${item.resource?.type || 'notes'} • learn`}
                           </p>
                         </div>
                       )}
@@ -1261,6 +1310,29 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                       }))
                     }
                   />
+                ) : selectedDetailItem.kind === 'assessment' && selectedDetailItem.assessment ? (
+                  <section className="space-y-6 max-w-4xl">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-md bg-amber-100 text-amber-700">
+                        <FileText className="w-4 h-4" />
+                        Assessment
+                      </span>
+                      <span className="text-xs text-slate-500 capitalize">
+                        Status: {selectedDetailItem.assessment.status || 'published'}
+                      </span>
+                    </div>
+                    <p className="text-lg text-slate-800">
+                      This assessment was published by your teacher for this topic.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => navigate('/student/assessments')}
+                      className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      Open Assessments
+                    </button>
+                  </section>
                 ) : (
                   <section className="space-y-6">
                     <div className="flex flex-wrap items-center gap-2">
@@ -1293,7 +1365,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                     <div className="border-t border-slate-200 pt-4">
                       <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Related content</p>
                       <div className="mt-2 space-y-2">
-                        {detailTopic.learn.map((resource) => (
+                        {[...detailTopic.learn, ...detailTopic.practiceMaterials].map((resource) => (
                           <button
                             key={resource.id}
                             type="button"
@@ -1838,11 +1910,11 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                           </div>
 
                           {!isTopicCollapsed && (
-                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
                             <div>
                               <p className="text-sm font-semibold text-slate-700 mb-2">Learn</p>
                               <div className="space-y-2">
-                                {topic.learn.map((resource) => (
+                                {topic.learn.length > 0 ? topic.learn.map((resource) => (
                                   <button
                                     key={resource.id}
                                     type="button"
@@ -1855,13 +1927,31 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                                     </span>
                                     <span className="text-xs text-slate-400 capitalize shrink-0">{resource.type}</span>
                                   </button>
-                                ))}
+                                )) : (
+                                  <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                                    No published learning resources yet.
+                                  </p>
+                                )}
                               </div>
                             </div>
 
                             <div>
                               <p className="text-sm font-semibold text-slate-700 mb-2">Practice</p>
                               <div className="space-y-2">
+                                {topic.practiceMaterials.map((material) => (
+                                  <button
+                                    key={material.id}
+                                    type="button"
+                                    onClick={() => openTopicDetail(selectedUnit, topic, `learn-${material.id}`)}
+                                    className="w-full flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                                  >
+                                    <span className="flex items-center gap-2 min-w-0">
+                                      <FileText className="w-4 h-4 text-slate-500 shrink-0" />
+                                      <span className="truncate">{material.title}</span>
+                                    </span>
+                                    <span className="text-xs text-slate-400 shrink-0">teacher material</span>
+                                  </button>
+                                ))}
                                 {topic.practice.map((practice) => (
                                   <div key={practice.id} className="rounded-md border border-slate-200 bg-slate-50 p-3 flex items-start justify-between gap-3">
                                     <div>
@@ -1889,6 +1979,38 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                                     </button>
                                   </div>
                                 ))}
+                                {topic.practiceMaterials.length === 0 && topic.practice.length === 0 && (
+                                  <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                                    No published practice items yet.
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+
+                            <div>
+                              <p className="text-sm font-semibold text-slate-700 mb-2">Assessments</p>
+                              <div className="space-y-2">
+                                {topic.assessments.map((assessment) => (
+                                  <button
+                                    key={assessment.id}
+                                    type="button"
+                                    onClick={() => openTopicDetail(selectedUnit, topic, `assessment-${assessment.id}`)}
+                                    className="w-full flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                                  >
+                                    <span className="flex items-center gap-2 min-w-0">
+                                      <FileText className="w-4 h-4 text-slate-500 shrink-0" />
+                                      <span className="truncate">{assessment.title}</span>
+                                    </span>
+                                    <span className="text-xs text-slate-400 capitalize shrink-0">
+                                      {assessment.status || 'published'}
+                                    </span>
+                                  </button>
+                                ))}
+                                {topic.assessments.length === 0 && (
+                                  <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                                    No published assessments yet.
+                                  </p>
+                                )}
                               </div>
                             </div>
                           </div>

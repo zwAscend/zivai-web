@@ -82,7 +82,7 @@ const PerformanceOverviewPage: React.FC = () => {
   return (
     <PerformanceLayout>
       <div className="bg-white rounded-lg shadow p-6 space-y-4">
-        <div>
+        <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
           <h2 className="text-2xl font-bold text-slate-900">Class Performance Overview</h2>
           <p className="text-sm text-slate-500">Snapshot of class mastery and performance trends.</p>
         </div>

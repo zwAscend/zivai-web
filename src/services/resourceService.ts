@@ -43,9 +43,26 @@ export interface UpsertResourcePayload {
   topicIds?: string[];
 }
 
+export interface ListResourceFilters {
+  subjectId?: string;
+  status?: string;
+}
+
 export const resourceService = {
   get: async (resourceId: string): Promise<ResourceItem> => {
     return fetchData<ResourceItem>(`/resources/${resourceId}`);
+  },
+
+  list: async (filters: ListResourceFilters = {}): Promise<ResourceItem[]> => {
+    const params = new URLSearchParams();
+    if (filters.subjectId && filters.subjectId !== 'all') {
+      params.set('subjectId', filters.subjectId);
+    }
+    if (filters.status) {
+      params.set('status', filters.status);
+    }
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    return fetchData<ResourceItem[]>(`/resources${suffix}`, { cacheTtlMs: 60 * 1000 });
   },
 
   listBySubject: async (subjectId: string): Promise<ResourceItem[]> => {

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { developmentService, studentService, subjectService } from '../../services/api';
-import { DevelopmentPlan, Step, Student, Subject } from '../../types';
+import { DevelopmentPlan, Step, StepType, Student, Subject } from '../../types';
 import { useToast } from '@/components/ui/use-toast';
 import {
   Bold,
@@ -33,6 +33,14 @@ interface DevelopmentViewProps {
   studentId?: string;
 }
 
+type AiPlanApproach = 'balanced' | 'practice' | 'intervention';
+
+interface AiPlanStepDraft {
+  title: string;
+  type: StepType;
+  content: string;
+}
+
 const isValidUuid = (value: string) => /^[0-9a-fA-F-]{36}$/.test(value);
 
 const getStudentPrimarySubjectId = (student: Student | null): string => {
@@ -55,6 +63,74 @@ const normalizeSkillKey = (value?: string) =>
 
 const stripHtml = (value?: string) => (value || '').replace(/<[^>]+>/g, ' ');
 
+const getApproachLabel = (approach: AiPlanApproach): string => {
+  if (approach === 'practice') return 'Practice-first';
+  if (approach === 'intervention') return 'Intervention';
+  return 'Balanced';
+};
+
+const getStepTypeForApproach = (approach: AiPlanApproach, index: number): StepType => {
+  if (approach === 'practice') {
+    const sequence: StepType[] = ['assignment', 'quiz', 'assessment'];
+    return sequence[index % sequence.length];
+  }
+  if (approach === 'intervention') {
+    const sequence: StepType[] = ['document', 'document', 'assessment'];
+    return sequence[index % sequence.length];
+  }
+  const sequence: StepType[] = ['document', 'assignment', 'quiz'];
+  return sequence[index % sequence.length];
+};
+
+const getStepCategoryLabel = (type: StepType): 'Resource' | 'Practice/Assessment' =>
+  type === 'document' ? 'Resource' : 'Practice/Assessment';
+
+const getStepTitleForApproach = (
+  approach: AiPlanApproach,
+  topic: string,
+  index: number,
+  type: StepType
+): string => {
+  if (type === 'document') {
+    return `Resource ${index + 1}: ${topic}`;
+  }
+  if (approach === 'practice') return `Practice ${index + 1}: ${topic}`;
+  if (approach === 'intervention') return `Intervention ${index + 1}: ${topic}`;
+  return `Mastery ${index + 1}: ${topic}`;
+};
+
+const buildAiPlanStepDrafts = (params: {
+  focusTopics: Array<{ name: string; priorityLabel: string }>;
+  objective: string;
+  guidance: string;
+  stepCount: number;
+  approach: AiPlanApproach;
+}): AiPlanStepDraft[] => {
+  const { focusTopics, objective, guidance, stepCount, approach } = params;
+  const fallbackObjective = 'Close skill gaps with clear practice and mastery checks.';
+  const fallbackGuidance = 'Use scaffolded instruction, examples, and short mastery checks.';
+  const selectedTopics = focusTopics.length ? focusTopics : [{ name: 'Core skill', priorityLabel: 'Priority 1' }];
+  const steps = Array.from({ length: Math.max(stepCount, 1) }).map((_, index) => {
+    const type = getStepTypeForApproach(approach, index);
+    const category = getStepCategoryLabel(type);
+    const selectedTopic = selectedTopics[index % selectedTopics.length];
+    const focusTopic = selectedTopic.name;
+    const priorityLabel = selectedTopic.priorityLabel;
+    return {
+      title: getStepTitleForApproach(approach, focusTopic, index, type),
+      type,
+      content: [
+        `<p><strong>Focus Topic:</strong> ${focusTopic} (${priorityLabel})</p>`,
+        `<p><strong>Step Category:</strong> ${category}</p>`,
+        `<p><strong>Teacher Objective:</strong> ${objective || fallbackObjective}</p>`,
+        `<p><strong>Guidance:</strong> ${guidance || fallbackGuidance}</p>`,
+        '<p>Expected outcome: learner demonstrates improved understanding and accuracy on this topic.</p>',
+      ].join(''),
+    };
+  });
+  return steps;
+};
+
 const getOverallGrade = (overall?: number): string => {
   if (typeof overall !== 'number' || Number.isNaN(overall)) return 'N/A';
   if (overall >= 80) return 'A';
@@ -64,9 +140,30 @@ const getOverallGrade = (overall?: number): string => {
   return 'E';
 };
 
+const describeSkillGap = (current: number | null, target: number | null, gap: number): string => {
+  if (current === null) {
+    return 'No current mastery score captured yet, so this needs a baseline check.';
+  }
+  if (target === null) {
+    return 'Target score is not defined yet; review this area for measurable goals.';
+  }
+  if (gap >= 30) {
+    return 'Large gap detected. Start with foundational reinforcement and guided examples.';
+  }
+  if (gap >= 15) {
+    return 'Moderate gap detected. Use focused practice with feedback loops.';
+  }
+  if (gap > 0) {
+    return 'Small but important gap remains. Use short retrieval and application checks.';
+  }
+  if (current < 75) {
+    return 'Below mastery threshold despite no target gap. Continue targeted reinforcement.';
+  }
+  return 'Near mastery. Focus on consistency and transfer tasks.';
+};
+
 const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStudentId }) => {
   const { studentId: paramStudentId } = useParams<{ studentId: string }>();
-  const navigate = useNavigate();
   const initialStudentId = (propStudentId && propStudentId !== 'undefined')
     ? propStudentId
     : ((paramStudentId && paramStudentId !== 'undefined') ? paramStudentId : '');
@@ -102,7 +199,17 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
   const [aiMessages, setAiMessages] = useState<Array<{ role: 'assistant' | 'teacher'; content: string }>>([
     { role: 'assistant', content: 'I can help draft or refine this step. Ask me for a clearer activity, quiz, or rubric.' },
   ]);
+  const [isStepLinkModalOpen, setIsStepLinkModalOpen] = useState(false);
+  const [stepLinkValue, setStepLinkValue] = useState('');
+  const [isAiPlanBuilderModalOpen, setIsAiPlanBuilderModalOpen] = useState(false);
+  const [isGeneratingAiPlanSteps, setIsGeneratingAiPlanSteps] = useState(false);
+  const [aiPlanBuilderObjective, setAiPlanBuilderObjective] = useState('');
+  const [aiPlanBuilderPrompt, setAiPlanBuilderPrompt] = useState('');
+  const [aiPlanBuilderStepCount, setAiPlanBuilderStepCount] = useState(3);
+  const [aiPlanBuilderApproach, setAiPlanBuilderApproach] = useState<AiPlanApproach>('balanced');
+  const [aiPlanBuilderSelectedTopicKeys, setAiPlanBuilderSelectedTopicKeys] = useState<string[]>([]);
   const stepEditorRef = useRef<HTMLDivElement | null>(null);
+  const aiPromptInputRef = useRef<HTMLTextAreaElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
 
   const { toast } = useToast();
@@ -229,6 +336,18 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
       }
     };
 
+    const mergeSupportingTopics = (skillKey: string, topics: string[]) => {
+      const insight = insights.get(skillKey);
+      if (!insight || !topics.length) return;
+      const existingKeys = new Set(insight.supportingTopics.map((topic) => normalizeSkillKey(topic)));
+      topics.forEach((topic) => {
+        const normalizedTopic = normalizeSkillKey(topic);
+        if (!normalizedTopic || existingKeys.has(normalizedTopic)) return;
+        existingKeys.add(normalizedTopic);
+        insight.supportingTopics.push(topic);
+      });
+    };
+
     attributeEntries.forEach(([name, values]) => {
       registerInsight(
         name,
@@ -250,6 +369,10 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
         progressMatch?.targetScore ?? attributeMatch?.target ?? skill.score ?? null,
         'plan'
       );
+      mergeSupportingTopics(
+        normalizeSkillKey(skill.name),
+        skill.subskills.map((subskill) => subskill.name).filter(Boolean)
+      );
 
       skill.subskills.forEach((subskill) => {
         const subskillAttribute = attributeLookup.get(normalizeSkillKey(subskill.name));
@@ -267,6 +390,8 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
         ...item,
         currentDisplay: item.current === null ? 'N/A' : `${Math.round(item.current)}%`,
         targetDisplay: item.target === null ? 'N/A' : `${Math.round(item.target)}%`,
+        gapDisplay: `${Math.round(item.gap)}%`,
+        gapSummary: describeSkillGap(item.current, item.target, item.gap),
         priorityScore:
           (item.current === null ? 25 : 100 - item.current) +
           item.gap * 1.5 +
@@ -287,6 +412,9 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
       name: string;
       currentDisplay: string;
       targetDisplay: string;
+      gapDisplay: string;
+      gapSummary: string;
+      supportingTopics: string[];
       matchedSteps: string[];
       coverageNote: string;
     }> = [];
@@ -302,6 +430,9 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
           name: skill.name,
           currentDisplay: skill.currentDisplay,
           targetDisplay: skill.targetDisplay,
+          gapDisplay: skill.gapDisplay,
+          gapSummary: skill.gapSummary,
+          supportingTopics: skill.supportingTopics || [],
           matchedSteps,
           coverageNote: `${matchedSteps.length} step${matchedSteps.length > 1 ? 's' : ''} currently target this gap`,
         });
@@ -319,6 +450,9 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
             name: skill.name,
             currentDisplay: insight?.currentDisplay || 'N/A',
             targetDisplay: insight?.targetDisplay || `${Math.round(skill.score)}%`,
+            gapDisplay: insight?.gapDisplay || '0%',
+            gapSummary: insight?.gapSummary || 'Tracked in the current development workflow.',
+            supportingTopics: skill.subskills.map((subskill) => subskill.name).filter(Boolean),
             matchedSteps: sortedStepEntries.slice(0, 2).map(({ step }) => step.title || 'Untitled step'),
             coverageNote: 'Tracked in the current development workflow',
           });
@@ -350,6 +484,12 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
       stepEditorRef.current.innerHTML = stepWorkspaceDraft.content || '';
     }
   }, [isStepWorkspaceOpen, stepWorkspaceDraft.content]);
+
+  useEffect(() => {
+    if (!aiPromptInputRef.current) return;
+    aiPromptInputRef.current.style.height = 'auto';
+    aiPromptInputRef.current.style.height = `${aiPromptInputRef.current.scrollHeight}px`;
+  }, [aiPrompt]);
 
   useEffect(() => {
     const loadSubjects = async () => {
@@ -449,15 +589,92 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
   };
 
   const openAiPlanBuilder = () => {
-    if (!selectedStudent) return;
-
-    const { subjectId } = getActiveSubjectContext();
-    if (!subjectId) {
-      toast.error('Select a subject before opening the AI builder');
+    if (!selectedStudent) {
+      toast.error('Select a student first.');
       return;
     }
+    if (!currentDisplayPlan) {
+      toast.error('Open a development plan before using AI Plan Builder.');
+      return;
+    }
+    const defaultTopicKeys = skillCanvasInsights.criticalSkills.slice(0, 3).map((skill) => skill.key);
+    const defaultObjective = skillCanvasInsights.mostCriticalSkill
+      ? `Improve ${skillCanvasInsights.mostCriticalSkill.name} and related critical gaps.`
+      : '';
 
-    navigate(`/development/create/${selectedStudent.id}/${subjectId}`);
+    setAiPlanBuilderSelectedTopicKeys(defaultTopicKeys);
+    setAiPlanBuilderObjective(defaultObjective);
+    setAiPlanBuilderPrompt('');
+    setAiPlanBuilderStepCount(3);
+    setAiPlanBuilderApproach('balanced');
+    setIsAiPlanBuilderModalOpen(true);
+  };
+
+  const handleGenerateAiPlanSteps = async () => {
+    if (!currentDisplayPlan) return;
+
+    const selectedTopics = skillCanvasInsights.criticalSkills.filter((skill) =>
+      aiPlanBuilderSelectedTopicKeys.includes(skill.key)
+    );
+    if (!selectedTopics.length) {
+      toast.error('Select at least one critical topic to guide the AI agent.');
+      return;
+    }
+    const focusTopics = selectedTopics.map((topic) => {
+      const rank = skillCanvasInsights.criticalSkills.findIndex((skill) => skill.key === topic.key) + 1;
+      return {
+        name: topic.name,
+        priorityLabel: rank === 1 ? 'Priority 1 (Most critical)' : `Priority ${rank}`,
+      };
+    });
+
+    const normalizedStepCount = Math.max(1, Math.min(10, aiPlanBuilderStepCount || 1));
+    const generatedStepDrafts = buildAiPlanStepDrafts({
+      focusTopics,
+      objective: aiPlanBuilderObjective.trim(),
+      guidance: aiPlanBuilderPrompt.trim(),
+      stepCount: normalizedStepCount,
+      approach: aiPlanBuilderApproach,
+    });
+
+    try {
+      setIsGeneratingAiPlanSteps(true);
+      setIsPersistingPlan(true);
+
+      let updatedPlan = currentDisplayPlan;
+      let nextOrder = (updatedPlan.plan.steps?.length || 0) + 1;
+
+      for (const draft of generatedStepDrafts) {
+        updatedPlan = await developmentService.addStudentPlanStep(updatedPlan.id, {
+          title: draft.title,
+          type: draft.type,
+          content: draft.content,
+          order: nextOrder,
+          link: '',
+          additionalResources: [],
+        });
+        nextOrder += 1;
+      }
+
+      syncUpdatedPlanInState(updatedPlan);
+      setIsAiPlanBuilderModalOpen(false);
+      toast.success(
+        `Generated ${generatedStepDrafts.length} AI plan step${generatedStepDrafts.length > 1 ? 's' : ''} (${getApproachLabel(aiPlanBuilderApproach)}).`
+      );
+    } catch (err) {
+      console.error('Failed to generate AI plan steps:', err);
+      toast.error('Failed to generate AI plan steps');
+    } finally {
+      setIsGeneratingAiPlanSteps(false);
+      setIsPersistingPlan(false);
+    }
+  };
+
+  const closeAiPlanBuilderModal = () => {
+    if (isGeneratingAiPlanSteps) {
+      return;
+    }
+    setIsAiPlanBuilderModalOpen(false);
   };
 
   useEffect(() => {
@@ -587,9 +804,22 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
   };
 
   const handleInsertStepLink = () => {
-    const url = window.prompt('Enter URL');
-    if (!url) return;
+    setStepLinkValue('');
+    setIsStepLinkModalOpen(true);
+  };
+
+  const handleConfirmStepLink = () => {
+    const url = stepLinkValue.trim();
+    if (!url) {
+      toast({
+        title: 'URL required',
+        description: 'Please enter a valid URL.',
+      });
+      return;
+    }
     applyStepEditorCommand('createLink', url);
+    setIsStepLinkModalOpen(false);
+    setStepLinkValue('');
   };
 
   const handleStepImageSelected = (file: File) => {
@@ -643,16 +873,108 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
 
   if (loading) {
     return (
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 h-[60vh] p-0">
-        <div className="lg:col-span-3 col-span-12 bg-white rounded-lg shadow p-2 space-y-2">
-          <div className="h-24 bg-slate-200 rounded animate-pulse" />
-          <div className="h-72 bg-slate-200 rounded animate-pulse" />
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-x-0 h-full overflow-hidden p-0">
+        <div className="lg:col-span-3 col-span-12 bg-gray-50 rounded-lg shadow p-2 flex flex-col overflow-hidden">
+          <div className="bg-white rounded-lg p-2 mb-2 animate-pulse">
+            <div className="mx-auto mb-2 h-10 w-10 rounded-full bg-slate-200" />
+            <div className="ml-auto h-3 w-10 rounded bg-slate-200" />
+            <div className="mt-1 ml-auto h-6 w-14 rounded bg-slate-200" />
+            <div className="mx-auto mt-2 h-4 w-2/3 rounded bg-slate-200" />
+            <div className="mx-auto mt-1 h-3 w-4/5 rounded bg-slate-200" />
+          </div>
+          <div className="bg-white rounded-lg p-2 flex min-h-0 flex-1 flex-col">
+            <div className="mx-auto mb-2 h-4 w-24 rounded bg-slate-200 animate-pulse" />
+            <div className="min-h-0 flex-1 space-y-2 overflow-hidden">
+              {Array.from({ length: 5 }).map((_, index) => (
+                <div key={`growth-skeleton-${index}`} className="h-12 rounded-lg bg-slate-200 animate-pulse" />
+              ))}
+            </div>
+          </div>
         </div>
-        <div className="lg:col-span-6 col-span-12 bg-white rounded-lg shadow p-2">
-          <div className="h-96 bg-slate-200 rounded animate-pulse" />
+
+        <div className="lg:col-span-6 col-span-12 bg-transparent rounded-t-lg rounded-b-none shadow px-3 pt-3 pb-0 overflow-hidden">
+          <div className="h-full min-h-0 flex flex-col">
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pb-3">
+              <div className="rounded-xl border border-slate-200 bg-white p-4 animate-pulse">
+                <div className="h-5 w-64 rounded bg-slate-200" />
+                <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <div className="h-16 rounded-lg bg-slate-100" />
+                  <div className="h-16 rounded-lg bg-slate-100" />
+                  <div className="h-16 rounded-lg bg-slate-100" />
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-white p-4 animate-pulse">
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <div className="h-4 w-32 rounded bg-slate-200" />
+                  <div className="h-3 w-36 rounded bg-slate-200" />
+                </div>
+                <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+                    <div className="h-6 w-full rounded bg-slate-200" />
+                    <div className="mt-2 space-y-1.5">
+                      <div className="h-7 rounded-md bg-white" />
+                      <div className="h-7 rounded-md bg-white" />
+                      <div className="h-7 rounded-md bg-white" />
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-2.5">
+                    <div className="h-6 w-full rounded bg-slate-200" />
+                    <div className="mt-2 space-y-1.5">
+                      <div className="h-10 rounded-md bg-white" />
+                      <div className="h-10 rounded-md bg-white" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-slate-200 bg-white p-4 animate-pulse">
+                <div className="mb-3 flex items-center justify-between">
+                  <div className="h-4 w-28 rounded bg-slate-200" />
+                  <div className="h-7 w-20 rounded bg-slate-200" />
+                </div>
+                <div className="space-y-2">
+                  {Array.from({ length: 3 }).map((_, index) => (
+                    <div key={`workflow-skeleton-${index}`} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3">
+                          <div className="h-6 w-6 rounded-full bg-slate-200" />
+                          <div className="space-y-1">
+                            <div className="h-3 w-36 rounded bg-slate-200" />
+                            <div className="h-2.5 w-20 rounded bg-slate-200" />
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <div className="h-6 w-6 rounded-md bg-slate-200" />
+                          <div className="h-6 w-6 rounded-md bg-slate-200" />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="shrink-0 -mx-3 border-t border-slate-200 bg-white px-3 pt-2 pb-0">
+              <div className="h-9 w-full rounded-lg bg-slate-200 animate-pulse" />
+            </div>
+          </div>
         </div>
-        <div className="lg:col-span-3 col-span-12 bg-white rounded-lg shadow p-2">
-          <div className="h-96 bg-slate-200 rounded animate-pulse" />
+
+        <div className="lg:col-span-3 col-span-12 bg-gray-50 rounded-lg shadow p-2 overflow-hidden">
+          <div className="mb-2 flex items-center justify-between animate-pulse">
+            <div className="h-4 w-20 rounded bg-slate-200" />
+            <div className="h-4 w-8 rounded bg-slate-200" />
+          </div>
+          <div className="space-y-2 mb-2">
+            <div className="h-9 rounded-md bg-slate-200 animate-pulse" />
+            <div className="h-9 rounded-md bg-slate-200 animate-pulse" />
+          </div>
+          <div className="space-y-2">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <div key={`student-skeleton-${index}`} className="h-16 rounded bg-slate-200 animate-pulse" />
+            ))}
+          </div>
         </div>
       </div>
     );
@@ -669,14 +991,26 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
   const fullName = `${selectedStudent.firstName} ${selectedStudent.lastName}`;
 
   return (
+    <>
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-x-0 h-full overflow-hidden p-0">
       {!isPlanSidebarCollapsed && !isStepWorkspaceMaximized && !isStepWorkspaceOpen && (
       <div className="lg:col-span-3 col-span-12 bg-gray-50 rounded-lg shadow p-2 flex flex-col overflow-hidden">
+        <div className="mb-2 flex items-center justify-start">
+          <button
+            type="button"
+            className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 shadow-sm hover:bg-slate-100"
+            onClick={() => setIsPlanSidebarCollapsed(true)}
+            aria-label="Collapse growth area panel"
+            title="Collapse growth area panel"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+        </div>
         <div className="bg-white rounded-lg p-2 mb-2">
-          <div className="w-10 h-10 bg-gradient-to-br from-cyan-500 to-blue-700 text-white text-sm font-bold rounded-full flex items-center justify-center mx-auto mb-1">
+          <div className="w-14 h-14 bg-gradient-to-br from-cyan-500 to-blue-700 text-white text-sm font-bold rounded-full flex items-center justify-center mx-auto mb-1">
             {selectedStudent.firstName[0]}{selectedStudent.lastName[0]}
           </div>
-          <div className="text-right mb-1">
+          <div className="text-center mb-1">
             <div className="text-gray-600 text-xs">OVR</div>
             <div className="text-lg font-bold">{selectedStudent.overall}</div>
             <div className="text-[11px] font-medium text-slate-600">Grade: {getOverallGrade(selectedStudent.overall)}</div>
@@ -707,12 +1041,6 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
               </button>
             ))}
           </div>
-          <button
-            className="w-full mt-2 bg-blue-900 text-white py-2 px-2 rounded-lg hover:bg-blue-800 transition-colors text-sm"
-            onClick={openAiPlanBuilder}
-          >
-            AI Plan Builder
-          </button>
         </div>
       </div>
       )}
@@ -724,31 +1052,43 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                 ? 'fixed inset-4 z-40 col-span-12 overflow-hidden p-0'
                 : `${middleColClass} relative col-span-12 overflow-hidden p-0`)
             : (isStepWorkspaceMaximized
-                ? 'fixed inset-4 z-40 col-span-12 bg-gray-50 rounded-lg shadow-2xl py-3 pl-10 pr-10 overflow-y-auto'
-                : `${middleColClass} relative col-span-12 bg-gray-50 rounded-lg shadow py-3 pl-10 pr-10 overflow-y-auto`)
+                ? 'fixed inset-4 z-40 col-span-12 bg-transparent rounded-t-lg rounded-b-none shadow-2xl px-3 pt-3 pb-0 overflow-hidden'
+                : `${middleColClass} relative col-span-12 bg-transparent rounded-t-lg rounded-b-none shadow px-3 pt-3 pb-0 overflow-hidden`)
         }`}
       >
-        {!isStepWorkspaceOpen ? (
-          <button
-            type="button"
-            className="absolute left-2 top-1/2 z-20 inline-flex -translate-y-1/2 items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 shadow-sm hover:bg-slate-100"
-            onClick={() => setIsPlanSidebarCollapsed((prev) => !prev)}
-            aria-label={isPlanSidebarCollapsed ? 'Expand growth area panel' : 'Collapse growth area panel'}
-            title={isPlanSidebarCollapsed ? 'Expand' : 'Collapse'}
-          >
-            {isPlanSidebarCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-          </button>
-        ) : null}
-        {!isStepWorkspaceMaximized && !isStepWorkspaceOpen ? (
-          <button
-            type="button"
-            className="absolute right-2 top-1/2 z-20 inline-flex -translate-y-1/2 items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 shadow-sm hover:bg-slate-100"
-            onClick={() => setIsStudentsPanelCollapsed((prev) => !prev)}
-            aria-label={isStudentsPanelCollapsed ? 'Expand students panel' : 'Collapse students panel'}
-            title={isStudentsPanelCollapsed ? 'Expand students panel' : 'Collapse students panel'}
-          >
-            {isStudentsPanelCollapsed ? <ChevronLeft className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-          </button>
+        {!isStepWorkspaceOpen &&
+        !isStepWorkspaceMaximized &&
+        (isPlanSidebarCollapsed || isStudentsPanelCollapsed) ? (
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="min-h-[32px]">
+              {isPlanSidebarCollapsed ? (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-100"
+                  onClick={() => setIsPlanSidebarCollapsed(false)}
+                  aria-label="Expand growth area panel"
+                  title="Expand growth area panel"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                  Growth Area
+                </button>
+              ) : null}
+            </div>
+            <div className="min-h-[32px]">
+              {isStudentsPanelCollapsed ? (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-100"
+                  onClick={() => setIsStudentsPanelCollapsed(false)}
+                  aria-label="Expand students panel"
+                  title="Expand students panel"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                  Students
+                </button>
+              ) : null}
+            </div>
+          </div>
         ) : null}
         {!currentDisplayPlan ? (
           <div className="flex h-full min-h-[280px] items-center justify-center">
@@ -1052,11 +1392,12 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                       </div>
                       <div className="mt-2 flex items-end gap-2 border-t border-slate-200 pt-2">
                         <textarea
-                          rows={1}
+                          ref={aiPromptInputRef}
+                          rows={2}
                           value={aiPrompt}
                           onChange={(e) => setAiPrompt(e.target.value)}
                           placeholder="Ask AI to improve this step..."
-                          className="min-h-[32px] max-h-40 min-w-0 flex-1 resize-none overflow-y-auto rounded-md border border-slate-200 px-2 py-1.5 text-xs leading-5"
+                          className="min-h-[44px] min-w-0 flex-1 resize-none overflow-hidden rounded-md border border-slate-200 px-2 py-1.5 text-xs leading-5"
                         />
                         <button
                           type="button"
@@ -1078,8 +1419,9 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
             </div>
           </div>
         ) : (
-          <div className="space-y-4">
-            <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="flex h-full min-h-0 flex-col">
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pb-3">
+              <div className="rounded-xl border border-slate-200 bg-white p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
                   <h1 className="text-lg font-semibold text-slate-900">{currentDisplayPlan.plan.name}</h1>
@@ -1108,9 +1450,9 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                   <p className="text-sm font-semibold text-slate-900">{currentDisplayPlan.plan.performance}</p>
                 </div>
               </div>
-            </div>
+              </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <div className="rounded-xl border border-slate-200 bg-white p-4">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Skill Canvas</h2>
                 <span className="text-xs text-slate-500">
@@ -1119,8 +1461,16 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                     : 'No critical skill identified'}
                 </span>
               </div>
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
-                <div className="rounded-lg border border-rose-200 bg-rose-50/50 p-3">
+              <div
+                className={`grid grid-cols-1 gap-3 xl:grid-cols-2 ${
+                  isCriticalSkillsCollapsed && isAddressedSkillsCollapsed ? 'xl:items-stretch' : 'xl:items-start'
+                }`}
+              >
+                <div
+                  className={`rounded-lg border border-rose-200 bg-rose-50/50 p-2.5 ${
+                    isCriticalSkillsCollapsed && isAddressedSkillsCollapsed ? 'h-full' : 'self-start'
+                  }`}
+                >
                   <button
                     type="button"
                     onClick={() => setIsCriticalSkillsCollapsed((prev) => !prev)}
@@ -1141,22 +1491,38 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                     </div>
                   </button>
                   {!isCriticalSkillsCollapsed ? (
-                    <div className="mt-3 space-y-2">
+                    <div className="mt-2 space-y-1">
                       {skillCanvasInsights.criticalSkills.length ? (
                         skillCanvasInsights.criticalSkills.map((skill, index) => (
                           <div
                             key={skill.key}
-                            className={`rounded-lg border bg-white px-3 py-2 ${
-                              index === 0 ? 'border-rose-300' : 'border-slate-200'
-                            }`}
+                            tabIndex={0}
+                            className="group/critical relative rounded-md bg-white px-2.5 py-1.5 transition hover:bg-rose-50/60 focus:outline-none focus:ring-1 focus:ring-rose-200"
                           >
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-1.5">
                               <p className="text-sm font-semibold text-slate-900">{skill.name}</p>
                               {index === 0 ? (
-                                <span className="rounded-full bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-700">
+                                <span className="rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">
                                   Most critical
                                 </span>
                               ) : null}
+                            </div>
+                            <div className="pointer-events-none absolute left-0 top-full z-20 mt-1 hidden w-72 rounded-md border border-rose-200 bg-white p-2 text-[11px] text-slate-600 shadow-lg group-hover/critical:block group-focus-within/critical:block">
+                              <p className="text-xs font-semibold text-slate-800">{skill.name}</p>
+                              <p className="mt-1">
+                                Current: <span className="font-semibold text-slate-800">{skill.currentDisplay}</span> | Target:{' '}
+                                <span className="font-semibold text-slate-800">{skill.targetDisplay}</span> | Gap:{' '}
+                                <span className="font-semibold text-rose-700">{skill.gapDisplay}</span>
+                              </p>
+                              <p className="mt-1">{skill.gapSummary}</p>
+                              <p className="mt-1">
+                                Lacking areas:{' '}
+                                <span className="font-medium text-slate-800">
+                                  {skill.supportingTopics?.length
+                                    ? skill.supportingTopics.slice(0, 3).join(', ')
+                                    : 'No sub-skill breakdown available yet.'}
+                                </span>
+                              </p>
                             </div>
                           </div>
                         ))
@@ -1169,7 +1535,11 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                   ) : null}
                 </div>
 
-                <div className="rounded-lg border border-emerald-200 bg-emerald-50/50 p-3">
+                <div
+                  className={`rounded-lg border border-emerald-200 bg-emerald-50/50 p-2.5 ${
+                    isCriticalSkillsCollapsed && isAddressedSkillsCollapsed ? 'h-full' : 'self-start'
+                  }`}
+                >
                   <button
                     type="button"
                     onClick={() => setIsAddressedSkillsCollapsed((prev) => !prev)}
@@ -1190,10 +1560,13 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                     </div>
                   </button>
                   {!isAddressedSkillsCollapsed ? (
-                    <div className="mt-3 space-y-2">
+                    <div className="mt-2 space-y-1.5">
                       {skillCanvasInsights.addressedSkills.length ? (
                         skillCanvasInsights.addressedSkills.map((skill) => (
-                          <div key={skill.key} className="rounded-lg border border-slate-200 bg-white p-3">
+                          <div
+                            key={skill.key}
+                            className="rounded-md bg-white p-2.5 transition hover:bg-emerald-50/40"
+                          >
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
                                 <p className="text-sm font-semibold text-slate-900">{skill.name}</p>
@@ -1211,11 +1584,11 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                               </div>
                             </div>
                             {skill.matchedSteps.length ? (
-                              <div className="mt-3 flex flex-wrap gap-2">
+                              <div className="mt-2 flex flex-wrap gap-1.5">
                                 {skill.matchedSteps.map((stepTitle) => (
                                   <span
                                     key={`${skill.key}-${stepTitle}`}
-                                    className="rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-medium text-emerald-700"
+                                    className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700"
                                   >
                                     {stepTitle}
                                   </span>
@@ -1233,9 +1606,9 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                   ) : null}
                 </div>
               </div>
-            </div>
+              </div>
 
-            <div className="rounded-xl border border-slate-200 bg-white p-4">
+              <div className="rounded-xl border border-slate-200 bg-white p-4">
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Plan Workflow</h2>
                 <button
@@ -1250,11 +1623,18 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
               </div>
               <div className="space-y-2">
                 {sortedStepEntries.map(({ step, index, order }) => (
-                    <button
-                      type="button"
+                    <div
+                      role="button"
+                      tabIndex={0}
                       key={`${step.title}-${index}`}
                       onClick={() => openStepWorkspace(index)}
-                      className="w-full rounded-lg border border-slate-200 bg-slate-50 p-3 text-left transition hover:border-blue-300 hover:bg-blue-50"
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          openStepWorkspace(index);
+                        }
+                      }}
+                      className="w-full cursor-pointer rounded-lg border border-slate-200 bg-slate-50 p-3 text-left transition hover:border-blue-300 hover:bg-blue-50"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="flex items-start gap-3 min-w-0">
@@ -1270,34 +1650,48 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                           </div>
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
-                          <span className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-600">
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              openStepWorkspace(index);
+                            }}
+                            className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            aria-label="Edit step"
+                            disabled={isPersistingPlan}
+                          >
                             <Pencil className="h-3.5 w-3.5" />
-                          </span>
-                          <span
-                            role="button"
-                            tabIndex={0}
+                          </button>
+                          <button
+                            type="button"
                             onClick={(event) => {
                               event.preventDefault();
                               event.stopPropagation();
                               deleteStep(index);
                             }}
-                            onKeyDown={(event) => {
-                              if (event.key === 'Enter' || event.key === ' ') {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                deleteStep(index);
-                              }
-                            }}
-                            className="inline-flex items-center justify-center rounded-md border border-rose-200 bg-rose-50 p-1.5 text-rose-600 hover:bg-rose-100"
+                            className="inline-flex items-center justify-center rounded-md border border-rose-200 bg-rose-50 p-1.5 text-rose-600 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
                             aria-label="Delete step"
+                            disabled={isPersistingPlan}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
-                          </span>
+                          </button>
                         </div>
                       </div>
-                    </button>
+                    </div>
                   ))}
               </div>
+            </div>
+            </div>
+            <div className="shrink-0 -mx-3 border-t border-slate-200 bg-white px-3 pt-2 pb-0">
+              <button
+                type="button"
+                className="w-full bg-blue-900 text-white py-2 px-2 rounded-lg hover:bg-blue-800 transition-colors text-sm"
+                onClick={openAiPlanBuilder}
+                disabled={isPersistingPlan || isGeneratingAiPlanSteps}
+              >
+                AI Plan Builder
+              </button>
             </div>
           </div>
         )}
@@ -1310,6 +1704,15 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
             <h3 className="text-sm font-semibold text-gray-800 px-1">Students</h3>
             <span className="text-xs text-slate-500">{filteredStudents.length}</span>
           </div>
+          <button
+            type="button"
+            className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 shadow-sm hover:bg-slate-100"
+            onClick={() => setIsStudentsPanelCollapsed(true)}
+            aria-label="Collapse students panel"
+            title="Collapse students panel"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
         </div>
         <div className="space-y-2 mb-2">
           <select
@@ -1367,6 +1770,174 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
       </div>
       )}
     </div>
+    {isStepLinkModalOpen && (
+      <div
+        className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/35 p-4"
+        onClick={() => {
+          setIsStepLinkModalOpen(false);
+          setStepLinkValue('');
+        }}
+      >
+        <div
+          className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-4 shadow-2xl"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="mb-3">
+            <p className="text-sm font-semibold text-slate-900">Insert link</p>
+            <p className="text-xs text-slate-500">Provide the URL for this step content.</p>
+          </div>
+          <input
+            type="url"
+            value={stepLinkValue}
+            onChange={(event) => setStepLinkValue(event.target.value)}
+            placeholder="https://example.com"
+            className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+          />
+          <div className="mt-4 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setIsStepLinkModalOpen(false);
+                setStepLinkValue('');
+              }}
+              className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmStepLink}
+              className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+            >
+              Insert
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    {isAiPlanBuilderModalOpen && (
+      <div
+        className="fixed inset-0 z-[85] flex items-center justify-center bg-slate-900/40 p-4"
+        onClick={closeAiPlanBuilderModal}
+      >
+        <div
+          className="w-full max-w-2xl rounded-lg border border-slate-200 bg-white p-4 shadow-2xl"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="mb-3">
+            <h3 className="text-base font-semibold text-slate-900">AI Plan Builder</h3>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <label className="block text-xs text-slate-600">
+              Number of steps
+              <input
+                type="number"
+                min={1}
+                max={10}
+                value={aiPlanBuilderStepCount}
+                onChange={(event) => setAiPlanBuilderStepCount(Number(event.target.value))}
+                className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="block text-xs text-slate-600">
+              Plan approach
+              <select
+                value={aiPlanBuilderApproach}
+                onChange={(event) => setAiPlanBuilderApproach(event.target.value as AiPlanApproach)}
+                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+              >
+                <option value="balanced">Balanced</option>
+                <option value="practice">Practice-first</option>
+                <option value="intervention">Intervention</option>
+              </select>
+            </label>
+          </div>
+
+          <label className="mt-3 block text-xs text-slate-600">
+            Objective for this learner
+            <input
+              value={aiPlanBuilderObjective}
+              onChange={(event) => setAiPlanBuilderObjective(event.target.value)}
+              placeholder="Example: Raise mastery in linear equations and worded problems."
+              className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+            />
+          </label>
+
+          <label className="mt-3 block text-xs text-slate-600">
+            Critical topic to focus on (priority ordered)
+            <select
+              multiple
+              value={aiPlanBuilderSelectedTopicKeys}
+              onChange={(event) => {
+                const selectedValues = Array.from(event.target.selectedOptions).map((option) => option.value);
+                setAiPlanBuilderSelectedTopicKeys(selectedValues);
+              }}
+              className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+              size={Math.min(6, Math.max(4, skillCanvasInsights.criticalSkills.length + 1))}
+              disabled={!skillCanvasInsights.criticalSkills.length}
+            >
+              {skillCanvasInsights.criticalSkills.map((skill, index) => (
+                <option key={skill.key} value={skill.key}>
+                  {`${index + 1}. ${skill.name}${index === 0 ? ' (Most critical)' : ''}`}
+                </option>
+              ))}
+            </select>
+            <span className="mt-1 block text-[11px] text-slate-500">
+              Priority 1 indicates the quickest attention required. Use Ctrl/Cmd to select multiple topics.
+            </span>
+            {aiPlanBuilderSelectedTopicKeys.length ? (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {skillCanvasInsights.criticalSkills
+                  .filter((skill) => aiPlanBuilderSelectedTopicKeys.includes(skill.key))
+                  .map((skill) => {
+                    const rank = skillCanvasInsights.criticalSkills.findIndex((item) => item.key === skill.key) + 1;
+                    return (
+                      <span
+                        key={skill.key}
+                        className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-700"
+                      >
+                        {`${rank}. ${skill.name}`}
+                      </span>
+                    );
+                  })}
+              </div>
+            ) : null}
+          </label>
+
+          <label className="mt-3 block text-xs text-slate-600">
+            Teacher guidance for AI
+            <textarea
+              rows={4}
+              value={aiPlanBuilderPrompt}
+              onChange={(event) => setAiPlanBuilderPrompt(event.target.value)}
+              placeholder="Share constraints, preferred difficulty, pace, and resource style."
+              className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+            />
+          </label>
+
+          <div className="mt-4 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={closeAiPlanBuilderModal}
+              disabled={isGeneratingAiPlanSteps}
+              className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleGenerateAiPlanSteps}
+              disabled={isGeneratingAiPlanSteps || !aiPlanBuilderSelectedTopicKeys.length}
+              className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isGeneratingAiPlanSteps ? 'Generating...' : 'Generate Plan Steps'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 };
 

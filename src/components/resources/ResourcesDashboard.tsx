@@ -40,7 +40,7 @@ import UploadModal from './UploadModal';
 import ResourcesView from './ResourcesView';
 import { authService } from '../../services/authService';
 import { curriculumService, CurriculumTopic } from '../../services/curriculumService';
-import { resourceService } from '../../services/resourceService';
+import { resourceService, ResourceItem } from '../../services/resourceService';
 import { schoolService, SchoolItem } from '../../services/schoolService';
 import { fetchData } from '../../services/http';
 import {
@@ -102,6 +102,21 @@ const normalizeEditorHtmlContent = (value: string) => {
     return normalized;
 };
 
+const stripHtmlToText = (value: string) => value
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const buildFallbackResourceTitle = (contentType: ResourceContentType) =>
+    `${getResourceContentTypeLabel(contentType)} ${new Date().toLocaleString()}`;
+
+const isResourceContentType = (value?: string | null): value is ResourceContentType => {
+    if (!value) return false;
+    return (RESOURCE_CONTENT_TYPES as readonly string[]).includes(value);
+};
+
 // --- Component Starts ---
 const ResourcesDashboard: React.FC = () => {
 
@@ -135,7 +150,9 @@ const ResourcesDashboard: React.FC = () => {
         status: 'draft',
         scheduledFor: ''
     });
-    const [draftNotes, setDraftNotes] = useState<typeof noteForm[]>([]);
+    const [draftResources, setDraftResources] = useState<ResourceItem[]>([]);
+    const [isDraftsLoading, setIsDraftsLoading] = useState(false);
+    const [activeDraftResourceId, setActiveDraftResourceId] = useState<string | null>(null);
     const [contentSearch, setContentSearch] = useState('');
     const [contentSubjectFilter, setContentSubjectFilter] = useState('all');
     const [materialSearch, setMaterialSearch] = useState('');
@@ -150,6 +167,8 @@ const ResourcesDashboard: React.FC = () => {
     const [selectionActionOverlay, setSelectionActionOverlay] = useState<{ top: number; left: number; text: string } | null>(null);
     const [selectionActionHint, setSelectionActionHint] = useState<string | null>(null);
     const [persistedResourceId, setPersistedResourceId] = useState<string | null>(null);
+    const [isContentLinkModalOpen, setIsContentLinkModalOpen] = useState(false);
+    const [contentLinkValue, setContentLinkValue] = useState('');
 
     // Modals State
     const [showUploadModal, setShowUploadModal] = useState(false);
@@ -227,6 +246,39 @@ const ResourcesDashboard: React.FC = () => {
         loadCurriculumTopics();
     }, [noteForm.subjectId]);
 
+    useEffect(() => {
+        if (noteForm.subjectId || subjects.length === 0) return;
+        setNoteForm((prev) => ({
+            ...prev,
+            subjectId: subjects[0].id,
+        }));
+    }, [noteForm.subjectId, subjects]);
+
+    const fetchDraftResources = useCallback(async () => {
+        setIsDraftsLoading(true);
+        try {
+            const rows = await resourceService.list({ status: 'draft' });
+            const contentDrafts = (Array.isArray(rows) ? rows : [])
+                .filter((resource) => Boolean(resource.contentType))
+                .sort((left, right) => {
+                    const leftTime = new Date(left.updatedAt || left.createdAt || 0).getTime();
+                    const rightTime = new Date(right.updatedAt || right.createdAt || 0).getTime();
+                    return rightTime - leftTime;
+                });
+            setDraftResources(contentDrafts);
+        } catch (error) {
+            console.error('Failed to load resource drafts:', error);
+            setDraftResources([]);
+        } finally {
+            setIsDraftsLoading(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (activeAction !== 'drafts') return;
+        void fetchDraftResources();
+    }, [activeAction, fetchDraftResources]);
+
     // --- Event Handlers ---
     const handleUploadClick = (subject?: Subject) => {
         setSelectedSubjectForUpload(subject || null);
@@ -281,6 +333,7 @@ const ResourcesDashboard: React.FC = () => {
     const handleDrafts = () => {
         setSelectedClass(null);
         setActiveAction('drafts');
+        void fetchDraftResources();
     };
 
     const handleMaterialTab = () => {
@@ -591,9 +644,19 @@ const ResourcesDashboard: React.FC = () => {
     };
 
     const handleInsertContentLink = () => {
-        const url = window.prompt('Enter link URL');
-        if (!url) return;
+        setContentLinkValue('');
+        setIsContentLinkModalOpen(true);
+    };
+
+    const handleConfirmInsertContentLink = () => {
+        const url = contentLinkValue.trim();
+        if (!url) {
+            toast.error('Please enter a link URL.');
+            return;
+        }
         applyContentEditorCommand('createLink', url);
+        setIsContentLinkModalOpen(false);
+        setContentLinkValue('');
     };
 
     const handleInsertContentImage = (file?: File) => {
@@ -651,6 +714,20 @@ const ResourcesDashboard: React.FC = () => {
     const handleGenerateNotes = () => {
         setSelectedClass(null);
         setActiveAction('generate-notes');
+        setPersistedResourceId(null);
+        setContentType('notes');
+        setSelectedReferenceResourceIds([]);
+        setContentFiles([]);
+        setNoteForm((prev) => ({
+            ...prev,
+            resourceId: '',
+            topicId: '',
+            title: '',
+            instructions: '',
+            content: '',
+            status: 'draft',
+            scheduledFor: '',
+        }));
     };
 
     const handleGenerateOnCanvas = () => {
@@ -710,14 +787,22 @@ const ResourcesDashboard: React.FC = () => {
     };
 
     const persistResource = async (mode: 'draft' | 'publish' | 'schedule') => {
-        if (!noteForm.title.trim()) {
-            toast.error('Please provide a title before saving.');
-            return null;
-        }
-        if (!noteForm.subjectId) {
+        const resolvedSubjectId = noteForm.subjectId || subjects[0]?.id || '';
+        if (!resolvedSubjectId) {
             toast.error('Select a subject before saving.');
             return null;
         }
+
+        const plainTextContent = stripHtmlToText(noteForm.content || '');
+        if (!plainTextContent) {
+            toast.error('Add resource content before saving.');
+            return null;
+        }
+
+        const derivedTitle = plainTextContent.slice(0, 80);
+        const resolvedTitle = (noteForm.title || '').trim()
+            || derivedTitle
+            || buildFallbackResourceTitle(contentType);
 
         const currentUser = authService.getCurrentUser();
         if (!currentUser?.id) {
@@ -743,10 +828,10 @@ const ResourcesDashboard: React.FC = () => {
 
         const payload = {
             schoolId: activeSchoolId,
-            subjectId: noteForm.subjectId,
+            subjectId: resolvedSubjectId,
             uploadedBy: currentUser.id,
-            name: noteForm.title.trim(),
-            originalName: noteForm.title.trim(),
+            name: resolvedTitle,
+            originalName: resolvedTitle,
             mimeType: 'text/html',
             resType: 'content',
             sizeBytes: new Blob([noteForm.content || '']).size,
@@ -763,25 +848,27 @@ const ResourcesDashboard: React.FC = () => {
             : await resourceService.create(payload);
 
         setPersistedResourceId(saved.id);
-        setNoteForm((prev) => ({ ...prev, resourceId: saved.id }));
+        setNoteForm((prev) => ({
+            ...prev,
+            resourceId: saved.id,
+            subjectId: resolvedSubjectId,
+            title: resolvedTitle,
+        }));
         fetchDashboardData();
         return saved;
     };
 
     const handleSaveDraft = async () => {
-        if (!noteForm.title.trim()) {
-            toast.error('Please provide a title before saving.');
-            return;
-        }
         const saved = await persistResource('draft');
         if (!saved) return;
-        setDraftNotes((prev) => [{ ...noteForm, resourceId: saved.id, status: 'draft' }, ...prev.filter((draft) => draft.resourceId !== saved.id)]);
+        await fetchDraftResources();
         toast.success('Draft saved.');
     };
 
     const handlePublish = async () => {
         const saved = await persistResource('publish');
         if (!saved) return;
+        await fetchDraftResources();
         toast.success('Content published to students.');
         setNoteForm((prev) => ({
             ...prev,
@@ -802,28 +889,81 @@ const ResourcesDashboard: React.FC = () => {
         toast.success('Content scheduled.');
     };
 
-    const handleEditDraft = (draftIndex: number) => {
-        const draft = draftNotes[draftIndex];
-        if (!draft) return;
-        setNoteForm(draft);
-        setPersistedResourceId(draft.resourceId || null);
-        setActiveAction('generate-notes');
+    const handleEditDraft = async (resourceId: string) => {
+        if (!resourceId) return;
+        setActiveDraftResourceId(resourceId);
+        try {
+            const draft = await resourceService.get(resourceId);
+            const gradeTag = (draft.tags || []).find((tag) => /^form\s+\d+/i.test(tag));
+            const resolvedContentType = isResourceContentType(draft.contentType) ? draft.contentType : 'notes';
+            setContentType(resolvedContentType);
+            setNoteForm((prev) => ({
+                ...prev,
+                resourceId: draft.id,
+                subjectId: draft.subject || prev.subjectId,
+                topicId: draft.topicIds?.[0] || '',
+                grade: gradeTag || prev.grade || 'Form 1',
+                title: draft.name || '',
+                instructions: '',
+                content: draft.contentBody || '',
+                status: 'draft',
+                scheduledFor: draft.publishAt ? new Date(draft.publishAt).toISOString().slice(0, 16) : '',
+            }));
+            setPersistedResourceId(draft.id);
+            setActiveAction('generate-notes');
+            toast.success('Draft loaded into the content workspace.');
+        } catch (error) {
+            console.error('Failed to load draft resource:', error);
+            toast.error('Failed to open draft.');
+        } finally {
+            setActiveDraftResourceId(null);
+        }
     };
 
-    const handleDeleteDraft = (draftIndex: number) => {
-        setDraftNotes((prev) => prev.filter((_, idx) => idx !== draftIndex));
-        toast.success('Draft deleted.');
+    const handleDeleteDraft = async (resourceId: string) => {
+        if (!resourceId) return;
+        setActiveDraftResourceId(resourceId);
+        try {
+            await resourceService.delete(resourceId);
+            await Promise.all([fetchDraftResources(), fetchDashboardData()]);
+            if (persistedResourceId === resourceId || noteForm.resourceId === resourceId) {
+                setPersistedResourceId(null);
+                setNoteForm((prev) => ({
+                    ...prev,
+                    resourceId: '',
+                    title: '',
+                    content: '',
+                    instructions: '',
+                }));
+            }
+            toast.success('Draft deleted.');
+        } catch (error) {
+            console.error('Failed to delete draft:', error);
+            toast.error('Failed to delete draft.');
+        } finally {
+            setActiveDraftResourceId(null);
+        }
     };
 
-    const handlePublishDraft = async (draftIndex: number) => {
-        const draft = draftNotes[draftIndex];
-        if (!draft) return;
-        setNoteForm(draft);
-        setPersistedResourceId(draft.resourceId || null);
-        const saved = await persistResource('publish');
-        if (!saved) return;
-        toast.success('Draft published to students.');
-        setDraftNotes((prev) => prev.filter((_, idx) => idx !== draftIndex));
+    const handlePublishDraft = async (resourceId: string) => {
+        if (!resourceId) return;
+        setActiveDraftResourceId(resourceId);
+        try {
+            await resourceService.update(resourceId, {
+                status: 'published',
+                publishAt: null,
+            });
+            await Promise.all([fetchDraftResources(), fetchDashboardData()]);
+            if (persistedResourceId === resourceId) {
+                setPersistedResourceId(null);
+            }
+            toast.success('Draft published to students.');
+        } catch (error) {
+            console.error('Failed to publish draft:', error);
+            toast.error('Failed to publish draft.');
+        } finally {
+            setActiveDraftResourceId(null);
+        }
     };
 
     if (loading) {
@@ -1207,6 +1347,12 @@ const ResourcesDashboard: React.FC = () => {
                                             </button>
                                         </div>
                                         <div className="space-y-3 p-3">
+                                            <input
+                                                className="w-full rounded-md border border-slate-200 px-3 py-2 text-base font-semibold text-slate-900"
+                                                placeholder="Title for resource"
+                                                value={noteForm.title}
+                                                onChange={(e) => setNoteForm((prev) => ({ ...prev, title: e.target.value }))}
+                                            />
                                             <div className="relative" ref={resourceOverlayHostRef}>
                                                 <div
                                                     ref={resourceEditorRef}
@@ -1761,28 +1907,61 @@ const ResourcesDashboard: React.FC = () => {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {draftNotes.length === 0 ? (
+                                        {isDraftsLoading ? (
+                                            <tr>
+                                                <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-500">
+                                                    Loading drafts...
+                                                </td>
+                                            </tr>
+                                        ) : draftResources.length === 0 ? (
                                             <tr>
                                                 <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-500">
                                                     No drafts yet. Create content and save it as drafts.
                                                 </td>
                                             </tr>
                                         ) : (
-                                            draftNotes.map((draft, index) => (
-                                                <tr key={`${draft.title}-${index}`} className="border-t border-slate-200">
-                                                    <td className="px-4 py-3 text-sm text-slate-800">{draft.title || 'Untitled Draft'}</td>
-                                                    <td className="px-4 py-3 text-sm text-slate-700">{draft.grade || 'N/A'}</td>
-                                                    <td className="px-4 py-3 text-sm text-slate-700">{draft.subjectId ? 'Subject selected' : 'No subject'}</td>
-                                                    <td className="px-4 py-3 text-sm text-slate-700 capitalize">{draft.status || 'draft'}</td>
-                                                    <td className="px-4 py-3 text-sm">
-                                                        <div className="flex flex-wrap gap-3">
-                                                            <button onClick={() => handleEditDraft(index)} className="text-blue-600 hover:text-blue-700">Edit</button>
-                                                            <button onClick={() => handleDeleteDraft(index)} className="text-slate-600 hover:text-slate-700">Delete</button>
-                                                            <button onClick={() => handlePublishDraft(index)} className="text-blue-600 hover:text-blue-700">Publish</button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            ))
+                                            draftResources.map((draft) => {
+                                                const isRowBusy = activeDraftResourceId === draft.id;
+                                                const gradeTag = (draft.tags || []).find((tag) => /^form\s+\d+/i.test(tag));
+                                                const subjectName = subjects.find((subject) => subject.id === draft.subject)?.name || 'No subject';
+
+                                                return (
+                                                    <tr key={draft.id} className="border-t border-slate-200">
+                                                        <td className="px-4 py-3 text-sm text-slate-800">{draft.name || 'Untitled Draft'}</td>
+                                                        <td className="px-4 py-3 text-sm text-slate-700">{gradeTag || 'N/A'}</td>
+                                                        <td className="px-4 py-3 text-sm text-slate-700">{subjectName}</td>
+                                                        <td className="px-4 py-3 text-sm text-slate-700 capitalize">{draft.status || 'draft'}</td>
+                                                        <td className="px-4 py-3 text-sm">
+                                                            <div className="flex flex-wrap gap-3">
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={isRowBusy}
+                                                                    onClick={() => void handleEditDraft(draft.id)}
+                                                                    className="text-blue-600 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                                                >
+                                                                    {isRowBusy ? 'Working...' : 'Edit'}
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={isRowBusy}
+                                                                    onClick={() => void handleDeleteDraft(draft.id)}
+                                                                    className="text-slate-600 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                                                >
+                                                                    Delete
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={isRowBusy}
+                                                                    onClick={() => void handlePublishDraft(draft.id)}
+                                                                    className="text-blue-600 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                                                >
+                                                                    Publish
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })
                                         )}
                                     </tbody>
                                 </table>
@@ -1902,6 +2081,51 @@ const ResourcesDashboard: React.FC = () => {
                     setSelectedSubjectForUpload(matchedSubject);
                 }}
             />
+            {isContentLinkModalOpen && (
+                <div
+                    className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/35 p-4"
+                    onClick={() => {
+                        setIsContentLinkModalOpen(false);
+                        setContentLinkValue('');
+                    }}
+                >
+                    <div
+                        className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-4 shadow-2xl"
+                        onClick={(event) => event.stopPropagation()}
+                    >
+                        <div className="mb-3">
+                            <p className="text-sm font-semibold text-slate-900">Insert link</p>
+                            <p className="text-xs text-slate-500">Add the URL to the selected content text.</p>
+                        </div>
+                        <input
+                            type="url"
+                            value={contentLinkValue}
+                            onChange={(event) => setContentLinkValue(event.target.value)}
+                            placeholder="https://example.com"
+                            className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                        />
+                        <div className="mt-4 flex items-center justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setIsContentLinkModalOpen(false);
+                                    setContentLinkValue('');
+                                }}
+                                className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleConfirmInsertContentLink}
+                                className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+                            >
+                                Insert
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

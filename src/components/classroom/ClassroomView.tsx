@@ -231,8 +231,8 @@ const ClassroomView: React.FC = () => {
 
   return (
     <ClassroomLayout>
-      <div className="h-full space-y-2 relative transition-all duration-300 ease-in-out">
-        <div className="bg-white rounded-lg shadow p-2">
+      <div className="h-full min-h-0 relative transition-all duration-300 ease-in-out">
+        <div className="bg-white rounded-lg shadow p-2 h-full min-h-0 flex flex-col">
           <div className="bg-white rounded-lg shadow p-4 mb-3">
             <div className="flex flex-wrap items-start gap-2">
               <div className="flex basis-full flex-wrap gap-2 min-w-0">
@@ -305,7 +305,7 @@ const ClassroomView: React.FC = () => {
               </div>
             </div>
           </div>
-          <div className="overflow-y-auto max-h-[560px]">
+          <div className="min-h-0 flex-1 overflow-y-auto">
             <table className="w-full">
               <thead>
                 <tr className="bg-gray-50">

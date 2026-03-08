@@ -8,6 +8,16 @@ import { studentService } from '../services/api';
 const getInitials = (student: { firstName?: string; lastName?: string }) =>
   `${student.firstName?.[0] || ''}${student.lastName?.[0] || ''}`.toUpperCase();
 
+const formatStatusLabel = (value?: string | null) => {
+  if (!value) return 'N/A';
+  return value
+    .replace(/[_-]+/g, ' ')
+    .split(' ')
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+};
+
 const StudentProfilePage: React.FC = () => {
   const location = useLocation();
   const teacherId = authService.getCurrentUserId();
@@ -211,7 +221,6 @@ const StudentProfilePage: React.FC = () => {
                   <div>
                     <h3 className="text-lg font-semibold">{studentCard.firstName} {studentCard.lastName}</h3>
                     <p className="text-sm text-gray-500">{studentCard.email}</p>
-                    <p className="text-sm text-gray-500">Reg #: {studentCard.id || selectedStudentId}</p>
                   </div>
                 </div>
                 <div className="flex gap-4">
@@ -231,10 +240,10 @@ const StudentProfilePage: React.FC = () => {
               <div className="bg-white rounded-lg shadow p-4">
                 <h4 className="text-sm font-semibold mb-2">Profile Details</h4>
                 <div className="space-y-2 text-sm text-gray-600">
-                  <div className="flex justify-between"><span>Performance</span><span>{studentCard.performance || '—'}</span></div>
-                  <div className="flex justify-between"><span>Engagement</span><span>{studentCard.engagement || '—'}</span></div>
-                  <div className="flex justify-between"><span>Strength</span><span>{studentCard.strength || '—'}</span></div>
-                  <div className="flex justify-between"><span>Grade level</span><span>{studentCard.gradeLevel || '—'}</span></div>
+                  <div className="flex justify-between"><span>Performance</span><span>{studentCard.performance || 'N/A'}</span></div>
+                  <div className="flex justify-between"><span>Engagement</span><span>{studentCard.engagement || 'N/A'}</span></div>
+                  <div className="flex justify-between"><span>Strength</span><span>{studentCard.strength || 'N/A'}</span></div>
+                  <div className="flex justify-between"><span>Grade level</span><span>{studentCard.gradeLevel || 'N/A'}</span></div>
                 </div>
               </div>
 
@@ -244,7 +253,7 @@ const StudentProfilePage: React.FC = () => {
                   <div className="flex justify-between"><span>Total plans</span><span>{profileSummary.planSummary?.totalPlans ?? 0}</span></div>
                   <div className="flex justify-between"><span>Active plans</span><span>{profileSummary.planSummary?.activePlans ?? 0}</span></div>
                   <div className="flex justify-between"><span>Completed plans</span><span>{profileSummary.planSummary?.completedPlans ?? 0}</span></div>
-                  <div className="flex justify-between"><span>Latest status</span><span>{profileSummary.planSummary?.latestStatus || '—'}</span></div>
+                  <div className="flex justify-between"><span>Latest status</span><span>{formatStatusLabel(profileSummary.planSummary?.latestStatus)}</span></div>
                 </div>
               </div>
 
@@ -264,7 +273,7 @@ const StudentProfilePage: React.FC = () => {
               <div className="bg-white rounded-lg border border-gray-200 p-4 space-y-2 text-sm text-gray-600">
                 <div>
                   Latest assessment:{' '}
-                  <span className="font-semibold text-gray-800">{profileSummary.assessmentSummary?.latestAssessmentName || '—'}</span>
+                  <span className="font-semibold text-gray-800">{profileSummary.assessmentSummary?.latestAssessmentName || 'N/A'}</span>
                 </div>
                 <div>
                   Latest score:{' '}
@@ -272,19 +281,19 @@ const StudentProfilePage: React.FC = () => {
                 </div>
                 <div>
                   Latest grade:{' '}
-                  <span className="font-semibold text-gray-800">{profileSummary.assessmentSummary?.latestGrade || '—'}</span>
+                  <span className="font-semibold text-gray-800">{profileSummary.assessmentSummary?.latestGrade || 'N/A'}</span>
                 </div>
                 <div>
                   Latest due date:{' '}
                   <span className="font-semibold text-gray-800">
                     {profileSummary.assessmentSummary?.latestDueTime
                       ? new Date(profileSummary.assessmentSummary.latestDueTime).toLocaleDateString()
-                      : '—'}
+                      : 'N/A'}
                   </span>
                 </div>
                 <div>
                   Latest plan:{' '}
-                  <span className="font-semibold text-gray-800">{profileSummary.planSummary?.latestPlanName || '—'}</span>
+                  <span className="font-semibold text-gray-800">{profileSummary.planSummary?.latestPlanName || 'N/A'}</span>
                 </div>
               </div>
             </div>
