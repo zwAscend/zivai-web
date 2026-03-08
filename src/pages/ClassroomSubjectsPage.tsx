@@ -578,9 +578,27 @@ const mapAssessmentQuestionFromApi = (
   question: any,
   fallbackId: string
 ): AssessmentQuestion => {
+  const normalizedQuestionTypeCode = String(question.questionTypeCode || '')
+    .trim()
+    .toLowerCase()
+    .replace('-', '_')
+    .replace(' ', '_');
   const type: AssessmentQuestionType =
-    question.questionTypeCode === 'multiple_choice' ? 'multiple-choice' : 'short-answer';
-  const options = normalizeAssessmentQuestionOptions(question.rubricJson?.options);
+    normalizedQuestionTypeCode === 'multiple_choice'
+    || normalizedQuestionTypeCode === 'mcq'
+    || normalizedQuestionTypeCode === 'true_false'
+    || normalizedQuestionTypeCode === 'truefalse'
+      ? 'multiple-choice'
+      : 'short-answer';
+  const options = type === 'multiple-choice'
+    ? (
+      normalizedQuestionTypeCode === 'true_false' || normalizedQuestionTypeCode === 'truefalse'
+        ? normalizeAssessmentQuestionOptions(question.rubricJson?.options).filter(Boolean).length > 0
+          ? normalizeAssessmentQuestionOptions(question.rubricJson?.options)
+          : ['True', 'False']
+        : normalizeAssessmentQuestionOptions(question.rubricJson?.options)
+    )
+    : [];
   const legacyCorrectAnswer = extractAssessmentLegacyCorrectAnswer(question.rubricJson);
   const normalizedCorrectAnswers = normalizeAssessmentQuestionCorrectAnswers(
     question.rubricJson?.correctAnswers
@@ -1430,7 +1448,7 @@ const ClassroomSubjectsPage: React.FC = () => {
 
           return {
             stem: question.prompt,
-            questionTypeCode: question.type === 'multiple-choice' ? 'multiple_choice' : 'short_answer',
+            questionTypeCode: question.type === 'multiple-choice' ? 'mcq' : 'short_answer',
             maxMark: question.marks,
             difficulty: 2,
             rubricJson: {
@@ -3414,7 +3432,6 @@ const ClassroomSubjectsPage: React.FC = () => {
               <div>
                 <p className="text-xs text-slate-500">{selectedTopic.unit} • {selectedTopic.form}</p>
                 <h3 className="text-lg font-semibold text-slate-900">{selectedTopic.title}</h3>
-                <p className="text-xs text-slate-500">Topic workspace with content navigation and create/update actions</p>
               </div>
               <button
                 type="button"

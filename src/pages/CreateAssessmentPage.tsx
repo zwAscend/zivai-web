@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import Sidebar from '../components/resources/Sidebar';
 import { API_URL, fetchData } from '../services/http';
 import { authService } from '../services/authService';
+import { assessmentService } from '../services/assessmentService';
 import { assessmentEnrollmentService } from '../services/assessmentEnrollmentService';
 import { subjectService } from '../services/subjectService';
 import { schoolService, SchoolItem } from '../services/schoolService';
@@ -771,10 +772,7 @@ const CreateAssessmentPage: React.FC = () => {
         }),
       };
 
-      const createdAssessment = await fetchData<{ id: string }>('/assessments', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
+      const createdAssessment = await assessmentService.createAssessment(payload as any);
 
       let publishResult: { enrolledCount: number } | null = null;
       if (manualForm.status === 'published' && createdAssessment?.id) {
