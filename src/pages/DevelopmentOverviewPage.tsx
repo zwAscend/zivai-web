@@ -1,8 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { developmentService, studentService, subjectService } from '../services/api';
+import { authService } from '../services/authService';
+import { teacherService } from '../services/teacherService';
+import type { TeacherStudentSummary } from '../services/teacherService';
+import type { MasterySignalsSummary } from '../services/developmentService';
 import { useAuth } from '../context/AuthContext';
-import { PlanStatus, Student, Subject } from '../types';
+import type { Subject } from '../types';
 import DevelopmentLayout from '../components/development/DevelopmentLayout';
 import {
   ResponsiveContainer,
@@ -19,29 +23,37 @@ import {
   CartesianGrid,
 } from 'recharts';
 
+interface DevelopmentLearner {
+  id: string;
+  firstName: string;
+  lastName: string;
+  overall: number;
+  performance: string;
+  planStatus?: string | null;
+  planProgress?: number | null;
+  activePlanName?: string | null;
+}
+
+type PerformanceBucketKey = 'excellent' | 'good' | 'average' | 'needs improvement' | 'other';
+
+const normalizePlanStatus = (status?: string | null): string | undefined => {
+  if (!status) return undefined;
+  const cleaned = status.replace(/_/g, ' ').trim().toLowerCase();
+  if (cleaned === 'active') return 'active';
+  if (cleaned === 'completed') return 'completed';
+  if (cleaned === 'on hold') return 'on hold';
+  if (cleaned === 'cancelled') return 'cancelled';
+  return undefined;
+};
+
 const DevelopmentOverviewPage: React.FC = () => {
   const { selectedSubject } = useAuth();
   const navigate = useNavigate();
-  const [students, setStudents] = useState<Student[]>([]);
+  const [learners, setLearners] = useState<DevelopmentLearner[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [loading, setLoading] = useState(true);
   const [subjectFilter, setSubjectFilter] = useState('');
-
-  const normalizePlanStatus = (status?: string): PlanStatus | undefined => {
-    if (!status) return undefined;
-    const cleaned = status.replace(/_/g, ' ').toLowerCase();
-    if (cleaned === 'active') return 'Active';
-    if (cleaned === 'completed') return 'Completed';
-    if (cleaned === 'on hold') return 'On Hold';
-    if (cleaned === 'cancelled') return 'Cancelled';
-    return undefined;
-  };
-
-  const toEpochMs = (value?: Date): number => {
-    if (!value) return 0;
-    const parsed = new Date(value).getTime();
-    return Number.isNaN(parsed) ? 0 : parsed;
-  };
+  const [masterySummary, setMasterySummary] = useState<MasterySignalsSummary | null>(null);
 
   useEffect(() => {
     const loadSubjects = async () => {
@@ -59,95 +71,136 @@ const DevelopmentOverviewPage: React.FC = () => {
   }, [selectedSubject?.id]);
 
   useEffect(() => {
-    const loadStudents = async () => {
+    const loadOverview = async () => {
       setLoading(true);
+      const subjectId = subjectFilter || undefined;
+
       try {
-        const [studentData, planPage] = await Promise.all([
-          studentService.getStudents(subjectFilter || undefined),
-          developmentService.listStudentPlans({
-            subjectId: subjectFilter || undefined,
-            size: 200,
-          }),
+        const teacherId = authService.getCurrentUserId();
+        const [masterySignals, learnerSummaries] = await Promise.all([
+          developmentService
+            .getMasterySignalsSummary({ subjectId })
+            .catch(() => null),
+          (async () => {
+            if (!teacherId) return [] as TeacherStudentSummary[];
+            const allItems: TeacherStudentSummary[] = [];
+            const size = 200;
+            let page = 0;
+            let totalPages = 1;
+
+            while (page < totalPages) {
+              const response = await teacherService.getStudentsSummary(teacherId, {
+                subjectId,
+                page,
+                size,
+              });
+              allItems.push(...(Array.isArray(response.items) ? response.items : []));
+              totalPages = Math.max(1, Number(response.totalPages || 1));
+              page += 1;
+            }
+
+            return allItems;
+          })().catch(() => [] as TeacherStudentSummary[]),
         ]);
 
-        const planItems = Array.isArray(planPage?.items) ? planPage.items : [];
-        const planByStudent = new Map<string, typeof planItems[number]>();
-
-        planItems.forEach((plan) => {
-          const studentId = plan.student;
-          if (!studentId) return;
-          const normalizedStatus = normalizePlanStatus(plan.status as string);
-          const normalizedPlan = normalizedStatus ? { ...plan, status: normalizedStatus } : plan;
-          const existing = planByStudent.get(studentId);
-          if (!existing) {
-            planByStudent.set(studentId, normalizedPlan);
-            return;
-          }
-          const existingStatus = (existing.status || '').toString().toLowerCase();
-          const newStatus = (normalizedPlan.status || '').toString().toLowerCase();
-          const existingIsActive = existingStatus === 'active';
-          const newIsActive = newStatus === 'active';
-          if (!existingIsActive && newIsActive) {
-            planByStudent.set(studentId, normalizedPlan);
-            return;
-          }
-          if (existingIsActive && !newIsActive) {
-            return;
-          }
-          const existingTime = toEpochMs(existing.updatedAt) || toEpochMs(existing.createdAt);
-          const newTime = toEpochMs(normalizedPlan.updatedAt) || toEpochMs(normalizedPlan.createdAt);
-          if (newTime > existingTime) {
-            planByStudent.set(studentId, normalizedPlan);
-          }
-        });
-
-        const studentsList = Array.isArray(studentData) ? studentData : [];
-        const mergedStudents = studentsList.map((student) => ({
-          ...student,
-          activePlan: planByStudent.get(student.id) ?? student.activePlan,
+        let nextLearners: DevelopmentLearner[] = learnerSummaries.map((summary) => ({
+          id: summary.studentId,
+          firstName: summary.firstName || '',
+          lastName: summary.lastName || '',
+          overall: Number(summary.overall ?? 0),
+          performance: summary.performance || '',
+          planStatus: normalizePlanStatus(summary.planStatus),
+          planProgress:
+            summary.planProgress === null || summary.planProgress === undefined
+              ? null
+              : Number(summary.planProgress),
+          activePlanName: summary.activePlanName || null,
         }));
 
-        setStudents(mergedStudents);
+        // Fallback for contexts where teacher summary endpoint is unavailable.
+        if (nextLearners.length === 0) {
+          const fallbackStudents = await studentService.getStudents(subjectId).catch(() => []);
+          nextLearners = (Array.isArray(fallbackStudents) ? fallbackStudents : []).map((student) => ({
+            id: student.id,
+            firstName: student.firstName || '',
+            lastName: student.lastName || '',
+            overall: Number(student.overall ?? 0),
+            performance: student.performance || '',
+            planStatus: normalizePlanStatus((student.activePlan as any)?.status),
+            planProgress:
+              (student.activePlan as any)?.currentProgress === null ||
+              (student.activePlan as any)?.currentProgress === undefined
+                ? null
+                : Number((student.activePlan as any)?.currentProgress),
+            activePlanName: (student.activePlan as any)?.plan?.name || null,
+          }));
+        }
+
+        setLearners(nextLearners);
+        setMasterySummary(masterySignals);
       } catch (error) {
-        console.error('Failed to load students for development overview:', error);
-        setStudents([]);
+        console.error('Failed to load development overview:', error);
+        setLearners([]);
+        setMasterySummary(null);
       } finally {
         setLoading(false);
       }
     };
 
-    loadStudents();
+    loadOverview();
   }, [subjectFilter]);
 
-  const averageOverall = useMemo(() => {
-    if (students.length === 0) return 0;
-    const total = students.reduce((sum, student) => sum + (student.overall || 0), 0);
-    return Math.round(total / students.length);
-  }, [students]);
+  const derivedMasterySummary = useMemo<MasterySignalsSummary>(() => {
+    if (learners.length === 0) {
+      return {
+        totalStudents: 0,
+        excellent: 0,
+        good: 0,
+        average: 0,
+        needsImprovement: 0,
+        averageOverall: 0,
+      };
+    }
 
-  const activePlans = useMemo(() => students.filter((student) => student.activePlan).length, [students]);
-  const needsIntervention = useMemo(() => (
-    students.filter((student) => (student.overall || 0) < 50 || (student.performance || '').toLowerCase().includes('needs')).length
-  ), [students]);
+    let excellent = 0;
+    let good = 0;
+    let average = 0;
+    let needsImprovement = 0;
+    let totalOverall = 0;
 
-  const performanceBuckets = useMemo(() => {
-    const buckets: Record<string, number> = {
-      excellent: 0,
-      good: 0,
-      average: 0,
-      'needs improvement': 0,
-      other: 0,
-    };
-    students.forEach((student) => {
-      const key = (student.performance || '').toLowerCase();
-      if (key in buckets) {
-        buckets[key] += 1;
-      } else {
-        buckets.other += 1;
-      }
+    learners.forEach((learner) => {
+      const overall = Number(learner.overall || 0);
+      totalOverall += overall;
+      if (overall >= 85) excellent += 1;
+      else if (overall >= 70) good += 1;
+      else if (overall >= 55) average += 1;
+      else needsImprovement += 1;
     });
-    return buckets;
-  }, [students]);
+
+    return {
+      totalStudents: learners.length,
+      excellent,
+      good,
+      average,
+      needsImprovement,
+      averageOverall: Math.round((totalOverall / learners.length) * 10) / 10,
+    };
+  }, [learners]);
+
+  const effectiveMasterySummary = masterySummary || derivedMasterySummary;
+  const averageOverall = Math.round(effectiveMasterySummary.averageOverall || 0);
+  const needsIntervention = effectiveMasterySummary.needsImprovement;
+
+  const performanceBuckets = useMemo<Record<PerformanceBucketKey, number>>(
+    () => ({
+      excellent: effectiveMasterySummary.excellent,
+      good: effectiveMasterySummary.good,
+      average: effectiveMasterySummary.average,
+      'needs improvement': effectiveMasterySummary.needsImprovement,
+      other: 0,
+    }),
+    [effectiveMasterySummary]
+  );
 
   const planStatusBuckets = useMemo(() => {
     const buckets: Record<string, number> = {
@@ -157,8 +210,9 @@ const DevelopmentOverviewPage: React.FC = () => {
       cancelled: 0,
       unassigned: 0,
     };
-    students.forEach((student) => {
-      const status = (student.activePlan?.status || '').toLowerCase();
+
+    learners.forEach((learner) => {
+      const status = normalizePlanStatus(learner.planStatus);
       if (!status) {
         buckets.unassigned += 1;
       } else if (status in buckets) {
@@ -167,35 +221,40 @@ const DevelopmentOverviewPage: React.FC = () => {
         buckets.unassigned += 1;
       }
     });
+
     return buckets;
-  }, [students]);
+  }, [learners]);
+
+  const activePlans = planStatusBuckets.active;
 
   const planCompletionDistribution = useMemo(() => (
-    students
-      .map((student, index) => {
-        const rawProgress = student.activePlan?.currentProgress;
-        const parsed = typeof rawProgress === 'number' ? rawProgress : Number(rawProgress);
+    learners
+      .map((learner, index) => {
+        const parsed = Number(learner.planProgress);
         if (!Number.isFinite(parsed)) return null;
         const progress = Math.max(0, Math.min(100, Math.round(parsed)));
         return {
           learner: `L${index + 1}`,
-          student: `${student.firstName} ${student.lastName}`.trim(),
+          student: `${learner.firstName} ${learner.lastName}`.trim(),
           progress,
         };
       })
       .filter((item): item is { learner: string; student: string; progress: number } => item !== null)
       .sort((a, b) => a.progress - b.progress)
-  ), [students]);
+  ), [learners]);
 
   const priorityLearners = useMemo(() => (
-    students
-      .filter((student) => (student.overall || 0) < 50 || (student.performance || '').toLowerCase().includes('needs'))
-      .sort((a, b) => (a.overall || 0) - (b.overall || 0))
+    learners
+      .filter((learner) => {
+        const performance = (learner.performance || '').toLowerCase();
+        return learner.overall < 50 || performance.includes('needs');
+      })
+      .sort((a, b) => a.overall - b.overall)
       .slice(0, 4)
-  ), [students]);
+  ), [learners]);
 
-  const totalStudents = students.length || 1;
-  
+  const totalStudents = Math.max(effectiveMasterySummary.totalStudents, 1);
+
   if (loading) {
     return (
       <DevelopmentLayout>
@@ -249,7 +308,7 @@ const DevelopmentOverviewPage: React.FC = () => {
             <div className="border border-slate-200 rounded-lg p-4">
               <p className="text-xs text-slate-500">Average mastery</p>
               <p className="text-2xl font-semibold text-slate-900">{averageOverall}%</p>
-              <p className="text-xs text-slate-500 mt-1">Across {students.length} learners</p>
+              <p className="text-xs text-slate-500 mt-1">Across {effectiveMasterySummary.totalStudents} learners</p>
             </div>
             <div className="border border-slate-200 rounded-lg p-4">
               <p className="text-xs text-slate-500">Active plans</p>
@@ -345,12 +404,12 @@ const DevelopmentOverviewPage: React.FC = () => {
           <div className="space-y-4">
             <div className="bg-white rounded-lg shadow p-6">
               <h4 className="text-sm font-semibold text-slate-900 mb-3">Mastery Signals</h4>
-              {[
+              {([
                 { label: 'Excellent', key: 'excellent', color: 'bg-emerald-500' },
                 { label: 'Good', key: 'good', color: 'bg-blue-500' },
                 { label: 'Average', key: 'average', color: 'bg-yellow-500' },
                 { label: 'Needs improvement', key: 'needs improvement', color: 'bg-red-500' },
-              ].map((item) => {
+              ] as Array<{ label: string; key: Exclude<PerformanceBucketKey, 'other'>; color: string }>).map((item) => {
                 const count = performanceBuckets[item.key] || 0;
                 const percent = Math.round((count / totalStudents) * 100);
                 return (
@@ -419,18 +478,18 @@ const DevelopmentOverviewPage: React.FC = () => {
               <h4 className="text-sm font-semibold text-slate-900 mb-3">Priority Learners</h4>
               {priorityLearners.length > 0 ? (
                 <div className="space-y-3">
-                  {priorityLearners.map((student) => (
+                  {priorityLearners.map((learner) => (
                     <button
-                      key={student.id}
-                      onClick={() => navigate(`/development/${student.id}`)}
+                      key={learner.id}
+                      onClick={() => navigate(`/development/${learner.id}`)}
                       className="w-full text-left border border-slate-200 rounded-lg px-3 py-2 hover:border-blue-400 hover:shadow transition"
                     >
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="text-sm font-semibold text-slate-800">
-                            {student.firstName} {student.lastName}
+                            {learner.firstName} {learner.lastName}
                           </p>
-                          <p className="text-xs text-slate-500">Overall: {student.overall ?? 0}%</p>
+                          <p className="text-xs text-slate-500">Overall: {learner.overall}%</p>
                         </div>
                         <span className="text-xs px-2 py-1 rounded-full bg-red-50 text-red-600">Needs focus</span>
                       </div>

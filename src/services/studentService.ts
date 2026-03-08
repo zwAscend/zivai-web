@@ -107,6 +107,8 @@ interface EnrollmentSummaryFallbackItem {
   assignmentId: string;
   assessmentId: string;
   assessmentName: string;
+  subjectId?: string | null;
+  subjectName?: string | null;
   dueTime?: string | null;
   published: boolean;
   createdAt?: string | null;
@@ -137,6 +139,8 @@ const mapFallbackEnrollmentToHistory = (item: EnrollmentSummaryFallbackItem): St
   assignmentId: item.assignmentId,
   assessmentId: item.assessmentId,
   assessmentName: item.assessmentName,
+  subjectId: item.subjectId || undefined,
+  subjectName: item.subjectName || undefined,
   published: !!item.published,
   dueTime: item.dueTime || null,
   status: normalizeFallbackStatus(item.statusCode),
@@ -157,6 +161,12 @@ const applyHistoryFilters = (
   filters: StudentAssessmentHistoryFilters
 ): StudentAssessmentHistoryItem[] => {
   return items.filter((item) => {
+    if (filters.subjectId) {
+      if (!item.subjectId || item.subjectId !== filters.subjectId) {
+        return false;
+      }
+    }
+
     if (filters.status) {
       const targetStatus = String(filters.status).trim().toLowerCase();
       if (targetStatus && normalizeFallbackStatus(item.status) !== targetStatus) {
@@ -189,6 +199,9 @@ const fetchFallbackAssessmentHistory = async (
 ): Promise<StudentAssessmentHistoryItem[]> => {
   const query = new URLSearchParams();
   query.set('studentId', studentId);
+  if (filters.subjectId) {
+    query.set('subjectId', filters.subjectId);
+  }
   const endpoint = `/assessment-enrollments/summary?${query.toString()}`;
 
   try {

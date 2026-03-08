@@ -9,6 +9,7 @@ import {
   CheckCircle2,
   Code2,
   Copy,
+  Eye,
   GripVertical,
   ImagePlus,
   Italic,
@@ -36,6 +37,7 @@ import {
   Trash2,
   Underline,
   Undo2,
+  X,
 } from 'lucide-react';
 import ClassroomLayout from '../components/classroom/ClassroomLayout';
 import {
@@ -81,6 +83,11 @@ type WorkspaceOperationFeedback = {
   title: string;
   message: string;
 };
+type PendingWorkspaceDelete = {
+  topicId: string;
+  type: TopicContentType;
+  item: string;
+};
 type SelectionActionType = 'change' | 'different' | 'chat';
 type AssessmentQuestionType = 'short-answer' | 'multiple-choice';
 type AssessmentQuestion = {
@@ -88,7 +95,10 @@ type AssessmentQuestion = {
   prompt: string;
   type: AssessmentQuestionType;
   marks: number;
-  options: string;
+  options: string[];
+  correctAnswers: string[];
+  correctAnswer: string;
+  markingGuide: string;
 };
 type WorkspaceAssessment = {
   id: string;
@@ -367,6 +377,14 @@ const toTitleCase = (value: string) =>
     .map((word) => word[0].toUpperCase() + word.slice(1))
     .join(' ');
 
+const escapeHtml = (value: string) =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
 const toEditorHtml = (value: string) => {
   const hasHtmlTags = /<\/?[a-z][\s\S]*>/i.test(value);
   const hasHtmlEntities = /&(?:[a-zA-Z]+|#\d+);/.test(value);
@@ -531,6 +549,70 @@ const formatUpdatedAtLabel = (timestamps: Array<string | undefined | null>) => {
   return `Updated ${diffDays} days ago`;
 };
 
+const normalizeAssessmentQuestionOptions = (rawOptions: unknown): string[] => {
+  const normalizedFromArray = Array.isArray(rawOptions)
+    ? rawOptions.map((option) => String(option ?? ''))
+    : typeof rawOptions === 'string'
+      ? rawOptions.split(',').map((option) => option.trim())
+      : [];
+  return normalizedFromArray.length > 0 ? normalizedFromArray : [''];
+};
+
+const normalizeAssessmentQuestionCorrectAnswers = (rawAnswers: unknown): string[] => {
+  const normalized = Array.isArray(rawAnswers)
+    ? rawAnswers.map((answer) => String(answer ?? '').trim()).filter(Boolean)
+    : typeof rawAnswers === 'string'
+      ? [rawAnswers.trim()].filter(Boolean)
+      : [];
+  return Array.from(new Set(normalized));
+};
+
+const extractAssessmentLegacyCorrectAnswer = (rubricJson: any): string => {
+  if (typeof rubricJson?.correctAnswer === 'string') return rubricJson.correctAnswer;
+  if (typeof rubricJson?.expectedAnswer === 'string') return rubricJson.expectedAnswer;
+  if (typeof rubricJson?.answer === 'string') return rubricJson.answer;
+  return '';
+};
+
+const mapAssessmentQuestionFromApi = (
+  question: any,
+  fallbackId: string
+): AssessmentQuestion => {
+  const type: AssessmentQuestionType =
+    question.questionTypeCode === 'multiple_choice' ? 'multiple-choice' : 'short-answer';
+  const options = normalizeAssessmentQuestionOptions(question.rubricJson?.options);
+  const legacyCorrectAnswer = extractAssessmentLegacyCorrectAnswer(question.rubricJson);
+  const normalizedCorrectAnswers = normalizeAssessmentQuestionCorrectAnswers(
+    question.rubricJson?.correctAnswers
+  );
+  const correctAnswers = type === 'multiple-choice'
+    ? (
+      normalizedCorrectAnswers.length > 0
+        ? normalizedCorrectAnswers
+        : normalizeAssessmentQuestionCorrectAnswers(legacyCorrectAnswer)
+    )
+    : [];
+
+  return {
+    id: question.id || question.questionId || fallbackId,
+    prompt: question.stem || '',
+    type,
+    marks: Number(question.maxMark || question.points || 1),
+    options: type === 'multiple-choice' ? options : [],
+    correctAnswers,
+    correctAnswer: legacyCorrectAnswer,
+    markingGuide:
+      typeof question.rubricJson?.markingGuide === 'string'
+        ? question.rubricJson.markingGuide
+        : Array.isArray(question.rubricJson?.markingPoints)
+          ? question.rubricJson.markingPoints
+              .map((point: unknown) => String(point || '').trim())
+              .filter(Boolean)
+              .join('\n')
+          : '',
+  };
+};
+
 const buildAssessmentResourceContent = (
   topicTitle: string,
   assessmentName: string,
@@ -540,10 +622,20 @@ const buildAssessmentResourceContent = (
   const questionLines = questions.length
     ? questions
         .map((question, index) => {
-          const options = question.type === 'multiple-choice' && question.options.trim()
-            ? ` Options: ${question.options}`
+          const compactOptions = question.options.map((option) => option.trim()).filter(Boolean).join(', ');
+          const options = question.type === 'multiple-choice' && compactOptions
+            ? ` Options: ${compactOptions}`
             : '';
-          return `${index + 1}. ${question.prompt || 'Untitled question'} (${question.marks} marks)${options}`;
+          const mcqAnswers = question.correctAnswers.map((answer) => answer.trim()).filter(Boolean).join(', ');
+          const answer = question.type === 'multiple-choice'
+            ? (mcqAnswers ? ` Answer(s): ${mcqAnswers}` : '')
+            : question.correctAnswer.trim()
+              ? ` Answer: ${question.correctAnswer.trim()}`
+              : '';
+          const guide = question.type !== 'multiple-choice' && question.markingGuide.trim()
+            ? ` Marking guide: ${question.markingGuide.trim()}`
+            : '';
+          return `${index + 1}. ${question.prompt || 'Untitled question'} (${question.marks} marks)${options}${answer}${guide}`;
         })
         .join('\n')
     : 'No questions yet.';
@@ -560,6 +652,12 @@ ${questionLines}`;
 
 const ClassroomSubjectsPage: React.FC = () => {
   const { selectedSubject, setSelectedSubject } = useAuth();
+
+  const parseAssessmentMarkingPoints = (value: string): string[] =>
+    value
+      .split('\n')
+      .map((line) => line.replace(/^\s*[-*]\s*/, '').trim())
+      .filter(Boolean);
 
   const [subjects, setSubjects] = useState<TeachingSubject[]>([]);
   const [selectedSubjectId, setSelectedSubjectId] = useState('');
@@ -612,6 +710,13 @@ const ClassroomSubjectsPage: React.FC = () => {
   const [assessmentAttachedFileName, setAssessmentAttachedFileName] = useState('');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [workspaceOperationFeedback, setWorkspaceOperationFeedback] = useState<WorkspaceOperationFeedback | null>(null);
+  const [pendingWorkspaceDelete, setPendingWorkspaceDelete] = useState<PendingWorkspaceDelete | null>(null);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [isLinkPromptOpen, setIsLinkPromptOpen] = useState(false);
+  const [pendingLinkUrl, setPendingLinkUrl] = useState('');
+  const [isTablePromptOpen, setIsTablePromptOpen] = useState(false);
+  const [pendingTableRows, setPendingTableRows] = useState('2');
+  const [pendingTableCols, setPendingTableCols] = useState('2');
   const editorSurfaceRef = useRef<HTMLDivElement | null>(null);
   const editorOverlayHostRef = useRef<HTMLDivElement | null>(null);
   const editorImageInputRef = useRef<HTMLInputElement | null>(null);
@@ -1000,13 +1105,12 @@ const ClassroomSubjectsPage: React.FC = () => {
       setAssessmentStatus((cachedAssessment.status || 'draft') as typeof assessmentStatus);
       setAssessmentVisibility((cachedAssessment.visibility || 'private') as typeof assessmentVisibility);
       setAssessmentQuestions(
-        (cachedAssessment.questions || []).map((question: any) => ({
-          id: question.id || question.questionId || `${persistedId}-${question.sequenceIndex || 0}`,
-          prompt: question.stem || '',
-          type: question.questionTypeCode === 'multiple_choice' ? 'multiple-choice' : 'short-answer',
-          marks: Number(question.maxMark || question.points || 1),
-          options: Array.isArray(question.rubricJson?.options) ? question.rubricJson.options.join(', ') : '',
-        }))
+        (cachedAssessment.questions || []).map((question: any) =>
+          mapAssessmentQuestionFromApi(
+            question,
+            `${persistedId}-${question.sequenceIndex || 0}`
+          )
+        )
       );
       setIsAssessmentConfigured(true);
       return;
@@ -1028,13 +1132,12 @@ const ClassroomSubjectsPage: React.FC = () => {
         setAssessmentStatus((detail.status || 'draft') as typeof assessmentStatus);
         setAssessmentVisibility((detail.visibility || 'private') as typeof assessmentVisibility);
         setAssessmentQuestions(
-          (detail.questions || []).map((question: any) => ({
-            id: question.id || question.questionId || `${persistedId}-${question.sequenceIndex || 0}`,
-            prompt: question.stem || '',
-            type: question.questionTypeCode === 'multiple_choice' ? 'multiple-choice' : 'short-answer',
-            marks: Number(question.maxMark || question.points || 1),
-            options: Array.isArray(question.rubricJson?.options) ? question.rubricJson.options.join(', ') : '',
-          }))
+          (detail.questions || []).map((question: any) =>
+            mapAssessmentQuestionFromApi(
+              question,
+              `${persistedId}-${question.sequenceIndex || 0}`
+            )
+          )
         );
         setIsAssessmentConfigured(true);
       } catch {
@@ -1070,7 +1173,7 @@ const ClassroomSubjectsPage: React.FC = () => {
   useEffect(() => {
     if (!aiChatInputRef.current) return;
     aiChatInputRef.current.style.height = 'auto';
-    aiChatInputRef.current.style.height = `${Math.min(aiChatInputRef.current.scrollHeight, 160)}px`;
+    aiChatInputRef.current.style.height = `${aiChatInputRef.current.scrollHeight}px`;
   }, [aiChatInput]);
 
   const isEditorBodyEmpty = useMemo(() => {
@@ -1311,19 +1414,41 @@ const ClassroomSubjectsPage: React.FC = () => {
         status: assessmentStatus,
         createdBy: context.currentUserId,
         lastModifiedBy: context.currentUserId,
-        questions: assessmentQuestions.map((question, index) => ({
-          stem: question.prompt,
-          questionTypeCode: question.type === 'multiple-choice' ? 'multiple_choice' : 'short_answer',
-          maxMark: question.marks,
-          difficulty: 2,
-          rubricJson: {
-            options: question.type === 'multiple-choice'
-              ? question.options.split(',').map((option) => option.trim()).filter(Boolean)
-              : [],
-          },
-          sequenceIndex: index + 1,
-          points: question.marks,
-        })),
+        questions: assessmentQuestions.map((question, index) => {
+          const normalizedOptions = question.type === 'multiple-choice'
+            ? question.options.map((option) => option.trim()).filter(Boolean)
+            : [];
+          const normalizedCorrectAnswers = question.type === 'multiple-choice'
+            ? normalizeAssessmentQuestionCorrectAnswers(
+              question.correctAnswers.length > 0 ? question.correctAnswers : question.correctAnswer
+            ).filter((answer) => normalizedOptions.includes(answer))
+            : [];
+          const legacyCorrectAnswer = question.type === 'multiple-choice'
+            ? (normalizedCorrectAnswers[0] || '')
+            : question.correctAnswer.trim();
+          const normalizedMarkingGuide = question.type === 'multiple-choice' ? '' : legacyCorrectAnswer;
+
+          return {
+            stem: question.prompt,
+            questionTypeCode: question.type === 'multiple-choice' ? 'multiple_choice' : 'short_answer',
+            maxMark: question.marks,
+            difficulty: 2,
+            rubricJson: {
+              options: normalizedOptions,
+              correctAnswers: normalizedCorrectAnswers,
+              correctAnswer: legacyCorrectAnswer,
+              expectedAnswer: legacyCorrectAnswer,
+              answer: legacyCorrectAnswer,
+              markingGuide: normalizedMarkingGuide,
+              markingPoints:
+                question.type === 'multiple-choice'
+                  ? []
+                  : parseAssessmentMarkingPoints(normalizedMarkingGuide),
+            },
+            sequenceIndex: index + 1,
+            points: question.marks,
+          };
+        }),
       };
 
       const savedAssessment = existingAssessmentId
@@ -1331,10 +1456,11 @@ const ClassroomSubjectsPage: React.FC = () => {
         : await assessmentService.createAssessment(payload as any);
 
       const savedAssessmentId = savedAssessment?.id || existingAssessmentId;
+      let enrolledCount = 0;
       if (savedAssessmentId) {
         setAssessmentResourceIds((previous) => ({ ...previous, [savedAssessmentId]: resourceId }));
         if (assessmentStatus === 'published') {
-          await assessmentEnrollmentService.publishAssessmentToSubjectStudents({
+          const publishResult = await assessmentEnrollmentService.publishAssessmentToSubjectStudents({
             assessmentId: savedAssessmentId,
             subjectId: selectedSubjectId,
             assignedBy: context.currentUserId,
@@ -1342,6 +1468,7 @@ const ClassroomSubjectsPage: React.FC = () => {
             instructions: assessmentDescription.trim() || undefined,
             statusCode: 'assigned',
           });
+          enrolledCount = publishResult?.enrolledCount ?? 0;
         }
       }
 
@@ -1350,7 +1477,9 @@ const ClassroomSubjectsPage: React.FC = () => {
         status: 'success',
         title: assessmentStatus === 'published' ? 'Practice published' : 'Practice saved',
         message: assessmentStatus === 'published'
-          ? `"${assessmentName.trim()}" is now available to students.`
+          ? enrolledCount > 0
+            ? `"${assessmentName.trim()}" is now available to ${enrolledCount} student${enrolledCount === 1 ? '' : 's'}.`
+            : `"${assessmentName.trim()}" was published, but no enrolled students were found for this subject yet.`
           : `"${assessmentName.trim()}" was saved as draft.`,
       });
       return savedAssessmentId || null;
@@ -1367,6 +1496,15 @@ const ClassroomSubjectsPage: React.FC = () => {
   const handleQuickCreate = (type: TopicContentType) => {
     if (!selectedTopic) return;
     openTopicWorkspace(selectedTopic.id, type);
+  };
+
+  const handleOpenTopicContentItem = (
+    topicId: string,
+    type: TopicContentType,
+    item: string
+  ) => {
+    openTopicWorkspace(topicId, type);
+    setSelectedWorkspaceItem(item);
   };
 
   const handleCreateWorkspaceItem = () => {
@@ -1480,15 +1618,15 @@ const ClassroomSubjectsPage: React.FC = () => {
     }
   };
 
-  const handleDeleteWorkspaceItem = async (item: string) => {
-    if (!selectedTopic) return;
-    const confirmed = window.confirm(`Delete "${item}" from ${TOPIC_CONTENT_LABELS[workspaceTab]}?`);
-    if (!confirmed) return;
-
-    const deleteKey = getMaterialDraftKey(selectedTopic.id, workspaceTab, item);
+  const executeDeleteWorkspaceItem = async (pendingDelete: PendingWorkspaceDelete) => {
+    const deleteKey = getMaterialDraftKey(
+      pendingDelete.topicId,
+      pendingDelete.type,
+      pendingDelete.item
+    );
     const recordId = materialRecordIds[deleteKey];
     try {
-      if (workspaceTab === 'assessment' && recordId) {
+      if (pendingDelete.type === 'assessment' && recordId) {
         await assessmentService.deleteAssessment(recordId);
         const linkedResourceId = assessmentResourceIds[recordId];
         if (linkedResourceId) {
@@ -1503,16 +1641,40 @@ const ClassroomSubjectsPage: React.FC = () => {
         return next;
       });
       await refreshWorkspaceData();
-      if (selectedWorkspaceItem === item) {
+      if (selectedWorkspaceItem === pendingDelete.item && workspaceTab === pendingDelete.type) {
         setSelectedWorkspaceItem('');
         setEditorTitle('');
         setEditorBody('');
         setSelectionActionOverlay(null);
         setSelectionActionHint(null);
       }
-      setToastMessage(`Deleted "${item}" from ${TOPIC_CONTENT_LABELS[workspaceTab]}.`);
+      setToastMessage(
+        `Deleted "${pendingDelete.item}" from ${TOPIC_CONTENT_LABELS[pendingDelete.type]}.`
+      );
     } catch (error: any) {
-      setToastMessage(error?.message || `Failed to delete "${item}".`);
+      setToastMessage(error?.message || `Failed to delete "${pendingDelete.item}".`);
+      throw error;
+    }
+  };
+
+  const handleDeleteWorkspaceItem = (item: string) => {
+    if (!selectedTopic) return;
+    setPendingWorkspaceDelete({
+      topicId: selectedTopic.id,
+      type: workspaceTab,
+      item,
+    });
+    setIsDeleteConfirmOpen(true);
+  };
+
+  const handleConfirmDeleteWorkspaceItem = async () => {
+    if (!pendingWorkspaceDelete) return;
+    try {
+      await executeDeleteWorkspaceItem(pendingWorkspaceDelete);
+      setIsDeleteConfirmOpen(false);
+      setPendingWorkspaceDelete(null);
+    } catch {
+      // toast already set in executeDeleteWorkspaceItem
     }
   };
 
@@ -1628,9 +1790,19 @@ const ClassroomSubjectsPage: React.FC = () => {
   };
 
   const handleInsertLink = () => {
-    const url = window.prompt('Enter link URL');
-    if (!url) return;
+    setPendingLinkUrl('');
+    setIsLinkPromptOpen(true);
+  };
+
+  const handleConfirmInsertLink = () => {
+    const url = pendingLinkUrl.trim();
+    if (!url) {
+      setToastMessage('A link URL is required.');
+      return;
+    }
     executeEditorCommand('createLink', url);
+    setIsLinkPromptOpen(false);
+    setPendingLinkUrl('');
   };
 
   const handleOpenImagePicker = () => {
@@ -1670,9 +1842,18 @@ const ClassroomSubjectsPage: React.FC = () => {
   };
 
   const handleInsertTable = () => {
-    const rows = Number(window.prompt('Rows', '2') || '2');
-    const cols = Number(window.prompt('Columns', '2') || '2');
-    if (!rows || !cols || rows < 1 || cols < 1) return;
+    setPendingTableRows('2');
+    setPendingTableCols('2');
+    setIsTablePromptOpen(true);
+  };
+
+  const handleConfirmInsertTable = () => {
+    const rows = Number(pendingTableRows || '0');
+    const cols = Number(pendingTableCols || '0');
+    if (!rows || !cols || rows < 1 || cols < 1) {
+      setToastMessage('Rows and columns must both be at least 1.');
+      return;
+    }
 
     const bodyRows = Array.from({ length: rows })
       .map(
@@ -1684,6 +1865,7 @@ const ClassroomSubjectsPage: React.FC = () => {
       .join('');
     const tableHtml = `<table style="border-collapse:collapse;width:100%;margin:8px 0;">${bodyRows}</table><p><br /></p>`;
     executeEditorCommand('insertHTML', tableHtml);
+    setIsTablePromptOpen(false);
   };
 
   const handleEditorBlockStyleChange = (style: EditorBlockStyle) => {
@@ -1964,7 +2146,10 @@ const ClassroomSubjectsPage: React.FC = () => {
         prompt: '',
         type: 'short-answer',
         marks: 1,
-        options: '',
+        options: ['', ''],
+        correctAnswers: [],
+        correctAnswer: '',
+        markingGuide: '',
       },
     ]);
   };
@@ -1980,40 +2165,102 @@ const ClassroomSubjectsPage: React.FC = () => {
     );
   };
 
+  const handleUpdateAssessmentQuestionOption = (
+    questionId: string,
+    optionIndex: number,
+    value: string
+  ) => {
+    setAssessmentQuestions((previous) =>
+      previous.map((question) => {
+        if (question.id !== questionId) return question;
+        const nextOptions = normalizeAssessmentQuestionOptions(question.options);
+        const previousValue = nextOptions[optionIndex];
+        nextOptions[optionIndex] = value;
+        const previousNormalized = (previousValue || '').trim();
+        const nextNormalized = value.trim();
+        const nextCorrectAnswers = normalizeAssessmentQuestionCorrectAnswers(question.correctAnswers)
+          .map((answer) => (answer === previousNormalized ? nextNormalized : answer))
+          .filter(Boolean);
+        const nextCorrectAnswer = question.correctAnswer === previousValue ? value : question.correctAnswer;
+        return {
+          ...question,
+          options: nextOptions,
+          correctAnswers: Array.from(new Set(nextCorrectAnswers)),
+          correctAnswer: nextCorrectAnswer,
+        };
+      })
+    );
+  };
+
+  const handleAddAssessmentOption = (questionId: string) => {
+    setAssessmentQuestions((previous) =>
+      previous.map((question) => {
+        if (question.id !== questionId) return question;
+        return {
+          ...question,
+          options: [...normalizeAssessmentQuestionOptions(question.options), ''],
+        };
+      })
+    );
+  };
+
+  const handleToggleAssessmentCorrectOption = (questionId: string, optionIndex: number) => {
+    setAssessmentQuestions((previous) =>
+      previous.map((question) => {
+        if (question.id !== questionId) return question;
+        const nextOptions = normalizeAssessmentQuestionOptions(question.options);
+        const selectedValue = (nextOptions[optionIndex] || '').trim();
+        if (!selectedValue) return question;
+        const currentAnswers = normalizeAssessmentQuestionCorrectAnswers(question.correctAnswers);
+        const isSelected = currentAnswers.includes(selectedValue);
+        const nextCorrectAnswers = isSelected
+          ? currentAnswers.filter((answer) => answer !== selectedValue)
+          : [...currentAnswers, selectedValue];
+        return {
+          ...question,
+          options: nextOptions,
+          correctAnswers: nextCorrectAnswers,
+          correctAnswer: nextCorrectAnswers[0] || '',
+        };
+      })
+    );
+  };
+
   const handleRemoveAssessmentQuestion = (questionId: string) => {
     setAssessmentQuestions((previous) =>
       previous.filter((question) => question.id !== questionId)
     );
   };
 
-  const handlePrintWorkspace = () => {
-    const printableTitle =
-      editorTitle.trim() ||
-      selectedWorkspaceItem ||
-      `${toTitleCase(workspaceTab)} draft`;
-    const printableHtml = (
-      editorSurfaceRef.current?.innerHTML ||
-      toEditorHtml(editorBody)
-    ).trim();
+  const hasVisibleHtmlContent = (html: string) =>
+    html
+      .replace(/<br\s*\/?>/gi, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/<[^>]*>/g, '')
+      .trim().length > 0;
 
-    if (!printableHtml) {
-      setToastMessage('Nothing to print yet.');
+  const openWorkspacePreviewWindow = ({
+    title,
+    bodyHtml,
+    autoPrint = false,
+  }: {
+    title: string;
+    bodyHtml: string;
+    autoPrint?: boolean;
+  }) => {
+    const previewWindow = window.open('', '_blank', 'noopener,noreferrer,width=980,height=760');
+    if (!previewWindow) {
+      setToastMessage(autoPrint ? 'Unable to open print preview.' : 'Unable to open preview.');
       return;
     }
 
-    const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=900,height=700');
-    if (!printWindow) {
-      setToastMessage('Unable to open print preview.');
-      return;
-    }
-
-    printWindow.document.open();
-    printWindow.document.write(`
+    previewWindow.document.open();
+    previewWindow.document.write(`
       <!doctype html>
       <html>
         <head>
           <meta charset="utf-8" />
-          <title>${printableTitle}</title>
+          <title>${escapeHtml(title)}</title>
           <style>
             body {
               margin: 28px;
@@ -2026,8 +2273,22 @@ const ClassroomSubjectsPage: React.FC = () => {
               font-size: 22px;
               line-height: 1.3;
             }
+            h2 {
+              margin: 20px 0 10px;
+              font-size: 18px;
+            }
+            h3 {
+              margin: 0 0 8px;
+              font-size: 15px;
+            }
             p {
               margin: 0 0 10px;
+            }
+            ul, ol {
+              margin: 0 0 12px 20px;
+            }
+            li {
+              margin: 0 0 4px;
             }
             table {
               border-collapse: collapse;
@@ -2041,20 +2302,154 @@ const ClassroomSubjectsPage: React.FC = () => {
               max-width: 100%;
               height: auto;
             }
+            .meta {
+              display: flex;
+              flex-wrap: wrap;
+              gap: 8px;
+              margin: 0 0 16px;
+            }
+            .chip {
+              border: 1px solid #cbd5e1;
+              border-radius: 999px;
+              padding: 2px 10px;
+              font-size: 12px;
+              color: #334155;
+              background: #f8fafc;
+            }
+            .question {
+              border: 1px solid #e2e8f0;
+              border-radius: 10px;
+              padding: 12px;
+              margin: 0 0 12px;
+              background: #ffffff;
+            }
           </style>
         </head>
         <body>
-          <h1>${printableTitle}</h1>
-          <div>${printableHtml}</div>
+          <h1>${escapeHtml(title)}</h1>
+          <div>${bodyHtml}</div>
         </body>
       </html>
     `);
-    printWindow.document.close();
-    printWindow.focus();
-    window.setTimeout(() => {
-      printWindow.print();
-      printWindow.close();
-    }, 120);
+    previewWindow.document.close();
+    previewWindow.focus();
+
+    if (autoPrint) {
+      let didPrint = false;
+      const triggerPrint = () => {
+        if (didPrint) return;
+        didPrint = true;
+        previewWindow.focus();
+        previewWindow.print();
+      };
+      previewWindow.addEventListener('load', triggerPrint, { once: true });
+      window.setTimeout(() => {
+        if (previewWindow.document.readyState === 'complete') {
+          triggerPrint();
+        }
+      }, 180);
+    }
+  };
+
+  const getWorkspacePreviewPayload = () => {
+    const title =
+      editorTitle.trim() ||
+      selectedWorkspaceItem ||
+      `${toTitleCase(workspaceTab)} draft`;
+    const bodyHtml = (
+      editorSurfaceRef.current?.innerHTML ||
+      toEditorHtml(editorBody)
+    ).trim();
+
+    if (!bodyHtml || !hasVisibleHtmlContent(bodyHtml)) {
+      return null;
+    }
+
+    return { title, bodyHtml };
+  };
+
+  const handlePreviewWorkspace = () => {
+    const payload = getWorkspacePreviewPayload();
+    if (!payload) {
+      setToastMessage('Nothing to preview yet.');
+      return;
+    }
+    openWorkspacePreviewWindow(payload);
+  };
+
+  const handlePreviewAssessmentPractice = () => {
+    const title = assessmentName.trim() || selectedWorkspaceItem || 'Practice preview';
+    const description = assessmentDescription.trim();
+    const questions = assessmentQuestions.filter((question) => {
+      const hasPrompt = question.prompt.trim().length > 0;
+      const hasOptions = normalizeAssessmentQuestionOptions(question.options)
+        .some((option) => option.trim().length > 0);
+      const hasAnswer =
+        question.correctAnswer.trim().length > 0 ||
+        normalizeAssessmentQuestionCorrectAnswers(question.correctAnswers).length > 0;
+      return hasPrompt || hasOptions || hasAnswer;
+    });
+
+    if (!description && questions.length === 0) {
+      setToastMessage('Add practice details or questions before previewing.');
+      return;
+    }
+
+    const metadataChips = [
+      `Type: ${toTitleCase(assessmentType)}`,
+      `Max score: ${Number(assessmentMaxScore) || 0}`,
+      `Time limit: ${Number(assessmentTimeLimit) || 0} min`,
+      `Attempts: ${Number(assessmentAttempts) || 1}`,
+    ]
+      .map((item) => `<span class="chip">${escapeHtml(item)}</span>`)
+      .join('');
+
+    const questionBlocks = questions.map((question, index) => {
+      const prompt = question.prompt.trim() || `Question ${index + 1}`;
+      const marks = Number(question.marks) || 1;
+      const options = normalizeAssessmentQuestionOptions(question.options)
+        .map((option) => option.trim())
+        .filter(Boolean);
+      const answers = question.type === 'multiple-choice'
+        ? normalizeAssessmentQuestionCorrectAnswers(
+          question.correctAnswers.length > 0 ? question.correctAnswers : question.correctAnswer
+        )
+        : question.correctAnswer.trim()
+          ? [question.correctAnswer.trim()]
+          : [];
+      const optionsHtml = question.type === 'multiple-choice' && options.length > 0
+        ? `<ol>${options.map((option) => `<li>${escapeHtml(option)}</li>`).join('')}</ol>`
+        : '';
+      const answerLabel = question.type === 'multiple-choice' ? 'Correct answer(s)' : 'Expected answer';
+      const answerHtml = answers.length > 0
+        ? `<p><strong>${answerLabel}:</strong> ${escapeHtml(answers.join(', '))}</p>`
+        : '';
+
+      return `
+        <article class="question">
+          <h3>Question ${index + 1} (${marks} mark${marks === 1 ? '' : 's'})</h3>
+          <p>${escapeHtml(prompt).replace(/\n/g, '<br />')}</p>
+          ${optionsHtml}
+          ${answerHtml}
+        </article>
+      `;
+    }).join('');
+
+    const bodyHtml = `
+      ${description ? `<p>${escapeHtml(description).replace(/\n/g, '<br />')}</p>` : ''}
+      <div class="meta">${metadataChips}</div>
+      ${questionBlocks || '<p>No questions added yet.</p>'}
+    `;
+    openWorkspacePreviewWindow({ title, bodyHtml });
+  };
+
+  const handlePrintWorkspace = () => {
+    const payload = getWorkspacePreviewPayload();
+    if (!payload) {
+      setToastMessage('Nothing to print yet.');
+      return;
+    }
+    openWorkspacePreviewWindow({ ...payload, autoPrint: true });
   };
 
   const handleShareWorkspace = async () => {
@@ -2089,7 +2484,8 @@ const ClassroomSubjectsPage: React.FC = () => {
 
   useEffect(() => {
     if (!workspaceOperationFeedback || workspaceOperationFeedback.status === 'loading') return;
-    const timeoutId = window.setTimeout(() => setWorkspaceOperationFeedback(null), 4200);
+    if (workspaceOperationFeedback.status === 'error') return;
+    const timeoutId = window.setTimeout(() => setWorkspaceOperationFeedback(null), 6500);
     return () => window.clearTimeout(timeoutId);
   }, [workspaceOperationFeedback]);
 
@@ -2105,6 +2501,65 @@ const ClassroomSubjectsPage: React.FC = () => {
     editorTitle.trim() || selectedWorkspaceItem || editorBody.trim()
   );
   const isWorkspaceActionLoading = workspaceOperationFeedback?.status === 'loading';
+  const hasWorkspaceEditorContent = Boolean(
+    (editorTitle.trim() || selectedWorkspaceItem.trim()) && !isEditorBodyEmpty
+  );
+  const hasAssessmentQuestions = assessmentQuestions.length > 0;
+  const hasExistingWorkspaceRecord = Boolean(
+    selectedMaterialKey && materialRecordIds[selectedMaterialKey]
+  );
+  const assessmentPrimaryActionLabel = hasExistingWorkspaceRecord
+    ? 'Update Practice'
+    : 'Create Practice';
+  const hasAssessmentQuestionContent = assessmentQuestions.some(
+    (question) =>
+      question.prompt.trim() ||
+      question.correctAnswer.trim() ||
+      (question.type === 'multiple-choice' &&
+        (question.options.some((option) => option.trim()) ||
+          normalizeAssessmentQuestionCorrectAnswers(question.correctAnswers).length > 0))
+  );
+  const allAssessmentQuestionsAnswered = assessmentQuestions.every((question) => {
+    const hasPrompt = question.prompt.trim().length > 0;
+    if (!hasPrompt) return false;
+
+    if (question.type === 'multiple-choice') {
+      const normalizedOptions = normalizeAssessmentQuestionOptions(question.options)
+        .map((option) => option.trim())
+        .filter(Boolean);
+      const normalizedCorrectAnswers = normalizeAssessmentQuestionCorrectAnswers(
+        question.correctAnswers.length > 0 ? question.correctAnswers : question.correctAnswer
+      ).filter((answer) => normalizedOptions.includes(answer));
+      return normalizedOptions.length > 0 && normalizedCorrectAnswers.length > 0;
+    }
+
+    return question.correctAnswer.trim().length > 0;
+  });
+  const canCreateAssessmentPractice =
+    Boolean(assessmentName.trim()) &&
+    hasAssessmentQuestions &&
+    hasAssessmentQuestionContent &&
+    allAssessmentQuestionsAnswered;
+  const canCreatePracticeFromEditor = hasWorkspaceEditorContent;
+  const canPublishWorkspaceMaterial = hasWorkspaceEditorContent;
+  const hasVisibleWorkspaceFeedback = Boolean(
+    workspaceOperationFeedback && workspaceOperationFeedback.status !== 'loading'
+  );
+  const renderCanvasLoadingOverlay = (message: string) => (
+    <div className="absolute inset-0 z-30 rounded-md border border-blue-100 bg-white/80 p-3 backdrop-blur-[1px]">
+      <div className="mb-3 inline-flex items-center gap-2 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        {message}
+      </div>
+      <div className="space-y-2">
+        <div className="h-3 w-2/5 animate-pulse rounded bg-blue-100" />
+        <div className="h-3 w-11/12 animate-pulse rounded bg-slate-200" />
+        <div className="h-3 w-full animate-pulse rounded bg-slate-200" />
+        <div className="h-3 w-4/5 animate-pulse rounded bg-slate-200" />
+        <div className="mt-3 h-24 w-full animate-pulse rounded bg-slate-100" />
+      </div>
+    </div>
+  );
 
   return (
     <ClassroomLayout
@@ -2118,60 +2573,63 @@ const ClassroomSubjectsPage: React.FC = () => {
       onClassroomSubject={() => setWorkspaceNavView('subject')}
     >
       <div className="space-y-5">
-        {workspaceOperationFeedback && (
+        {hasVisibleWorkspaceFeedback && workspaceOperationFeedback && (
           <div
-            className={`fixed right-6 top-24 z-50 w-[min(420px,calc(100vw-2rem))] rounded-md border px-3 py-2 shadow-lg ${
-              workspaceOperationFeedback.status === 'loading'
-                ? 'border-blue-200 bg-blue-50'
-                : workspaceOperationFeedback.status === 'success'
+            className={`fixed left-1/2 top-20 z-[70] w-[min(560px,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border px-3 py-2 shadow-xl ${
+              workspaceOperationFeedback.status === 'success'
                   ? 'border-emerald-200 bg-emerald-50'
                   : 'border-rose-200 bg-rose-50'
             }`}
           >
             <div className="flex items-start gap-2">
-              {workspaceOperationFeedback.status === 'loading' ? (
-                <Loader2 className="mt-0.5 h-4 w-4 animate-spin text-blue-700" />
-              ) : workspaceOperationFeedback.status === 'success' ? (
-                <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-700" />
-              ) : (
-                <AlertCircle className="mt-0.5 h-4 w-4 text-rose-700" />
-              )}
-              <div>
-                <p
-                  className={`text-sm font-semibold ${
-                    workspaceOperationFeedback.status === 'loading'
-                      ? 'text-blue-800'
-                      : workspaceOperationFeedback.status === 'success'
+              <div className="flex flex-1 items-start gap-2">
+                {workspaceOperationFeedback.status === 'success' ? (
+                  <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-700" />
+                ) : (
+                  <AlertCircle className="mt-0.5 h-4 w-4 text-rose-700" />
+                )}
+                <div>
+                  <p
+                    className={`text-sm font-semibold ${
+                      workspaceOperationFeedback.status === 'success'
                         ? 'text-emerald-800'
                         : 'text-rose-800'
-                  }`}
-                >
-                  {workspaceOperationFeedback.title}
-                </p>
-                <p
-                  className={`text-xs ${
-                    workspaceOperationFeedback.status === 'loading'
-                      ? 'text-blue-700'
-                      : workspaceOperationFeedback.status === 'success'
+                    }`}
+                  >
+                    {workspaceOperationFeedback.title}
+                  </p>
+                  <p
+                    className={`text-xs ${
+                      workspaceOperationFeedback.status === 'success'
                         ? 'text-emerald-700'
                         : 'text-rose-700'
-                  }`}
-                >
-                  {workspaceOperationFeedback.message}
-                </p>
+                    }`}
+                  >
+                    {workspaceOperationFeedback.message}
+                  </p>
+                </div>
               </div>
+              <button
+                type="button"
+                onClick={() => setWorkspaceOperationFeedback(null)}
+                className="rounded-md p-1 text-slate-500 hover:bg-white/70 hover:text-slate-700"
+                aria-label="Dismiss operation feedback"
+                title="Dismiss"
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
           </div>
         )}
         {toastMessage && (
-          <div className={`fixed right-6 z-50 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 shadow-lg ${workspaceOperationFeedback ? 'top-44' : 'top-24'}`}>
+          <div className={`fixed right-6 z-50 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 shadow-lg ${hasVisibleWorkspaceFeedback ? 'top-44' : 'top-24'}`}>
             {toastMessage}
           </div>
         )}
 
         {workspaceNavView === 'my-subjects' ? (
           <div className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-            <div className="mb-4 flex items-start justify-between gap-3">
+            <div className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 shadow-sm">
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">My Subjects</h2>
                 <p className="text-sm text-slate-500">Subjects currently assigned to you for teaching.</p>
@@ -2189,7 +2647,21 @@ const ClassroomSubjectsPage: React.FC = () => {
                       key={subject.id}
                       className={`rounded-lg border p-4 ${isSelected ? 'border-blue-200 bg-blue-50/40' : 'border-slate-200 bg-white'}`}
                     >
-                      <p className="text-xs text-slate-500">{subject.code || 'SUBJECT'}</p>
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="text-xs text-slate-500">{subject.code || 'SUBJECT'}</p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedSubjectId(subject.id);
+                            setWorkspaceNavView('subject');
+                            setView('overview');
+                            setIsTopicWorkspaceOpen(false);
+                          }}
+                          className="inline-flex shrink-0 items-center rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                        >
+                          Open Subject Workspace
+                        </button>
+                      </div>
                       <h3 className="mt-1 text-sm font-semibold text-slate-900">{subject.name}</h3>
                       <div className="mt-2 flex flex-wrap gap-1">
                         {(subject.grades && subject.grades.length > 0 ? subject.grades : ['All forms']).map((grade) => (
@@ -2198,18 +2670,6 @@ const ClassroomSubjectsPage: React.FC = () => {
                           </span>
                         ))}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedSubjectId(subject.id);
-                          setWorkspaceNavView('subject');
-                          setView('overview');
-                          setIsTopicWorkspaceOpen(false);
-                        }}
-                        className="mt-3 inline-flex items-center rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
-                      >
-                        Open Subject Workspace
-                      </button>
                     </div>
                   );
                 })}
@@ -2291,6 +2751,150 @@ const ClassroomSubjectsPage: React.FC = () => {
                     </div>
                   ))}
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isDeleteConfirmOpen && pendingWorkspaceDelete && (
+          <div
+            className="fixed inset-0 z-[66] flex items-center justify-center bg-slate-900/35 p-4"
+            onClick={() => {
+              setIsDeleteConfirmOpen(false);
+              setPendingWorkspaceDelete(null);
+            }}
+          >
+            <div
+              className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-4 shadow-2xl"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-2">
+                <p className="text-sm font-semibold text-slate-900">Delete {getTopicContentLabelLower(pendingWorkspaceDelete.type, true)}</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Delete "{pendingWorkspaceDelete.item}" from {TOPIC_CONTENT_LABELS[pendingWorkspaceDelete.type]}?
+                </p>
+              </div>
+              <div className="mt-4 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsDeleteConfirmOpen(false);
+                    setPendingWorkspaceDelete(null);
+                  }}
+                  className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleConfirmDeleteWorkspaceItem();
+                  }}
+                  className="rounded-md bg-rose-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-rose-700"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isLinkPromptOpen && (
+          <div
+            className="fixed inset-0 z-[66] flex items-center justify-center bg-slate-900/35 p-4"
+            onClick={() => {
+              setIsLinkPromptOpen(false);
+              setPendingLinkUrl('');
+            }}
+          >
+            <div
+              className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-4 shadow-2xl"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-3">
+                <p className="text-sm font-semibold text-slate-900">Insert link</p>
+                <p className="text-xs text-slate-500">Add the URL to attach to selected text.</p>
+              </div>
+              <input
+                type="url"
+                value={pendingLinkUrl}
+                onChange={(event) => setPendingLinkUrl(event.target.value)}
+                placeholder="https://example.com"
+                className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+              />
+              <div className="mt-4 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsLinkPromptOpen(false);
+                    setPendingLinkUrl('');
+                  }}
+                  className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmInsertLink}
+                  className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+                >
+                  Insert
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isTablePromptOpen && (
+          <div
+            className="fixed inset-0 z-[66] flex items-center justify-center bg-slate-900/35 p-4"
+            onClick={() => setIsTablePromptOpen(false)}
+          >
+            <div
+              className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-4 shadow-2xl"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-3">
+                <p className="text-sm font-semibold text-slate-900">Insert table</p>
+                <p className="text-xs text-slate-500">Choose number of rows and columns.</p>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="text-xs font-semibold text-slate-600">
+                  Rows
+                  <input
+                    type="number"
+                    min="1"
+                    value={pendingTableRows}
+                    onChange={(event) => setPendingTableRows(event.target.value)}
+                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                  />
+                </label>
+                <label className="text-xs font-semibold text-slate-600">
+                  Columns
+                  <input
+                    type="number"
+                    min="1"
+                    value={pendingTableCols}
+                    onChange={(event) => setPendingTableCols(event.target.value)}
+                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                  />
+                </label>
+              </div>
+              <div className="mt-4 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsTablePromptOpen(false)}
+                  className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmInsertTable}
+                  className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+                >
+                  Insert
+                </button>
               </div>
             </div>
           </div>
@@ -2767,6 +3371,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                         <div className="flex items-center justify-between">
                           <p className="text-xs font-semibold text-slate-700">{getTopicContentLabel(type, true)}</p>
                           <button
+                            type="button"
                             onClick={() => handleQuickCreate(type)}
                             className="text-xs font-medium text-blue-600 hover:text-blue-700"
                           >
@@ -2776,7 +3381,16 @@ const ClassroomSubjectsPage: React.FC = () => {
                         <ul className="mt-1 space-y-1">
                           {selectedTopic.materials[type].length ? (
                             selectedTopic.materials[type].map((item) => (
-                              <li key={item} className="text-xs text-slate-600 truncate">• {item}</li>
+                              <li key={item}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenTopicContentItem(selectedTopic.id, type, item)}
+                                  className="w-full truncate rounded px-1 py-1 text-left text-xs text-slate-600 hover:bg-slate-100 hover:text-slate-800"
+                                  title={item}
+                                >
+                                  {item}
+                                </button>
+                              </li>
                             ))
                           ) : (
                             <li className="text-xs text-slate-400">No items yet.</li>
@@ -2915,17 +3529,8 @@ const ClassroomSubjectsPage: React.FC = () => {
                             disabled={isWorkspaceActionLoading}
                             className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-blue-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
                           >
-                            {isWorkspaceActionLoading ? (
-                              <>
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                                Working...
-                              </>
-                            ) : (
-                              <>
-                                <Plus className="h-3 w-3" />
-                                {workspaceTab === 'assessment' ? 'Create' : 'Add'}
-                              </>
-                            )}
+                            <Plus className="h-3 w-3" />
+                            {workspaceTab === 'assessment' ? 'Create' : 'Add'}
                           </button>
                         </div>
                         <div className="max-h-56 space-y-1 overflow-y-auto">
@@ -3009,7 +3614,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                             <div className="flex flex-wrap items-center gap-2">
                               <button
                                 type="button"
-                                onClick={() => setToastMessage('Practice preview is in progress (UI preview).')}
+                                onClick={handlePreviewAssessmentPractice}
                                 className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
                               >
                                 Preview Practice
@@ -3039,21 +3644,17 @@ const ClassroomSubjectsPage: React.FC = () => {
                                           : `Practice "${assessmentName.trim()}" saved.`
                                       );
                                     } catch (error: any) {
-                                      setToastMessage(error?.message || 'Failed to create practice.');
+                                      setToastMessage(
+                                        error?.message ||
+                                          `Failed to ${hasExistingWorkspaceRecord ? 'update' : 'create'} practice.`
+                                      );
                                     }
                                   })();
                                 }}
-                                disabled={isWorkspaceActionLoading}
+                                disabled={isWorkspaceActionLoading || !canCreateAssessmentPractice}
                                 className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
                               >
-                                {isWorkspaceActionLoading ? (
-                                  <>
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                    Processing...
-                                  </>
-                                ) : (
-                                  'Create Practice'
-                                )}
+                                {assessmentPrimaryActionLabel}
                               </button>
                             </div>
                             <button
@@ -3114,90 +3715,169 @@ const ClassroomSubjectsPage: React.FC = () => {
                                     />
                                   </label>
                                 </div>
-                                {assessmentQuestions.length === 0 ? (
-                                  <div className="rounded-lg border border-dashed border-gray-300 p-6 text-sm text-gray-500">
-                                    No practice questions yet. Add a question or ask AI collaborator to draft on the canvas.
-                                  </div>
-                                ) : (
-                                  <div className="space-y-3">
-                                    {assessmentQuestions.map((question, index) => (
-                                      <div key={question.id} className="rounded-lg border border-slate-200 bg-white p-4">
-                                        <div className="mb-3 flex items-center justify-between gap-2">
-                                          <p className="text-sm font-semibold text-slate-800">Question {index + 1}</p>
-                                          <button
-                                            type="button"
-                                            onClick={() => handleRemoveAssessmentQuestion(question.id)}
-                                            className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-medium text-rose-600 hover:bg-rose-100"
-                                          >
-                                            <Trash2 className="h-3.5 w-3.5" />
-                                            Remove
-                                          </button>
-                                        </div>
-                                        <div className="space-y-3">
-                                          <label className="block text-xs text-gray-500">
-                                            Prompt
-                                            <textarea
-                                              value={question.prompt}
-                                              onChange={(event) =>
-                                                handleUpdateAssessmentQuestion(question.id, {
-                                                  prompt: event.target.value,
-                                                })
-                                              }
-                                              className="mt-1 min-h-[88px] w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
-                                              placeholder="Write the question prompt here..."
-                                            />
-                                          </label>
-                                          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                                            <label className="block text-xs text-gray-500">
-                                              Response Type
-                                              <select
-                                                value={question.type}
-                                                onChange={(event) =>
-                                                  handleUpdateAssessmentQuestion(question.id, {
-                                                    type: event.target.value as AssessmentQuestionType,
-                                                  })
-                                                }
-                                                className="mt-1 w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
-                                              >
-                                                <option value="short-answer">Short answer</option>
-                                                <option value="multiple-choice">Multiple choice</option>
-                                              </select>
-                                            </label>
-                                            <label className="block text-xs text-gray-500">
-                                              Marks
-                                              <input
-                                                type="number"
-                                                min="1"
-                                                value={question.marks}
-                                                onChange={(event) =>
-                                                  handleUpdateAssessmentQuestion(question.id, {
-                                                    marks: Number(event.target.value) || 1,
-                                                  })
-                                                }
-                                                className="mt-1 w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
-                                              />
-                                            </label>
+                                <div className="relative min-h-[220px]">
+                                  {assessmentQuestions.length === 0 ? (
+                                    <div className="rounded-lg border border-dashed border-gray-300 p-6 text-sm text-gray-500">
+                                      No practice questions yet. Add a question or ask AI collaborator to draft on the canvas.
+                                    </div>
+                                  ) : (
+                                    <div className="space-y-3">
+                                      {assessmentQuestions.map((question, index) => (
+                                        <div key={question.id} className="rounded-lg border border-slate-200 bg-white p-4">
+                                          <div className="mb-3 flex items-center justify-between gap-2">
+                                            <p className="text-sm font-semibold text-slate-800">Question {index + 1}</p>
+                                            <button
+                                              type="button"
+                                              onClick={() => handleRemoveAssessmentQuestion(question.id)}
+                                              className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-medium text-rose-600 hover:bg-rose-100"
+                                            >
+                                              <Trash2 className="h-3.5 w-3.5" />
+                                              Remove
+                                            </button>
                                           </div>
-                                          {question.type === 'multiple-choice' && (
+                                          <div className="space-y-3">
                                             <label className="block text-xs text-gray-500">
-                                              Options (comma-separated)
-                                              <input
-                                                value={question.options}
+                                              <textarea
+                                                value={question.prompt}
                                                 onChange={(event) =>
                                                   handleUpdateAssessmentQuestion(question.id, {
-                                                    options: event.target.value,
+                                                    prompt: event.target.value,
                                                   })
                                                 }
-                                                className="mt-1 w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
-                                                placeholder="e.g. Option A, Option B, Option C, Option D"
+                                                className="mt-1 min-h-[88px] w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
+                                                placeholder="Write the question here..."
                                               />
                                             </label>
-                                          )}
+                                            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                              <label className="block text-xs text-gray-500">
+                                                Response Type
+                                                <select
+                                                  value={question.type}
+                                                  onChange={(event) => {
+                                                    const nextType = event.target.value as AssessmentQuestionType;
+                                                    if (nextType === 'multiple-choice') {
+                                                      const nextOptions = normalizeAssessmentQuestionOptions(question.options);
+                                                      const nextCorrectAnswers = normalizeAssessmentQuestionCorrectAnswers(
+                                                        question.correctAnswers.length > 0
+                                                          ? question.correctAnswers
+                                                          : question.correctAnswer
+                                                      ).filter((answer) =>
+                                                        nextOptions.some((option) => option.trim() === answer)
+                                                      );
+                                                      handleUpdateAssessmentQuestion(question.id, {
+                                                        type: nextType,
+                                                        options: nextOptions,
+                                                        correctAnswers: nextCorrectAnswers,
+                                                        correctAnswer: nextCorrectAnswers[0] || '',
+                                                      });
+                                                      return;
+                                                    }
+                                                    handleUpdateAssessmentQuestion(question.id, {
+                                                      type: nextType,
+                                                      options: [],
+                                                      correctAnswers: [],
+                                                      correctAnswer: '',
+                                                    });
+                                                  }}
+                                                  className="mt-1 w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
+                                                >
+                                                  <option value="short-answer">Short answer</option>
+                                                  <option value="multiple-choice">Multiple choice</option>
+                                                </select>
+                                              </label>
+                                              <label className="block text-xs text-gray-500">
+                                                Marks
+                                                <input
+                                                  type="number"
+                                                  min="1"
+                                                  value={question.marks}
+                                                  onChange={(event) =>
+                                                    handleUpdateAssessmentQuestion(question.id, {
+                                                      marks: Number(event.target.value) || 1,
+                                                    })
+                                                  }
+                                                  className="mt-1 w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
+                                                />
+                                              </label>
+                                            </div>
+                                            {question.type === 'multiple-choice' ? (
+                                              <div className="space-y-3">
+                                                <div className="flex items-center justify-between">
+                                                  <label className="text-xs text-gray-500">Options</label>
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => handleAddAssessmentOption(question.id)}
+                                                    className="text-xs text-blue-600 hover:text-blue-700"
+                                                  >
+                                                    + Add option
+                                                  </button>
+                                                </div>
+                                                <div className="space-y-2">
+                                                  {normalizeAssessmentQuestionOptions(question.options).map((optionValue, optionIndex) => {
+                                                    const normalizedOptionValue = optionValue.trim();
+                                                    const isCorrect =
+                                                      normalizedOptionValue.length > 0 &&
+                                                      normalizeAssessmentQuestionCorrectAnswers(question.correctAnswers).includes(
+                                                        normalizedOptionValue
+                                                      );
+
+                                                    return (
+                                                      <div key={`${question.id}-option-${optionIndex}`} className="flex items-center gap-2">
+                                                        <input
+                                                          value={optionValue}
+                                                          onChange={(event) =>
+                                                            handleUpdateAssessmentQuestionOption(question.id, optionIndex, event.target.value)
+                                                          }
+                                                          className="flex-1 rounded-md border border-gray-200 px-3 py-2 text-sm"
+                                                          placeholder={`Option ${optionIndex + 1}`}
+                                                        />
+                                                        <button
+                                                          type="button"
+                                                          onClick={() => handleToggleAssessmentCorrectOption(question.id, optionIndex)}
+                                                          disabled={!normalizedOptionValue}
+                                                          className={`rounded-md border px-2 py-1 text-xs ${
+                                                            isCorrect
+                                                              ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                                              : 'border-gray-200 text-gray-500'
+                                                          } disabled:cursor-not-allowed disabled:opacity-50`}
+                                                        >
+                                                          Correct
+                                                        </button>
+                                                      </div>
+                                                    );
+                                                  })}
+                                                </div>
+                                              </div>
+                                            ) : (
+                                              <>
+                                                <label className="block text-xs text-gray-500">
+                                                  Correct / expected answer
+                                                  <textarea
+                                                    value={question.correctAnswer}
+                                                    onChange={(event) =>
+                                                      handleUpdateAssessmentQuestion(question.id, {
+                                                        correctAnswer: event.target.value,
+                                                      })
+                                                    }
+                                                    onInput={(event) => {
+                                                      const next = event.currentTarget;
+                                                      next.style.height = 'auto';
+                                                      next.style.height = `${next.scrollHeight}px`;
+                                                    }}
+                                                    rows={2}
+                                                    className="mt-1 min-h-[72px] w-full resize-none overflow-hidden rounded-md border border-gray-200 px-3 py-2 text-sm"
+                                                    placeholder="Provide the expected answer"
+                                                  />
+                                                </label>
+                                              </>
+                                            )}
+                                          </div>
                                         </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
+                                      ))}
+                                    </div>
+                                  )}
+                                  {isWorkspaceActionLoading && renderCanvasLoadingOverlay('Saving practice canvas...')}
+                                </div>
                               </section>
                             </div>
 
@@ -3210,137 +3890,139 @@ const ClassroomSubjectsPage: React.FC = () => {
                             </button>
 
                             <aside
-                              className={`relative z-10 overflow-hidden border-slate-100 bg-slate-50 transition-all duration-200 ${
-                                isAiCollaboratorExpanded
-                                  ? 'flex h-full flex-col gap-3 border-t bg-gradient-to-b from-slate-50 via-white to-slate-50 p-3 xl:border-l xl:border-t-0'
-                                  : 'flex h-full flex-col items-center gap-2 border-t p-2.5 xl:border-l xl:border-t-0'
+                              className={`rounded-lg border border-slate-200 bg-slate-50 ${
+                                isAiCollaboratorExpanded ? 'flex h-full flex-col p-3' : 'p-1.5'
                               }`}
                               style={{ width: isAiCollaboratorExpanded ? 360 : 64 }}
                             >
+                              <input
+                                ref={assessmentAttachmentInputRef}
+                                type="file"
+                                className="hidden"
+                                accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"
+                                onChange={handleAssessmentAttachmentChange}
+                              />
+
+                              <div
+                                className={`${
+                                  isAiCollaboratorExpanded
+                                    ? 'mb-3 flex items-center justify-between'
+                                    : 'mb-0.5 flex flex-col items-center gap-1.5'
+                                }`}
+                              >
+                                {isAiCollaboratorExpanded ? (
+                                  <div className="flex items-center gap-2">
+                                    <p className="text-sm font-semibold text-slate-900">AI Collaborator</p>
+                                    <Bot className="h-4 w-4 text-slate-600" />
+                                  </div>
+                                ) : (
+                                  <Bot className="h-4 w-4 text-slate-600" />
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setIsAiCollaboratorExpanded((previous) => {
+                                      const next = !previous;
+                                      if (!next) setIsAiConfigOpen(false);
+                                      return next;
+                                    })
+                                  }
+                                  className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
+                                  aria-label={isAiCollaboratorExpanded ? 'Collapse AI collaborator' : 'Expand AI collaborator'}
+                                  title={isAiCollaboratorExpanded ? 'Collapse' : 'Expand'}
+                                >
+                                  {isAiCollaboratorExpanded ? (
+                                    <PanelRightClose className="h-4 w-4" />
+                                  ) : (
+                                    <PanelRightOpen className="h-4 w-4" />
+                                  )}
+                                </button>
+                              </div>
+
                               {isAiCollaboratorExpanded ? (
-                                <>
-                                  <div className="rounded-xl border border-slate-200 bg-white/90 p-3 shadow-sm">
-                                    <div className="flex items-center justify-between gap-2">
-                                      <div className="flex min-w-0 items-center gap-2">
-                                        <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
-                                          <Bot className="h-4 w-4" />
-                                        </span>
-                                        <div className="min-w-0">
-                                          <p className="truncate text-sm font-semibold text-slate-800">AI Collaborator</p>
-                                          <p className="text-[11px] text-slate-500">Practice drafting assistant</p>
-                                        </div>
-                                      </div>
+                                <div className="flex h-full min-h-0 flex-col rounded-md border border-slate-200 bg-white p-2">
+                                  <div className="mb-2 flex items-center justify-between gap-2">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                      Assistant chat
+                                    </p>
+                                    <div className="flex items-center gap-1">
                                       <button
                                         type="button"
-                                        onClick={() => setIsAiCollaboratorExpanded(false)}
-                                        className="rounded-md border border-slate-200 bg-white p-2 text-slate-600 hover:border-slate-300 hover:text-slate-800"
-                                        aria-label="Collapse AI collaborator panel"
+                                        onClick={handleAssessmentAttachFile}
+                                        className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
                                       >
-                                        <Minimize2 className="h-4 w-4" />
+                                        <Paperclip className="h-3.5 w-3.5" />
+                                        Attach
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setIsAiConfigOpen(true)}
+                                        className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
+                                      >
+                                        <Settings2 className="h-3.5 w-3.5" />
+                                        Configure
                                       </button>
                                     </div>
                                   </div>
 
-                                  <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                                    <div className="mb-2 flex items-center justify-between">
-                                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Conversation</p>
-                                      <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
-                                        Canvas
-                                      </span>
-                                    </div>
-                                    <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
-                                      {assessmentAiLogs.length === 0 && (
-                                        <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
-                                          Prompts and AI completion summaries will appear here.
-                                        </div>
-                                      )}
-                                      {assessmentAiLogs.map((entry, index) => {
+                                  <div className="mt-2 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+                                    {assessmentAiLogs.length === 0 ? (
+                                      <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+                                        Prompts and AI completion summaries will appear here.
+                                      </div>
+                                    ) : (
+                                      assessmentAiLogs.map((entry, index) => {
                                         const isPrompt = entry.startsWith('Prompt:');
                                         return (
-                                          <div key={`${entry}-${index}`} className={`flex ${isPrompt ? 'justify-end' : 'justify-start'}`}>
-                                            <div
-                                              className={`max-w-[92%] rounded-xl px-3 py-2 text-xs leading-relaxed ${
-                                                isPrompt
-                                                  ? 'bg-blue-600 text-white'
-                                                  : 'border border-slate-200 bg-slate-50 text-slate-700'
-                                              }`}
-                                            >
-                                              {isPrompt ? entry.replace(/^Prompt:\s*/, '') : entry}
-                                            </div>
+                                          <div
+                                            key={`${entry}-${index}`}
+                                            className={`rounded-md px-2 py-1.5 text-xs ${
+                                              isPrompt ? 'bg-blue-50 text-blue-800' : 'bg-slate-100 text-slate-700'
+                                            }`}
+                                          >
+                                            {isPrompt ? entry.replace(/^Prompt:\s*/, '') : entry}
                                           </div>
                                         );
-                                      })}
-                                    </div>
-                                  </div>
-
-                                  <div className="mt-auto rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-                                    <div className="relative">
-                                      <textarea
-                                        value={assessmentAiPrompt}
-                                        onChange={(event) => setAssessmentAiPrompt(event.target.value)}
-                                        className="min-h-[130px] w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 pb-12 pr-16 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-100"
-                                        placeholder="Prompt AI here. Use @ to attach library references."
-                                      />
-                                      <button
-                                        type="button"
-                                        onClick={handleAssessmentAiGenerate}
-                                        className="absolute bottom-2 right-2 inline-flex h-9 min-w-9 items-center justify-center rounded-full bg-blue-600 px-3 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                                        aria-label="Generate on canvas"
-                                        disabled={!assessmentAiPrompt.trim()}
-                                      >
-                                        <ArrowUp className="h-4 w-4" />
-                                      </button>
-                                    </div>
-
-                                    <input
-                                      ref={assessmentAttachmentInputRef}
-                                      type="file"
-                                      className="hidden"
-                                      accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"
-                                      onChange={handleAssessmentAttachmentChange}
-                                    />
-
-                                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                                      <div className="flex flex-wrap items-center gap-2">
-                                        <button
-                                          type="button"
-                                          onClick={handleAssessmentAttachFile}
-                                          className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:border-blue-200 hover:text-blue-700"
-                                        >
-                                          <Paperclip className="h-3.5 w-3.5" />
-                                          Attach file
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => setIsAiConfigOpen(true)}
-                                          className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:border-blue-200 hover:text-blue-700"
-                                        >
-                                          <Settings2 className="h-3.5 w-3.5" />
-                                          Configure
-                                        </button>
-                                      </div>
-                                      <span className="text-[11px] text-slate-500">Tip: type @ to attach reference</span>
-                                    </div>
-                                    {assessmentAttachedFileName && (
-                                      <p className="mt-2 truncate rounded-md bg-blue-50 px-2 py-1 text-[11px] text-blue-700">
-                                        Attached: {assessmentAttachedFileName}
-                                      </p>
+                                      })
                                     )}
                                   </div>
-                                </>
-                              ) : (
-                                <>
-                                  <Bot className="mt-1 h-4 w-4 text-slate-600" />
-                                  <button
-                                    type="button"
-                                    onClick={() => setIsAiCollaboratorExpanded(true)}
-                                    className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
-                                    aria-label="Expand AI collaborator panel"
-                                  >
-                                    <PanelRightOpen className="h-4 w-4" />
-                                  </button>
-                                </>
-                              )}
+
+                                  <div className="mt-2 flex items-end gap-2">
+                                    <textarea
+                                      value={assessmentAiPrompt}
+                                      onChange={(event) => setAssessmentAiPrompt(event.target.value)}
+                                      onInput={(event) => {
+                                        const next = event.currentTarget;
+                                        next.style.height = 'auto';
+                                        next.style.height = `${next.scrollHeight}px`;
+                                      }}
+                                      onKeyDown={(event) => {
+                                        if (event.key === 'Enter' && !event.shiftKey) {
+                                          event.preventDefault();
+                                          handleAssessmentAiGenerate();
+                                        }
+                                      }}
+                                      placeholder="Ask the AI assistant or type 'generate draft'..."
+                                      rows={2}
+                                      className="min-h-[44px] min-w-0 flex-1 resize-none overflow-hidden rounded-md border border-slate-200 px-2 py-1.5 text-xs leading-5"
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={handleAssessmentAiGenerate}
+                                      disabled={!assessmentAiPrompt.trim()}
+                                      className="inline-flex shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white px-2 py-1.5 text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+                                      aria-label="Send message"
+                                    >
+                                      <SendHorizontal className="h-4 w-4" />
+                                    </button>
+                                  </div>
+                                  {assessmentAttachedFileName && (
+                                    <p className="mt-2 truncate rounded-md bg-blue-50 px-2 py-1 text-[11px] text-blue-700">
+                                      Attached: {assessmentAttachedFileName}
+                                    </p>
+                                  )}
+                                </div>
+                              ) : null}
                             </aside>
                           </div>
 
@@ -3361,14 +4043,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                                 disabled={isWorkspaceActionLoading}
                                 className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
                               >
-                                {isWorkspaceActionLoading ? (
-                                  <>
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                    Processing...
-                                  </>
-                                ) : (
-                                  'Save draft'
-                                )}
+                                Save draft
                               </button>
                               <button
                                 type="button"
@@ -3394,21 +4069,17 @@ const ClassroomSubjectsPage: React.FC = () => {
                                         `Practice "${(editorTitle.trim() || selectedWorkspaceItem || 'Draft').trim()}" published.`
                                       );
                                     } catch (error: any) {
-                                      setToastMessage(error?.message || 'Failed to create practice.');
+                                      setToastMessage(
+                                        error?.message ||
+                                          `Failed to ${hasExistingWorkspaceRecord ? 'update' : 'create'} practice.`
+                                      );
                                     }
                                   })();
                                 }}
-                                disabled={isWorkspaceActionLoading}
+                                disabled={isWorkspaceActionLoading || !canCreatePracticeFromEditor}
                                 className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
                               >
-                                {isWorkspaceActionLoading ? (
-                                  <>
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                    Processing...
-                                  </>
-                                ) : (
-                                  'Create Practice'
-                                )}
+                                {assessmentPrimaryActionLabel}
                               </button>
                             </div>
                             <button
@@ -3531,6 +4202,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                                           </div>
                                         </div>
                                       )}
+                                      {isWorkspaceActionLoading && renderCanvasLoadingOverlay('Saving practice canvas...')}
                                     </div>
                                   </div>
                                 </div>
@@ -3667,12 +4339,16 @@ const ClassroomSubjectsPage: React.FC = () => {
                       disabled={isWorkspaceActionLoading}
                       className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      {isWorkspaceActionLoading ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <Save className="h-3.5 w-3.5" />
-                      )}
-                      {isWorkspaceActionLoading ? 'Processing...' : 'Save draft'}
+                      <Save className="h-3.5 w-3.5" />
+                      Save draft
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handlePreviewWorkspace}
+                      className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                    >
+                      <Eye className="h-3.5 w-3.5" />
+                      Preview
                     </button>
                     <button
                       type="button"
@@ -3703,15 +4379,11 @@ const ClassroomSubjectsPage: React.FC = () => {
                     <button
                       type="button"
                       onClick={handlePublishMaterial}
-                      disabled={isWorkspaceActionLoading}
+                      disabled={isWorkspaceActionLoading || !canPublishWorkspaceMaterial}
                       className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      {isWorkspaceActionLoading ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <ArrowUp className="h-3.5 w-3.5" />
-                      )}
-                      {isWorkspaceActionLoading ? 'Processing...' : 'Publish'}
+                      <ArrowUp className="h-3.5 w-3.5" />
+                      Publish
                     </button>
                   </div>
                   <button
@@ -3960,6 +4632,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                           </div>
                         </div>
                       )}
+                      {isWorkspaceActionLoading && renderCanvasLoadingOverlay(`Saving ${getTopicContentLabelLower(workspaceTab, true)}...`)}
                     </div>
                   </div>
                 </div>
@@ -4048,8 +4721,8 @@ const ClassroomSubjectsPage: React.FC = () => {
                             }
                           }}
                           placeholder="Ask the AI assistant or type 'generate draft'..."
-                          rows={1}
-                          className="min-h-[32px] max-h-40 min-w-0 flex-1 resize-none overflow-y-auto rounded-md border border-slate-200 px-2 py-1.5 text-xs leading-5"
+                          rows={2}
+                          className="min-h-[44px] min-w-0 flex-1 resize-none overflow-hidden rounded-md border border-slate-200 px-2 py-1.5 text-xs leading-5"
                         />
                         <button
                           type="button"

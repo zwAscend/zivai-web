@@ -21,6 +21,7 @@ interface ManualQuestion {
   maxMark: number;
   difficulty: number;
   options: string[];
+  correctAnswers: string[];
   correctAnswer: string;
   markingGuide: string;
   diagramFile: File | null;
@@ -56,6 +57,24 @@ const mapAiQuestionType = (value: string | undefined): ManualQuestionType => {
     default:
       return 'mcq';
   }
+};
+
+const normalizeMcqOptions = (options: unknown): string[] => {
+  const values = Array.isArray(options)
+    ? options.map((option) => String(option ?? ''))
+    : typeof options === 'string'
+      ? options.split(',').map((option) => option)
+      : [];
+  return values.length > 0 ? values : ['', ''];
+};
+
+const normalizeCorrectAnswers = (value: unknown): string[] => {
+  const normalized = Array.isArray(value)
+    ? value.map((answer) => String(answer ?? '').trim()).filter(Boolean)
+    : typeof value === 'string'
+      ? [value.trim()].filter(Boolean)
+      : [];
+  return Array.from(new Set(normalized));
 };
 
 const mapDifficulty = (value: string | undefined): number => {
@@ -371,7 +390,8 @@ const CreateAssessmentPage: React.FC = () => {
         questionTypeCode: 'mcq',
         maxMark: 1,
         difficulty: 2,
-        options: [''],
+        options: normalizeMcqOptions([]),
+        correctAnswers: [],
         correctAnswer: '',
         markingGuide: '',
         diagramFile: null,
@@ -386,18 +406,49 @@ const CreateAssessmentPage: React.FC = () => {
     )));
   };
 
-  const addOption = (id: string) => {
-    setManualQuestions((prev) => prev.map((question) => (
-      question.id === id ? { ...question, options: [...question.options, ''] } : question
-    )));
-  };
-
-  const updateOption = (id: string, index: number, value: string) => {
+  const updateMcqOption = (id: string, index: number, value: string) => {
     setManualQuestions((prev) => prev.map((question) => {
       if (question.id !== id) return question;
-      const nextOptions = [...question.options];
+      const nextOptions = normalizeMcqOptions(question.options);
+      const previousOptionValue = nextOptions[index] || '';
       nextOptions[index] = value;
-      return { ...question, options: nextOptions };
+      const previousNormalized = previousOptionValue.trim();
+      const nextNormalized = value.trim();
+      const nextCorrectAnswers = normalizeCorrectAnswers(question.correctAnswers)
+        .map((answer) => (answer === previousNormalized ? nextNormalized : answer))
+        .filter(Boolean);
+      const nextCorrectAnswer = question.correctAnswer === previousOptionValue ? value : question.correctAnswer;
+      return {
+        ...question,
+        options: nextOptions,
+        correctAnswers: Array.from(new Set(nextCorrectAnswers)),
+        correctAnswer: nextCorrectAnswer,
+      };
+    }));
+  };
+
+  const addMcqOption = (id: string) => {
+    setManualQuestions((prev) => prev.map((question) => {
+      if (question.id !== id || question.questionTypeCode !== 'mcq') return question;
+      return {
+        ...question,
+        options: [...normalizeMcqOptions(question.options), ''],
+      };
+    }));
+  };
+
+  const toggleMcqCorrectOption = (id: string, optionIndex: number) => {
+    setManualQuestions((prev) => prev.map((question) => {
+      if (question.id !== id || question.questionTypeCode !== 'mcq') return question;
+      const options = normalizeMcqOptions(question.options);
+      const selected = (options[optionIndex] || '').trim();
+      if (!selected) return question;
+      const currentAnswers = normalizeCorrectAnswers(question.correctAnswers);
+      const isSelected = currentAnswers.includes(selected);
+      const correctAnswers = isSelected
+        ? currentAnswers.filter((answer) => answer !== selected)
+        : [...currentAnswers, selected];
+      return { ...question, options, correctAnswers, correctAnswer: correctAnswers[0] || '' };
     }));
   };
 
@@ -539,7 +590,7 @@ const CreateAssessmentPage: React.FC = () => {
           ? (q as any).options
           : questionTypeCode === 'true_false'
             ? ['True', 'False']
-            : [''];
+            : normalizeMcqOptions([]);
 
         return {
           id: `${Date.now()}-ai-${index}`,
@@ -547,8 +598,13 @@ const CreateAssessmentPage: React.FC = () => {
           questionTypeCode,
           maxMark: Number((q as any).points || 1),
           difficulty: mapDifficulty((q as any).difficulty),
-          options,
-          correctAnswer: (q as any).correctAnswer || '',
+          options: questionTypeCode === 'mcq' ? normalizeMcqOptions(options) : options,
+          correctAnswers: questionTypeCode === 'mcq'
+            ? normalizeCorrectAnswers((q as any).correctAnswers || (q as any).correctAnswer)
+            : [],
+          correctAnswer: typeof (q as any).correctAnswer === 'string'
+            ? (q as any).correctAnswer
+            : normalizeCorrectAnswers((q as any).correctAnswers)[0] || '',
           markingGuide: (q as any).explanation || '',
           diagramFile: null,
           diagramPreviewUrl: '',
@@ -615,6 +671,20 @@ const CreateAssessmentPage: React.FC = () => {
       toast.error('Add at least one question or upload an assessment file.');
       return;
     }
+    const hasQuestionWithoutStem = manualQuestions.some((question) => !question.stem.trim());
+    if (hasQuestionWithoutStem) {
+      toast.error('Each question needs question text.');
+      return;
+    }
+    const hasObjectiveQuestionWithoutCorrectAnswer = manualQuestions.some(
+      (question) =>
+        (question.questionTypeCode === 'mcq' && normalizeCorrectAnswers(question.correctAnswers).length === 0) ||
+        (question.questionTypeCode === 'true_false' && !question.correctAnswer.trim())
+    );
+    if (hasObjectiveQuestionWithoutCorrectAnswer) {
+      toast.error('Select a correct answer for each MCQ/True-False question.');
+      return;
+    }
 
     const currentUser = authService.getCurrentUser();
     if (!currentUser?.id) {
@@ -661,20 +731,44 @@ const CreateAssessmentPage: React.FC = () => {
         status: manualForm.status,
         createdBy: currentUser.id,
         lastModifiedBy: currentUser.id,
-        questions: manualQuestions.map((question, index) => ({
-          stem: question.stem,
-          questionTypeCode: question.questionTypeCode,
-          maxMark: question.maxMark,
-          difficulty: question.difficulty,
-          rubricJson: {
-            options: question.options,
-            correctAnswer: question.correctAnswer,
-            markingGuide: question.markingGuide,
-            diagram: diagramMetaByQuestionId[question.id] || null,
-          },
-          sequenceIndex: index + 1,
-          points: question.maxMark,
-        })),
+        questions: manualQuestions.map((question, index) => {
+          const normalizedOptions = question.questionTypeCode === 'mcq'
+            ? normalizeMcqOptions(question.options).map((option) => option.trim()).filter(Boolean)
+            : question.options;
+          const normalizedCorrectAnswers = question.questionTypeCode === 'mcq'
+            ? normalizeCorrectAnswers(
+              question.correctAnswers.length > 0 ? question.correctAnswers : question.correctAnswer
+            ).filter((answer) => normalizedOptions.includes(answer))
+            : [];
+          const legacyCorrectAnswer = question.questionTypeCode === 'mcq'
+            ? (normalizedCorrectAnswers[0] || '')
+            : question.correctAnswer;
+          const normalizedMarkingGuide = question.questionTypeCode === 'mcq'
+            ? ''
+            : legacyCorrectAnswer.trim();
+
+          return {
+            stem: question.stem,
+            questionTypeCode: question.questionTypeCode,
+            maxMark: question.maxMark,
+            difficulty: question.difficulty,
+            rubricJson: {
+              options: normalizedOptions,
+              correctAnswers: normalizedCorrectAnswers,
+              correctAnswer: legacyCorrectAnswer,
+              expectedAnswer: legacyCorrectAnswer,
+              answer: legacyCorrectAnswer,
+              markingGuide: normalizedMarkingGuide,
+              markingPoints: normalizedMarkingGuide
+                .split('\n')
+                .map((line) => line.replace(/^\s*[-*]\s*/, '').trim())
+                .filter(Boolean),
+              diagram: diagramMetaByQuestionId[question.id] || null,
+            },
+            sequenceIndex: index + 1,
+            points: question.maxMark,
+          };
+        }),
       };
 
       const createdAssessment = await fetchData<{ id: string }>('/assessments', {
@@ -682,8 +776,9 @@ const CreateAssessmentPage: React.FC = () => {
         body: JSON.stringify(payload),
       });
 
+      let publishResult: { enrolledCount: number } | null = null;
       if (manualForm.status === 'published' && createdAssessment?.id) {
-        await assessmentEnrollmentService.publishAssessmentToSubjectStudents({
+        publishResult = await assessmentEnrollmentService.publishAssessmentToSubjectStudents({
           assessmentId: createdAssessment.id,
           subjectId: manualForm.subjectId,
           assignedBy: currentUser.id,
@@ -693,7 +788,16 @@ const CreateAssessmentPage: React.FC = () => {
         });
       }
 
-      toast.success('Assessment created successfully');
+      if (manualForm.status === 'published') {
+        const enrolledCount = publishResult?.enrolledCount ?? 0;
+        if (enrolledCount > 0) {
+          toast.success(`Assessment published and assigned to ${enrolledCount} student${enrolledCount === 1 ? '' : 's'}.`);
+        } else {
+          toast.success('Assessment published. No enrolled students were found for this subject yet.');
+        }
+      } else {
+        toast.success('Assessment created successfully');
+      }
       navigate('/assessments/view');
     } catch (error: any) {
       console.error('Failed to create assessment:', error);
@@ -922,14 +1026,39 @@ const CreateAssessmentPage: React.FC = () => {
                                   <select value={question.questionTypeCode} onChange={(e) => {
                                     const nextType = e.target.value as ManualQuestionType;
                                     if (nextType === 'true_false') {
-                                      updateQuestion(question.id, { questionTypeCode: nextType, options: ['True', 'False'], correctAnswer: question.correctAnswer === 'True' || question.correctAnswer === 'False' ? question.correctAnswer : '' });
+                                      const nextCorrectAnswer =
+                                        question.correctAnswer === 'True' || question.correctAnswer === 'False'
+                                          ? question.correctAnswer
+                                          : '';
+                                      updateQuestion(question.id, {
+                                        questionTypeCode: nextType,
+                                        options: ['True', 'False'],
+                                        correctAnswers: nextCorrectAnswer ? [nextCorrectAnswer] : [],
+                                        correctAnswer: nextCorrectAnswer,
+                                      });
                                       return;
                                     }
                                     if (nextType === 'mcq') {
-                                      updateQuestion(question.id, { questionTypeCode: nextType, options: question.options.length > 0 ? question.options : [''], correctAnswer: question.correctAnswer || '' });
+                                      const options = normalizeMcqOptions(question.options);
+                                      const normalizedOptions = options.map((option) => option.trim()).filter(Boolean);
+                                      const normalizedCorrectAnswers = normalizeCorrectAnswers(
+                                        question.correctAnswers.length > 0
+                                          ? question.correctAnswers
+                                          : question.correctAnswer
+                                      ).filter((answer) => normalizedOptions.includes(answer));
+                                      updateQuestion(question.id, {
+                                        questionTypeCode: nextType,
+                                        options,
+                                        correctAnswers: normalizedCorrectAnswers,
+                                        correctAnswer: normalizedCorrectAnswers[0] || '',
+                                      });
                                       return;
                                     }
-                                    updateQuestion(question.id, { questionTypeCode: nextType, options: [], correctAnswer: '' });
+                                    updateQuestion(question.id, {
+                                      questionTypeCode: nextType,
+                                      options: [],
+                                      correctAnswers: [],
+                                    });
                                   }} className="mt-1 w-full rounded-md border border-gray-200 px-3 py-2 text-sm">
                                     <option value="mcq">Multiple choice</option>
                                     <option value="true_false">True/False</option>
@@ -956,36 +1085,54 @@ const CreateAssessmentPage: React.FC = () => {
                                   <div className="flex items-center justify-between">
                                     <label className="text-xs text-gray-500">Options</label>
                                     {question.questionTypeCode === 'mcq' && (
-                                      <button type="button" onClick={() => addOption(question.id)} className="text-xs text-blue-600 hover:text-blue-700">+ Add option</button>
+                                      <button
+                                        type="button"
+                                        onClick={() => addMcqOption(question.id)}
+                                        className="text-xs text-blue-600 hover:text-blue-700"
+                                      >
+                                        + Add option
+                                      </button>
                                     )}
                                   </div>
                                   {question.questionTypeCode === 'true_false' ? (
                                     <div className="grid grid-cols-2 gap-2">
                                       {['True', 'False'].map((option) => (
-                                        <button key={option} type="button" onClick={() => updateQuestion(question.id, { options: ['True', 'False'], correctAnswer: option })} className={`rounded-md border px-3 py-2 text-sm ${question.correctAnswer === option ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600'}`}>
+                                        <button key={option} type="button" onClick={() => updateQuestion(question.id, { options: ['True', 'False'], correctAnswers: [option], correctAnswer: option })} className={`rounded-md border px-3 py-2 text-sm ${question.correctAnswer === option ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-600'}`}>
                                           {option}
                                         </button>
                                       ))}
                                     </div>
                                   ) : (
                                     <div className="space-y-2">
-                                      {question.options.map((option, optionIndex) => (
+                                      {normalizeMcqOptions(question.options).map((option, optionIndex) => {
+                                        const normalizedOption = option.trim();
+                                        const isCorrect =
+                                          normalizedOption.length > 0 &&
+                                          normalizeCorrectAnswers(question.correctAnswers).includes(normalizedOption);
+                                        return (
                                         <div key={`${question.id}-option-${optionIndex}`} className="flex items-center gap-2">
-                                          <input value={option} onChange={(e) => updateOption(question.id, optionIndex, e.target.value)} className="flex-1 rounded-md border border-gray-200 px-3 py-2 text-sm" placeholder={`Option ${optionIndex + 1}`} />
-                                          <button type="button" onClick={() => updateQuestion(question.id, { correctAnswer: option })} className={`rounded-md border px-2 py-1 text-xs ${question.correctAnswer === option ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-500'}`}>
+                                          <input value={option} onChange={(e) => updateMcqOption(question.id, optionIndex, e.target.value)} className="flex-1 rounded-md border border-gray-200 px-3 py-2 text-sm" placeholder={`Option ${optionIndex + 1}`} />
+                                          <button type="button" disabled={!normalizedOption} onClick={() => toggleMcqCorrectOption(question.id, optionIndex)} className={`rounded-md border px-2 py-1 text-xs ${isCorrect ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-500'} disabled:cursor-not-allowed disabled:opacity-50`}>
                                             Correct
                                           </button>
                                         </div>
-                                      ))}
+                                      )})}
                                     </div>
                                   )}
                                 </div>
                               )}
 
-                              <div>
-                                <label className="text-xs text-gray-500">Marking guide / model answer</label>
-                                <textarea value={question.markingGuide} onChange={(e) => updateQuestion(question.id, { markingGuide: e.target.value })} className="mt-1 min-h-[70px] w-full rounded-md border border-gray-200 px-3 py-2 text-sm" placeholder="Provide marking guidance for this question" />
-                              </div>
+                              {(question.questionTypeCode === 'short_answer' || question.questionTypeCode === 'essay') && (
+                                <div>
+                                  <label className="text-xs text-gray-500">Correct / expected answer</label>
+                                  <textarea
+                                    value={question.correctAnswer}
+                                    onChange={(e) => updateQuestion(question.id, { correctAnswer: e.target.value })}
+                                    className="mt-1 min-h-[70px] w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
+                                    placeholder="Provide the expected answer"
+                                  />
+                                </div>
+                              )}
                             </div>
                           ))}
                         </div>

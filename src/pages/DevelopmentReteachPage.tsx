@@ -111,7 +111,7 @@ const DevelopmentReteachPage: React.FC = () => {
 
   return (
     <DevelopmentLayout>
-      <div className="bg-white rounded-lg shadow p-6 space-y-4">
+      <div className="bg-white rounded-lg shadow p-6 flex h-full min-h-0 flex-col gap-4">
         <div>
           <h2 className="text-2xl font-bold text-slate-900">Re-teach Cards</h2>
           <p className="text-sm text-slate-500">
@@ -125,7 +125,7 @@ const DevelopmentReteachPage: React.FC = () => {
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search topic or student"
-              className="w-full md:w-72 border border-slate-200 rounded-md px-3 py-2 text-sm"
+              className="w-full md:w-96 border border-slate-200 rounded-md px-3 py-2 text-sm"
             />
             <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap md:w-auto md:justify-end">
               <select
@@ -154,13 +154,13 @@ const DevelopmentReteachPage: React.FC = () => {
         </div>
 
         {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid flex-1 min-h-0 grid-cols-1 gap-4 md:grid-cols-2 auto-rows-fr">
             {Array.from({ length: 4 }).map((_, index) => (
-              <div key={index} className="h-36 bg-slate-200 rounded animate-pulse" />
+              <div key={index} className="h-full min-h-[144px] bg-slate-200 rounded animate-pulse" />
             ))}
           </div>
         ) : filteredCards.length > 0 ? (
-          <div className="space-y-3">
+          <div className="flex-1 min-h-0 space-y-3 overflow-y-auto pr-1">
             {filteredCards.map((card) => {
               return (
                 <div key={card.id} className="border border-slate-200 rounded-lg p-4 bg-slate-50">
@@ -191,8 +191,8 @@ const DevelopmentReteachPage: React.FC = () => {
             })}
           </div>
         ) : (
-          <div className="rounded-lg border border-slate-200 bg-white overflow-x-auto">
-            <div className="min-w-[760px]">
+          <div className="flex-1 min-h-0 rounded-lg border border-slate-200 bg-white overflow-x-auto">
+            <div className="min-w-[760px] h-full flex flex-col">
               <div className="grid grid-cols-[1.4fr_1fr_0.8fr_0.9fr_1.6fr_0.7fr] gap-3 px-4 py-3 border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
                 <span>Topic</span>
                 <span>Subject</span>
@@ -201,7 +201,7 @@ const DevelopmentReteachPage: React.FC = () => {
                 <span>Notes</span>
                 <span>Action</span>
               </div>
-              <div className="px-4 py-6 text-sm text-slate-500">
+              <div className="flex-1 px-4 py-6 text-sm text-slate-500">
                 No re-teach cards available for the selected filters.
               </div>
             </div>

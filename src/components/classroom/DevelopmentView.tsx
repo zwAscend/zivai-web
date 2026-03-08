@@ -102,7 +102,10 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
   const [aiMessages, setAiMessages] = useState<Array<{ role: 'assistant' | 'teacher'; content: string }>>([
     { role: 'assistant', content: 'I can help draft or refine this step. Ask me for a clearer activity, quiz, or rubric.' },
   ]);
+  const [isStepLinkModalOpen, setIsStepLinkModalOpen] = useState(false);
+  const [stepLinkValue, setStepLinkValue] = useState('');
   const stepEditorRef = useRef<HTMLDivElement | null>(null);
+  const aiPromptInputRef = useRef<HTMLTextAreaElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
 
   const { toast } = useToast();
@@ -352,6 +355,12 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
   }, [isStepWorkspaceOpen, stepWorkspaceDraft.content]);
 
   useEffect(() => {
+    if (!aiPromptInputRef.current) return;
+    aiPromptInputRef.current.style.height = 'auto';
+    aiPromptInputRef.current.style.height = `${aiPromptInputRef.current.scrollHeight}px`;
+  }, [aiPrompt]);
+
+  useEffect(() => {
     const loadSubjects = async () => {
       try {
         const subjects = await subjectService.getTeachingSubjects();
@@ -587,9 +596,22 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
   };
 
   const handleInsertStepLink = () => {
-    const url = window.prompt('Enter URL');
-    if (!url) return;
+    setStepLinkValue('');
+    setIsStepLinkModalOpen(true);
+  };
+
+  const handleConfirmStepLink = () => {
+    const url = stepLinkValue.trim();
+    if (!url) {
+      toast({
+        title: 'URL required',
+        description: 'Please enter a valid URL.',
+      });
+      return;
+    }
     applyStepEditorCommand('createLink', url);
+    setIsStepLinkModalOpen(false);
+    setStepLinkValue('');
   };
 
   const handleStepImageSelected = (file: File) => {
@@ -643,16 +665,65 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
 
   if (loading) {
     return (
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 h-[60vh] p-0">
-        <div className="lg:col-span-3 col-span-12 bg-white rounded-lg shadow p-2 space-y-2">
-          <div className="h-24 bg-slate-200 rounded animate-pulse" />
-          <div className="h-72 bg-slate-200 rounded animate-pulse" />
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-x-0 h-full overflow-hidden p-0">
+        <div className="lg:col-span-3 col-span-12 bg-gray-50 rounded-lg shadow p-2 flex flex-col overflow-hidden">
+          <div className="bg-white rounded-lg p-2 mb-2 animate-pulse">
+            <div className="mx-auto mb-2 h-10 w-10 rounded-full bg-slate-200" />
+            <div className="ml-auto h-3 w-10 rounded bg-slate-200" />
+            <div className="mt-1 ml-auto h-6 w-14 rounded bg-slate-200" />
+            <div className="mx-auto mt-2 h-4 w-2/3 rounded bg-slate-200" />
+            <div className="mx-auto mt-1 h-3 w-4/5 rounded bg-slate-200" />
+          </div>
+          <div className="bg-white rounded-lg p-2 flex min-h-0 flex-1 flex-col">
+            <div className="mx-auto mb-2 h-4 w-24 rounded bg-slate-200 animate-pulse" />
+            <div className="min-h-0 flex-1 space-y-2 overflow-hidden">
+              {Array.from({ length: 5 }).map((_, index) => (
+                <div key={`growth-skeleton-${index}`} className="h-12 rounded-lg bg-slate-200 animate-pulse" />
+              ))}
+            </div>
+          </div>
         </div>
-        <div className="lg:col-span-6 col-span-12 bg-white rounded-lg shadow p-2">
-          <div className="h-96 bg-slate-200 rounded animate-pulse" />
+
+        <div className="lg:col-span-6 col-span-12 bg-gray-50 rounded-lg shadow py-3 pl-10 pr-10 overflow-hidden">
+          <div className="h-full flex flex-col gap-4 overflow-hidden">
+            <div className="rounded-xl border border-slate-200 bg-white p-4 animate-pulse">
+              <div className="h-4 w-40 rounded bg-slate-200" />
+              <div className="mt-2 h-3 w-2/3 rounded bg-slate-200" />
+              <div className="mt-4 grid grid-cols-1 gap-2 md:grid-cols-2">
+                <div className="h-20 rounded-lg bg-slate-100" />
+                <div className="h-20 rounded-lg bg-slate-100" />
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-slate-200 bg-white p-4 animate-pulse">
+              <div className="mb-3 flex items-center justify-between">
+                <div className="h-4 w-28 rounded bg-slate-200" />
+                <div className="h-8 w-20 rounded bg-slate-200" />
+              </div>
+              <div className="space-y-2">
+                {Array.from({ length: 4 }).map((_, index) => (
+                  <div key={`workflow-skeleton-${index}`} className="h-16 rounded-lg bg-slate-100" />
+                ))}
+              </div>
+            </div>
+            <div className="mt-auto h-9 w-full rounded-lg bg-slate-200 animate-pulse" />
+          </div>
         </div>
-        <div className="lg:col-span-3 col-span-12 bg-white rounded-lg shadow p-2">
-          <div className="h-96 bg-slate-200 rounded animate-pulse" />
+
+        <div className="lg:col-span-3 col-span-12 bg-gray-50 rounded-lg shadow p-2 overflow-hidden">
+          <div className="mb-2 flex items-center justify-between animate-pulse">
+            <div className="h-4 w-20 rounded bg-slate-200" />
+            <div className="h-4 w-8 rounded bg-slate-200" />
+          </div>
+          <div className="space-y-2 mb-2">
+            <div className="h-9 rounded-md bg-slate-200 animate-pulse" />
+            <div className="h-9 rounded-md bg-slate-200 animate-pulse" />
+          </div>
+          <div className="space-y-2">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <div key={`student-skeleton-${index}`} className="h-16 rounded bg-slate-200 animate-pulse" />
+            ))}
+          </div>
         </div>
       </div>
     );
@@ -669,6 +740,7 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
   const fullName = `${selectedStudent.firstName} ${selectedStudent.lastName}`;
 
   return (
+    <>
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-x-0 h-full overflow-hidden p-0">
       {!isPlanSidebarCollapsed && !isStepWorkspaceMaximized && !isStepWorkspaceOpen && (
       <div className="lg:col-span-3 col-span-12 bg-gray-50 rounded-lg shadow p-2 flex flex-col overflow-hidden">
@@ -707,12 +779,6 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
               </button>
             ))}
           </div>
-          <button
-            className="w-full mt-2 bg-blue-900 text-white py-2 px-2 rounded-lg hover:bg-blue-800 transition-colors text-sm"
-            onClick={openAiPlanBuilder}
-          >
-            AI Plan Builder
-          </button>
         </div>
       </div>
       )}
@@ -1052,11 +1118,12 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                       </div>
                       <div className="mt-2 flex items-end gap-2 border-t border-slate-200 pt-2">
                         <textarea
-                          rows={1}
+                          ref={aiPromptInputRef}
+                          rows={2}
                           value={aiPrompt}
                           onChange={(e) => setAiPrompt(e.target.value)}
                           placeholder="Ask AI to improve this step..."
-                          className="min-h-[32px] max-h-40 min-w-0 flex-1 resize-none overflow-y-auto rounded-md border border-slate-200 px-2 py-1.5 text-xs leading-5"
+                          className="min-h-[44px] min-w-0 flex-1 resize-none overflow-hidden rounded-md border border-slate-200 px-2 py-1.5 text-xs leading-5"
                         />
                         <button
                           type="button"
@@ -1078,7 +1145,7 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
             </div>
           </div>
         ) : (
-          <div className="space-y-4">
+          <div className="flex min-h-full flex-col gap-4">
             <div className="rounded-xl border border-slate-200 bg-white p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -1299,6 +1366,13 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                   ))}
               </div>
             </div>
+            <button
+              type="button"
+              className="w-full mt-auto bg-blue-900 text-white py-2 px-2 rounded-lg hover:bg-blue-800 transition-colors text-sm"
+              onClick={openAiPlanBuilder}
+            >
+              AI Plan Builder
+            </button>
           </div>
         )}
       </div>
@@ -1367,6 +1441,52 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
       </div>
       )}
     </div>
+    {isStepLinkModalOpen && (
+      <div
+        className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/35 p-4"
+        onClick={() => {
+          setIsStepLinkModalOpen(false);
+          setStepLinkValue('');
+        }}
+      >
+        <div
+          className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-4 shadow-2xl"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div className="mb-3">
+            <p className="text-sm font-semibold text-slate-900">Insert link</p>
+            <p className="text-xs text-slate-500">Provide the URL for this step content.</p>
+          </div>
+          <input
+            type="url"
+            value={stepLinkValue}
+            onChange={(event) => setStepLinkValue(event.target.value)}
+            placeholder="https://example.com"
+            className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+          />
+          <div className="mt-4 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setIsStepLinkModalOpen(false);
+                setStepLinkValue('');
+              }}
+              className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirmStepLink}
+              className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+            >
+              Insert
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 };
 

@@ -11,6 +11,8 @@ export interface AssessmentEnrollmentSummary {
   assignmentId: string;
   assessmentId: string;
   assessmentName: string;
+  subjectId?: string | null;
+  subjectName?: string | null;
   classId?: string | null;
   className?: string | null;
   dueTime?: string | null;
@@ -23,6 +25,7 @@ interface EnrollmentSummaryParams {
   assignmentId?: string;
   studentId?: string;
   classId?: string;
+  subjectId?: string;
 }
 
 export interface CreateAssessmentAssignmentPayload {
@@ -69,6 +72,7 @@ export const assessmentEnrollmentService = {
     if (params.assignmentId) query.set('assignmentId', params.assignmentId);
     if (params.studentId) query.set('studentId', params.studentId);
     if (params.classId) query.set('classId', params.classId);
+    if (params.subjectId) query.set('subjectId', params.subjectId);
 
     const endpoint = `/assessment-enrollments/summary${query.toString() ? `?${query.toString()}` : ''}`;
     return fetchData<AssessmentEnrollmentSummary[]>(endpoint);

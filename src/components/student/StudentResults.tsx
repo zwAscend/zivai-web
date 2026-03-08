@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { TrendingUp, TrendingDown, Award, Target, FileText } from 'lucide-react';
-import { Assessment, Result } from '../../types';
 import { assessmentService } from '../../services/api';
+import { studentService } from '../../services/studentService';
 import TablePagination from '../ui/TablePagination';
 import { useClientPagination } from '../../hooks/useClientPagination';
 
@@ -11,73 +11,135 @@ interface StudentResultsProps {
   onOpenTutor?: (prompt?: string) => void;
 }
 
-interface AssessmentResult {
-  assessment: Assessment;
-  result: Result;
-  difference: number;
+type StudentResultType = 'all' | 'Assignment' | 'Test' | 'Project' | 'Exam' | 'Quiz';
+
+interface StudentAssessmentRow {
+  id: string;
+  assessmentId: string;
+  assessmentName: string;
+  assessmentType: string;
+  weightPct: number | null;
+  actualMark: number | null;
+  expectedMark: number | null;
+  maxScore: number | null;
+  grade: string | null;
+  feedback: string | null;
+  submittedAt: Date | null;
+  difference: number | null;
 }
 
+const parseOptionalDate = (value?: string | null): Date | null => {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const toTypeLabel = (value?: string | null): string => {
+  const normalized = String(value || '')
+    .trim()
+    .replace(/[_-]+/g, ' ');
+  if (!normalized) return 'Assessment';
+  return normalized
+    .split(/\s+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+};
+
+const deriveGradeFromPercent = (percent: number | null): string | null => {
+  if (percent === null) return null;
+  if (percent >= 80) return 'A';
+  if (percent >= 70) return 'B';
+  if (percent >= 60) return 'C';
+  if (percent >= 50) return 'D';
+  if (percent >= 40) return 'E';
+  return 'U';
+};
+
+const gradePillClass = (grade: string | null) => {
+  const normalized = String(grade || '').toUpperCase();
+  if (normalized.startsWith('A')) return 'bg-green-100 text-green-800';
+  if (normalized.startsWith('B')) return 'bg-blue-100 text-blue-800';
+  if (normalized.startsWith('C') || normalized.startsWith('D')) return 'bg-yellow-100 text-yellow-800';
+  if (!normalized || normalized === 'N/A') return 'bg-slate-100 text-slate-700';
+  return 'bg-red-100 text-red-800';
+};
+
 const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubjectId }) => {
-  const [results, setResults] = useState<AssessmentResult[]>([]);
+  const [results, setResults] = useState<StudentAssessmentRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState<'all' | 'semester' | 'month'>('all');
-  const [selectedType, setSelectedType] = useState<'all' | 'Assignment' | 'Test' | 'Project' | 'Exam' | 'Quiz'>('all');
+  const [selectedType, setSelectedType] = useState<StudentResultType>('all');
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
     const fetchResults = async () => {
+      if (!studentId) {
+        setResults([]);
+        setLoading(false);
+        setLoadError(null);
+        return;
+      }
+
+      setLoading(true);
+      setLoadError(null);
       try {
-        const assessments = selectedSubjectId && selectedSubjectId !== 'all'
-          ? await assessmentService.getAssessmentsBySubjectId(selectedSubjectId)
-          : await assessmentService.getAssessments();
+        const subjectId = selectedSubjectId && selectedSubjectId !== 'all' ? selectedSubjectId : undefined;
 
-        const assessmentResults = await Promise.all(
-          (assessments || []).map(async (assessment) => {
-            const rawAssessment = assessment as any;
-            const resultsForAssessment = await assessmentService.getResults(assessment.id, studentId).catch(() => []);
-            return resultsForAssessment.map(result => {
-              const assessmentType = rawAssessment.assessmentType || assessment.type || 'Test';
-              const resourceId = typeof assessment.resource === 'string'
-                ? assessment.resource
-                : rawAssessment.resource?.id || '';
-              const normalizedAssessment: Assessment = {
-                id: assessment.id,
-                name: assessment.name,
-                description: assessment.description || '',
-                type: assessmentType.charAt(0).toUpperCase() + assessmentType.slice(1),
-                maxScore: Number(assessment.maxScore ?? 100),
-                weight: Number(rawAssessment.weightPct ?? assessment.weight ?? 0),
-                dueDate: assessment.updatedAt ? new Date(assessment.updatedAt) : new Date(),
-                subjectId: rawAssessment.subject?.id || assessment.subjectId || '',
-                status: assessment.status || 'draft',
-                isAIEnhanced: Boolean(rawAssessment.aiEnhanced),
-                questions: [],
-                resource: resourceId,
-                createdBy: rawAssessment.createdBy || assessment.createdBy || '',
-                lastModifiedBy: rawAssessment.lastModifiedBy || assessment.lastModifiedBy || '',
-                createdAt: assessment.createdAt ? new Date(assessment.createdAt) : undefined,
-                updatedAt: assessment.updatedAt ? new Date(assessment.updatedAt) : undefined,
-              };
+        const [history, assessments] = await Promise.all([
+          studentService.getAssessmentHistory(studentId, { subjectId }),
+          subjectId
+            ? assessmentService.getAssessmentsBySubjectId(subjectId).catch(() => [])
+            : assessmentService.getAssessments().catch(() => []),
+        ]);
 
-              const submittedDate = result.submittedDate ? new Date(result.submittedDate) : new Date();
-              return {
-                assessment: normalizedAssessment,
-                result: {
-                  ...result,
-                  submittedDate,
-                  createdAt: result.createdAt ? new Date(result.createdAt) : undefined,
-                  updatedAt: result.updatedAt ? new Date(result.updatedAt) : undefined,
-                } as Result,
-                difference: Number(result.actualMark ?? 0) - Number(result.expectedMark ?? 0)
-              };
-            });
-          })
-        );
+        const weightByAssessmentId = new Map<string, number>();
+        (Array.isArray(assessments) ? assessments : []).forEach((assessment: any) => {
+          const rawWeight = assessment?.weightPct ?? assessment?.weight;
+          const weight = typeof rawWeight === 'number' ? rawWeight : Number(rawWeight ?? NaN);
+          if (assessment?.id && Number.isFinite(weight)) {
+            weightByAssessmentId.set(assessment.id, weight);
+          }
+        });
 
-        const flattened = assessmentResults.flat();
-        setResults(flattened);
+        const mappedRows: StudentAssessmentRow[] = (Array.isArray(history) ? history : []).map((item) => {
+          const maxScore = typeof item.maxScore === 'number' ? item.maxScore : null;
+          const actualMark =
+            typeof item.actualMark === 'number'
+              ? item.actualMark
+              : typeof item.score === 'number'
+                ? item.score
+                : null;
+          const expectedMark = typeof item.expectedMark === 'number' ? item.expectedMark : null;
+          const difference =
+            actualMark !== null && expectedMark !== null ? actualMark - expectedMark : null;
+          const submittedAt =
+            parseOptionalDate(item.submittedAt) ||
+            parseOptionalDate(item.gradedAt) ||
+            parseOptionalDate(item.dueTime) ||
+            parseOptionalDate(item.startTime);
+
+          return {
+            id: item.enrollmentId || `${item.assessmentId}-${item.assignmentId || 'result'}`,
+            assessmentId: item.assessmentId,
+            assessmentName: item.assessmentName || 'Assessment',
+            assessmentType: toTypeLabel(item.assessmentType),
+            weightPct: weightByAssessmentId.get(item.assessmentId) ?? null,
+            actualMark,
+            expectedMark,
+            maxScore,
+            grade: item.grade || null,
+            feedback: item.feedback || null,
+            submittedAt,
+            difference,
+          };
+        });
+
+        setResults(mappedRows);
       } catch (error) {
-        console.error('Failed to fetch results:', error);
+        console.error('Failed to fetch student performance results:', error);
+        setResults([]);
+        setLoadError('Failed to load results from the server.');
       } finally {
         setLoading(false);
       }
@@ -86,25 +148,30 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubj
     fetchResults();
   }, [studentId, selectedSubjectId]);
 
-  // Filter results based on selected period and type
-  const filteredResults = results.filter(result => {
-    const query = searchQuery.trim().toLowerCase();
-    const queryMatch = !query || result.assessment.name.toLowerCase().includes(query);
-    const typeMatch = selectedType === 'all' || result.assessment.type === selectedType;
-    
-    let periodMatch = true;
-    if (selectedPeriod === 'semester') {
-      const sixMonthsAgo = new Date();
-      sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
-      periodMatch = result.result.submittedDate >= sixMonthsAgo;
-    } else if (selectedPeriod === 'month') {
-      const oneMonthAgo = new Date();
-      oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
-      periodMatch = result.result.submittedDate >= oneMonthAgo;
-    }
-    
-    return typeMatch && periodMatch && queryMatch;
-  });
+  const filteredResults = useMemo(() => {
+    return results.filter((result) => {
+      const query = searchQuery.trim().toLowerCase();
+      const queryMatch = !query || result.assessmentName.toLowerCase().includes(query);
+      const typeMatch = selectedType === 'all' || result.assessmentType === selectedType;
+
+      let periodMatch = true;
+      if (selectedPeriod !== 'all') {
+        if (!result.submittedAt) {
+          periodMatch = false;
+        } else if (selectedPeriod === 'semester') {
+          const sixMonthsAgo = new Date();
+          sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+          periodMatch = result.submittedAt >= sixMonthsAgo;
+        } else if (selectedPeriod === 'month') {
+          const oneMonthAgo = new Date();
+          oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+          periodMatch = result.submittedAt >= oneMonthAgo;
+        }
+      }
+
+      return typeMatch && periodMatch && queryMatch;
+    });
+  }, [results, searchQuery, selectedType, selectedPeriod]);
 
   const {
     currentPage,
@@ -121,13 +188,30 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubj
     resetKey: `${selectedSubjectId || 'all'}|${selectedPeriod}|${selectedType}|${searchQuery}|${filteredResults.length}`,
   });
 
-  // Calculate statistics
   const totalAssessments = filteredResults.length;
-  const averageScore = totalAssessments > 0 
-    ? Math.round(filteredResults.reduce((sum, r) => sum + (r.result.actualMark / r.assessment.maxScore * 100), 0) / totalAssessments)
-    : 0;
-  const improvementCount = filteredResults.filter(r => r.difference > 0).length;
-  const improvementRate = totalAssessments > 0 ? Math.round((improvementCount / totalAssessments) * 100) : 0;
+  const scoredAssessments = filteredResults.filter(
+    (result) => result.actualMark !== null && result.maxScore !== null && result.maxScore > 0
+  );
+  const averageScore =
+    scoredAssessments.length > 0
+      ? Math.round(
+          scoredAssessments.reduce(
+            (sum, result) => sum + ((result.actualMark as number) / (result.maxScore as number)) * 100,
+            0
+          ) / scoredAssessments.length
+        )
+      : 0;
+  const comparableAssessments = filteredResults.filter(
+    (result) => result.actualMark !== null && result.expectedMark !== null
+  );
+  const improvementCount = comparableAssessments.filter(
+    (result) => (result.actualMark as number) > (result.expectedMark as number)
+  ).length;
+  const improvementRate =
+    comparableAssessments.length > 0 ? Math.round((improvementCount / comparableAssessments.length) * 100) : 0;
+  const aGradeCount = filteredResults.filter((result) =>
+    String(result.grade || '').toUpperCase().startsWith('A')
+  ).length;
 
   if (loading) {
     return (
@@ -165,7 +249,6 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubj
 
   return (
     <div className="space-y-6">
-      {/* Header and Filters */}
       <div className="bg-white rounded-lg shadow p-6">
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="w-full md:max-w-sm">
@@ -186,10 +269,9 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubj
               <option value="semester">This Semester</option>
               <option value="month">This Month</option>
             </select>
-            
             <select
               value={selectedType}
-              onChange={(e) => setSelectedType(e.target.value as any)}
+              onChange={(e) => setSelectedType(e.target.value as StudentResultType)}
               className="w-full md:w-auto min-w-[150px] px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="all">All Types</option>
@@ -203,7 +285,6 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubj
         </div>
       </div>
 
-      {/* Statistics Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-4">
           <div className="flex items-start justify-between gap-3">
@@ -245,9 +326,7 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubj
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-xs font-medium tracking-wide text-slate-500 uppercase">A Grades</p>
-              <p className="mt-1 text-2xl font-semibold text-slate-900">
-                {filteredResults.filter(r => ['A+', 'A', 'A-'].includes(r.result.grade)).length}
-              </p>
+              <p className="mt-1 text-2xl font-semibold text-slate-900">{aGradeCount}</p>
             </div>
             <div className="rounded-md bg-amber-50 p-2 text-amber-600">
               <Award className="h-5 w-5" />
@@ -256,12 +335,17 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubj
         </div>
       </div>
 
-      {/* Detailed Results Table */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <div className="p-6 border-b">
           <h3 className="text-lg font-semibold text-gray-800">Detailed Results</h3>
         </div>
-        
+
+        {loadError && (
+          <div className="px-6 py-3 border-b border-rose-100 bg-rose-50 text-sm text-rose-700">
+            {loadError}
+          </div>
+        )}
+
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead className="bg-gray-50">
@@ -290,71 +374,85 @@ const StudentResults: React.FC<StudentResultsProps> = ({ studentId, selectedSubj
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {paginatedResults.map((result) => (
-                <tr key={result.result.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div>
-                      <div className="text-sm font-medium text-gray-900">
-                        {result.assessment.name}
+              {paginatedResults.map((result) => {
+                const hasScoredResult =
+                  result.actualMark !== null && result.maxScore !== null && result.maxScore > 0;
+                const scorePercent = hasScoredResult
+                  ? Math.round(((result.actualMark as number) / (result.maxScore as number)) * 100)
+                  : null;
+                const gradeLabel = result.grade || deriveGradeFromPercent(scorePercent) || 'N/A';
+                return (
+                  <tr key={result.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div>
+                        <div className="text-sm font-medium text-gray-900">{result.assessmentName}</div>
+                        <div className="text-sm text-gray-500">
+                          Weight: {result.weightPct !== null ? `${result.weightPct}%` : 'N/A'}
+                        </div>
                       </div>
-                      <div className="text-sm text-gray-500">
-                        Weight: {result.assessment.weight}%
-                      </div>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
-                      {result.assessment.type}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    <div className="font-semibold">
-                      {result.result.actualMark}/{result.assessment.maxScore}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      ({Math.round((result.result.actualMark / result.assessment.maxScore) * 100)}%)
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                      ['A+', 'A'].includes(result.result.grade) ? 'bg-green-100 text-green-800' :
-                      ['A-', 'B+', 'B'].includes(result.result.grade) ? 'bg-blue-100 text-blue-800' :
-                      ['B-', 'C+', 'C'].includes(result.result.grade) ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-red-100 text-red-800'
-                    }`}>
-                      {result.result.grade}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      {result.difference > 0 ? (
-                        <TrendingUp className="w-4 h-4 text-green-500 mr-1" />
-                      ) : result.difference < 0 ? (
-                        <TrendingDown className="w-4 h-4 text-red-500 mr-1" />
-                      ) : (
-                        <div className="w-4 h-4 mr-1" />
-                      )}
-                      <span className={`text-sm font-medium ${
-                        result.difference > 0 ? 'text-green-600' :
-                        result.difference < 0 ? 'text-red-600' :
-                        'text-gray-600'
-                      }`}>
-                        {result.difference > 0 ? '+' : ''}{result.difference}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-blue-100 text-blue-800">
+                        {result.assessmentType}
                       </span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-500 max-w-[220px]">
-                    {result.result.feedback ? (
-                      <span>{result.result.feedback}</span>
-                    ) : (
-                      <span className="text-gray-400">No feedback yet</span>
-                    )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {result.result.submittedDate.toLocaleDateString()}
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {hasScoredResult ? (
+                        <>
+                          <div className="font-semibold">
+                            {result.actualMark}/{result.maxScore}
+                          </div>
+                          <div className="text-xs text-gray-500">({scorePercent}%)</div>
+                        </>
+                      ) : (
+                        <span className="text-gray-400">N/A</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${gradePillClass(gradeLabel)}`}>
+                        {gradeLabel}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {result.difference === null ? (
+                        <span className="text-sm text-gray-400">N/A</span>
+                      ) : (
+                        <div className="flex items-center">
+                          {result.difference > 0 ? (
+                            <TrendingUp className="w-4 h-4 text-green-500 mr-1" />
+                          ) : result.difference < 0 ? (
+                            <TrendingDown className="w-4 h-4 text-red-500 mr-1" />
+                          ) : (
+                            <div className="w-4 h-4 mr-1" />
+                          )}
+                          <span
+                            className={`text-sm font-medium ${
+                              result.difference > 0
+                                ? 'text-green-600'
+                                : result.difference < 0
+                                  ? 'text-red-600'
+                                  : 'text-gray-600'
+                            }`}
+                          >
+                            {result.difference > 0 ? '+' : ''}
+                            {Math.round(result.difference * 10) / 10}
+                          </span>
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-gray-500 max-w-[220px]">
+                      {result.feedback ? (
+                        <span>{result.feedback}</span>
+                      ) : (
+                        <span className="text-gray-400">No feedback yet</span>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {result.submittedAt ? result.submittedAt.toLocaleDateString('en-GB') : 'N/A'}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

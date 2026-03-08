@@ -153,7 +153,7 @@ const DevelopmentPlanCreation: React.FC<DevelopmentPlanCreationProps> = ({
     };
     
     fetchData();
-  }, [initialStudentId, initialSubjectId, toast]);
+  }, [initialStudentId, initialSubjectId]);
 
   // Toggle skill expansion
   const toggleSkill = (index: number) => {

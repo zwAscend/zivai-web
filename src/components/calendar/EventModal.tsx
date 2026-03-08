@@ -54,6 +54,7 @@ const EventModal: React.FC<EventModalProps> = ({
 }) => {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [formData, setFormData] = useState<EventFormData>({
     title: '',
     description: '',
@@ -172,19 +173,18 @@ const EventModal: React.FC<EventModalProps> = ({
 
   const handleDelete = async () => {
     if (!event || !onDelete) return;
-    
-    if (window.confirm('Are you sure you want to delete this event?')) {
-      setLoading(true);
-      try {
-        await onDelete(event.id);
-        toast.success('Event deleted successfully');
-        onClose();
-      } catch (error) {
-        console.error('Error deleting event:', error);
-        toast.error('Failed to delete event');
-      } finally {
-        setLoading(false);
-      }
+
+    setLoading(true);
+    try {
+      await onDelete(event.id);
+      toast.success('Event deleted successfully');
+      setIsDeleteConfirmOpen(false);
+      onClose();
+    } catch (error) {
+      console.error('Error deleting event:', error);
+      toast.error('Failed to delete event');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -519,13 +519,38 @@ const EventModal: React.FC<EventModalProps> = ({
             <Button
               type="button"
               variant="outline"
-              onClick={handleDelete}
+              onClick={() => setIsDeleteConfirmOpen(true)}
               disabled={loading}
               className="text-red-600 border-red-300 hover:bg-red-50"
             >
               <Trash2 className="w-4 h-4 mr-2" />
               Delete Event
             </Button>
+            {isDeleteConfirmOpen && (
+              <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3">
+                <p className="text-sm font-semibold text-red-800">Delete this event?</p>
+                <p className="mt-1 text-xs text-red-700">This action cannot be undone.</p>
+                <div className="mt-3 flex items-center justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => setIsDeleteConfirmOpen(false)}
+                    disabled={loading}
+                    className="h-8 px-3 text-xs"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={() => { void handleDelete(); }}
+                    disabled={loading}
+                    className="h-8 bg-red-600 px-3 text-xs text-white hover:bg-red-700"
+                  >
+                    {loading ? 'Deleting...' : 'Delete'}
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </DialogContent>

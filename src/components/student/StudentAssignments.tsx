@@ -529,7 +529,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
       .filter((answer) => Boolean(answer.studentAnswerText));
 
     if (answers.length === 0) {
-      alert('Please answer at least one question before submitting.');
+      toast.error('Please answer at least one question before submitting.');
       return;
     }
 
@@ -552,7 +552,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
         message.includes('Question does not belong to this assessment');
 
       if (!needsFallback) {
-        alert(message);
+        toast.error(message);
       } else {
         const fallbackText = questions
           .map((question, index) => {
@@ -572,7 +572,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
           setActiveAttemptEntryId(null);
           await fetchWorkspace({ forceRefresh: true });
         } catch (fallbackError: any) {
-          alert(fallbackError?.message || message);
+          toast.error(fallbackError?.message || message);
         }
       }
     } finally {
@@ -582,12 +582,12 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
 
   const submitTextOrFile = async (entry: AssignmentEntry) => {
     if (submissionMode === 'text' && !textSubmission.trim()) {
-      alert('Please provide your response text before submitting.');
+      toast.error('Please provide your response text before submitting.');
       return;
     }
 
     if (submissionMode === 'file' && !selectedFile) {
-      alert('Please select a file before submitting.');
+      toast.error('Please select a file before submitting.');
       return;
     }
 
@@ -608,7 +608,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
       setActiveAttemptEntryId(null);
       await fetchWorkspace({ forceRefresh: true });
     } catch (err: any) {
-      alert(err?.message || 'Failed to submit assessment.');
+      toast.error(err?.message || 'Failed to submit assessment.');
     } finally {
       setSubmittingEntryId(null);
     }
