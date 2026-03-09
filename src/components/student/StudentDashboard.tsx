@@ -237,6 +237,17 @@ const StudentDashboard: React.FC = () => {
   }, []);
 
   const realPlanBySubjectId = useMemo(() => {
+    const getStatusRank = (status?: string | null) => {
+      const normalized = String(status || '').trim().toLowerCase();
+      if (normalized === 'active') return 3;
+      if (normalized === 'published') return 2;
+      if (normalized === 'completed') return 1;
+      return 0;
+    };
+
+    const getPlanTimestamp = (planItem: DevelopmentPlan) =>
+      new Date(planItem.updatedAt || planItem.startDate || planItem.createdAt || 0).getTime();
+
     const planMap = new Map<string, DevelopmentPlan>();
     subjectPlans.forEach((planItem) => {
       const subjectId = planItem.plan?.subjectId;
@@ -246,9 +257,13 @@ const StudentDashboard: React.FC = () => {
         planMap.set(subjectId, planItem);
         return;
       }
-      const currentTimestamp = new Date(current.updatedAt || current.startDate || 0).getTime();
-      const nextTimestamp = new Date(planItem.updatedAt || planItem.startDate || 0).getTime();
-      if (nextTimestamp >= currentTimestamp) {
+      const currentStatusRank = getStatusRank(current.status);
+      const nextStatusRank = getStatusRank(planItem.status);
+      if (nextStatusRank > currentStatusRank) {
+        planMap.set(subjectId, planItem);
+        return;
+      }
+      if (nextStatusRank === currentStatusRank && getPlanTimestamp(planItem) >= getPlanTimestamp(current)) {
         planMap.set(subjectId, planItem);
       }
     });
@@ -260,19 +275,19 @@ const StudentDashboard: React.FC = () => {
   const defaultSubjectId = useMemo(() => {
     if (displaySubjects.length === 0) return 'all';
 
-    const mathSubject = displaySubjects.find((subject) => {
+    const computerScienceSubject = displaySubjects.find((subject) => {
       const name = String(subject.name || '').toLowerCase();
       const code = String(subject.code || '').toLowerCase();
       return (
-        name.includes('mathematics') ||
-        name === 'math' ||
-        name.includes('math') ||
-        code === 'math' ||
-        code.startsWith('math')
+        name.includes('computer science') ||
+        name.includes('computing') ||
+        name.includes('comp sci') ||
+        code === 'cs' ||
+        code.startsWith('cs')
       );
     });
 
-    return mathSubject?.id || displaySubjects[0]?.id || 'all';
+    return computerScienceSubject?.id || displaySubjects[0]?.id || 'all';
   }, [displaySubjects]);
 
   const displayPlanBySubjectId = useMemo<Map<string, DevelopmentPlan | null>>(() => {
@@ -502,7 +517,7 @@ const StudentDashboard: React.FC = () => {
 
         if (studentData?.id) {
           try {
-            const plans = await developmentService.getAllPlansForStudent(studentData.id, 'Active');
+            const plans = await developmentService.getAllPlansForStudent(studentData.id);
             setSubjectPlans(plans || []);
           } catch {
             setSubjectPlans([]);
@@ -1747,6 +1762,9 @@ const StudentDashboard: React.FC = () => {
           <StudentPlanView
             studentId={student.id}
             plan={activePlan}
+            subjectName={
+              displaySubjects.find((subject) => subject.id === activePlan.plan.subjectId)?.name || undefined
+            }
             initialStepIndex={planEntryStepIndex ?? undefined}
           />
         ) : (

@@ -1,19 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   BookOpen,
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
-  ExternalLink,
   FileText,
   GripHorizontal,
   MessageCircle,
   PlayCircle,
   Send,
-  Sparkles,
   Target,
   X,
 } from 'lucide-react';
@@ -29,6 +26,9 @@ import {
   StudentPracticeSessionQuestion,
   StudentSubjectOverview,
 } from '../../services/studentService';
+import { assessmentService } from '../../services/assessmentService';
+import { resourceService, ResourceItem } from '../../services/resourceService';
+import { normalizeResourceContentType } from '../../constants/resourceContentTypes';
 import StudentPracticeRunner, { PracticeQuestion, PracticeRunSummary } from './StudentPracticeRunner';
 
 type PracticeStatus = 'not-started' | 'in-progress' | 'mastered';
@@ -45,18 +45,21 @@ interface CurriculumPractice {
   title: string;
   status: PracticeStatus;
   target: string;
+  questionCount: number;
 }
 
 interface CurriculumAssessment {
   id: string;
   title: string;
   status: string;
+  resourceId?: string | null;
 }
 
 interface CurriculumTopic {
   id: string;
   title: string;
   masteryPercent: number;
+  questionCount: number;
   learn: CurriculumResource[];
   practice: CurriculumPractice[];
   practiceMaterials: CurriculumResource[];
@@ -114,6 +117,21 @@ interface SubjectsChatDragState {
   originY: number;
 }
 
+interface SubjectAssessmentRow {
+  id: string;
+  name?: string;
+  status?: string;
+  resourceId?: string | null;
+  resource?: string | { id?: string | null } | null;
+}
+
+interface LinkedTopicAssessment {
+  id: string;
+  title: string;
+  status: string;
+  resourceId: string | null;
+}
+
 const DEFAULT_UNIT_CHALLENGE_COUNT = 10;
 const DEFAULT_SUBJECT_CHALLENGE_COUNT = 12;
 const CRITICAL_TOPIC_MASTERY_THRESHOLD = 50;
@@ -168,7 +186,7 @@ const getTopicContentItems = (topic: CurriculumTopic): TopicContentItem[] => [
 
 const getUpNextLabelForContentItem = (item: TopicContentItem) => {
   if (item.kind === 'practice') return 'quiz';
-  if (item.kind === 'assessment') return 'assessment';
+  if (item.kind === 'assessment') return 'practice';
   if (!item.resource) return 'lesson';
   if (item.resource.type === 'video') return 'video';
   if (item.resource.type === 'notes') return 'notes';
@@ -176,6 +194,77 @@ const getUpNextLabelForContentItem = (item: TopicContentItem) => {
 };
 
 const normalizeText = (value: string | null | undefined) => String(value || '').trim().toLowerCase();
+const normalizeAssessmentStatus = (value: string | null | undefined) => {
+  const normalized = normalizeText(value);
+  return normalized === 'active' ? 'published' : (normalized || 'published');
+};
+const extractAssessmentResourceId = (assessment: SubjectAssessmentRow): string | null => {
+  const raw = assessment?.resourceId ?? assessment?.resource;
+  if (!raw) return null;
+  if (typeof raw === 'string') return raw;
+  return raw?.id || null;
+};
+const decodeHtmlEntities = (value: string) =>
+  value
+    .replaceAll('&lt;', '<')
+    .replaceAll('&gt;', '>')
+    .replaceAll('&amp;', '&')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&#39;', "'");
+const looksLikeHtml = (value: string) => /<([a-z][\w-]*)(\s[^>]*)?>/i.test(value);
+
+const extractPracticeQuestionsFromContentBody = (contentBody: string): string[] => {
+  const decoded = decodeHtmlEntities(String(contentBody || '').trim());
+  if (!decoded) return [];
+
+  const stripMetadata = (value: string) =>
+    value
+      .replace(/\s+Options:\s*.*$/i, '')
+      .replace(/\s+Answer\(s\):\s*.*$/i, '')
+      .replace(/\s+Answer:\s*.*$/i, '')
+      .replace(/\s+Marking guide:\s*.*$/i, '')
+      .trim();
+
+  const normalizeQuestionLine = (line: string) =>
+    stripMetadata(line.replace(/^\s*\d+[).\-\s]*/, '').trim());
+
+  const htmlQuestionLines = (() => {
+    if (typeof document === 'undefined' || !looksLikeHtml(decoded)) return [] as string[];
+    const parsed = new DOMParser().parseFromString(decoded, 'text/html');
+    return Array.from(parsed.querySelectorAll('li'))
+      .map((item) => normalizeQuestionLine(item.textContent || ''))
+      .filter(Boolean);
+  })();
+
+  if (htmlQuestionLines.length > 0) {
+    return htmlQuestionLines;
+  }
+
+  const plainText =
+    typeof document !== 'undefined' && looksLikeHtml(decoded)
+      ? new DOMParser().parseFromString(decoded, 'text/html').body.textContent || ''
+      : decoded;
+
+  const normalizedText = plainText.replace(/\r\n/g, '\n').trim();
+  const questionsSectionMatch = normalizedText.match(/questions?\s*:\s*([\s\S]*)/i);
+  const scopedText = (questionsSectionMatch?.[1] || normalizedText).trim();
+  const lines = scopedText
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const numberedLines = lines.filter((line) => /^\d+[).\-\s]/.test(line));
+  const candidateLines = numberedLines.length > 0 ? numberedLines : lines;
+
+  return candidateLines
+    .map(normalizeQuestionLine)
+    .filter(Boolean)
+    .filter(
+      (line) =>
+        !/^topic\s*:/i.test(line) &&
+        !/^practice description/i.test(line) &&
+        !/^questions?\s*:?\s*$/i.test(line)
+    );
+};
 
 const getResourceTypeFromItem = (
   resource: Pick<CurriculumTopicResource, 'type' | 'mimeType' | 'contentType' | 'name' | 'originalName'>
@@ -210,12 +299,6 @@ const getResourceTypeFromItem = (
   return 'article';
 };
 
-const parseQuestionCountFromTarget = (target?: string, fallback = 10) => {
-  const parsed = Number.parseInt(String(target || '').replace(/[^\d]/g, ''), 10);
-  if (Number.isNaN(parsed)) return fallback;
-  return Math.max(1, Math.min(40, parsed));
-};
-
 const mapPracticeQuestionFromSession = (question: StudentPracticeSessionQuestion): PracticeQuestion => {
   const normalizedType = String(question.questionType || '').toLowerCase();
   if (normalizedType.includes('multiple') || normalizedType === 'true_false') {
@@ -239,79 +322,166 @@ const mapPracticeQuestionFromSession = (question: StudentPracticeSessionQuestion
 const mapSubjectOverviewToUnits = (
   subjectName: string,
   overview: StudentSubjectOverview,
-  topicsWithResources: CurriculumTopicApi[]
+  topicsWithResources: CurriculumTopicApi[],
+  linkedAssessmentsByTopicId: Map<string, LinkedTopicAssessment[]> = new Map()
 ): CurriculumUnit[] => {
-  const resourcesByTopicId = new Map<string, CurriculumTopicResource[]>();
-  topicsWithResources.forEach((topic) => {
-    resourcesByTopicId.set(topic.id, topic.resources || []);
+  const overviewTopicMetrics = new Map<string, { masteryPercent: number; questionCount: number; sequenceIndex?: number | null }>();
+  (overview.units || []).forEach((unit) => {
+    (unit.topics || []).forEach((topic) => {
+      overviewTopicMetrics.set(topic.topicId, {
+        masteryPercent: Number(topic.masteryPercent || 0),
+        questionCount: Number(topic.questionCount || 0),
+        sequenceIndex: topic.sequenceIndex ?? null,
+      });
+    });
   });
 
-  return (overview.units || []).map((unit) => {
-    const mappedTopics: CurriculumTopic[] = (unit.topics || []).map((topic) => {
-      const topicResources = resourcesByTopicId.get(topic.topicId) || [];
-      const practiceResources = topicResources.filter((resource) => normalizeText(resource.contentType) === 'practice');
-      const assessmentResources = topicResources.filter((resource) => normalizeText(resource.contentType) === 'assessment_material');
-      const learnTopicResources = topicResources.filter((resource) => {
-        const normalized = normalizeText(resource.contentType);
-        return normalized !== 'practice' && normalized !== 'assessment_material';
-      });
+  const fallbackTopicRows: CurriculumTopicApi[] = (overview.units || []).flatMap((unit) =>
+    (unit.topics || []).map((topic) => ({
+      id: topic.topicId,
+      subjectId: overview.subjectId,
+      code: topic.code || '',
+      name: topic.name || '',
+      sequenceIndex: topic.sequenceIndex ?? null,
+      resources: [],
+    }))
+  );
 
-      const learnResources: CurriculumResource[] = learnTopicResources.map((resource) => ({
-        id: resource.id,
-        title: resource.name || resource.originalName || 'Learning resource',
-        type: getResourceTypeFromItem(resource),
-      }));
-
-      const practiceMaterials: CurriculumResource[] = practiceResources.slice(0, 4).map((resource) => ({
-        id: resource.id,
-        title: resource.name || resource.originalName || 'Practice material',
-        type: 'notes',
-      }));
-
-      const assessments: CurriculumAssessment[] = assessmentResources.slice(0, 4).map((resource) => ({
-        id: resource.id,
-        title: resource.name || resource.originalName || 'Assessment',
-        status: normalizeText(resource.status) || 'published',
-      }));
-
-      const practiceCount = Math.max(1, Math.min(12, Number(topic.questionCount || 0)));
-      const practiceItems: CurriculumPractice[] = [
-        {
-          id: `practice-${topic.topicId}`,
-          title: `AI guided practice: ${topic.name}`,
-          status: 'not-started',
-          target: `Complete ${practiceCount} question${practiceCount === 1 ? '' : 's'}`,
-        },
-      ];
-
-      return {
-        id: topic.topicId,
-        title: topic.name,
-        masteryPercent: Math.max(0, Math.min(100, Math.round(topic.masteryPercent || 0))),
-        learn: learnResources,
-        practice: practiceItems,
-        practiceMaterials,
-        assessments,
-      };
+  const canonicalTopicRows = (topicsWithResources.length > 0 ? topicsWithResources : fallbackTopicRows)
+    .slice()
+    .sort((left, right) => {
+      const leftSequence = Number.isFinite(Number(left.sequenceIndex)) ? Number(left.sequenceIndex) : Number.MAX_SAFE_INTEGER;
+      const rightSequence = Number.isFinite(Number(right.sequenceIndex)) ? Number(right.sequenceIndex) : Number.MAX_SAFE_INTEGER;
+      if (leftSequence !== rightSequence) return leftSequence - rightSequence;
+      return String(left.name || '').localeCompare(String(right.name || ''));
     });
 
-    const topicCount = Number(unit.topicCount || mappedTopics.length || 0);
-    const questionCount = Number(unit.questionCount || 0);
-    const summary = `Covers ${topicCount} topic${topicCount === 1 ? '' : 's'} with ${questionCount} published question${questionCount === 1 ? '' : 's'}.`;
+  return canonicalTopicRows.map((topicRow, index) => {
+    const topicResources = topicRow.resources || [];
+    const practiceResources = topicResources.filter(
+      (resource) => normalizeResourceContentType(resource.contentType) === 'practice'
+    );
+    const assessmentResources = topicResources.filter(
+      (resource) => normalizeResourceContentType(resource.contentType) === 'assessment_material'
+    );
+    const learnTopicResources = topicResources.filter((resource) => {
+      const normalized = normalizeResourceContentType(resource.contentType);
+      return normalized !== 'practice' && normalized !== 'assessment_material';
+    });
+
+    const learnResources: CurriculumResource[] = learnTopicResources.map((resource) => ({
+      id: resource.id,
+      title: resource.name || resource.originalName || 'Learning resource',
+      type: getResourceTypeFromItem(resource),
+    }));
+
+    const practiceMaterials: CurriculumResource[] = practiceResources.map((resource) => ({
+      id: resource.id,
+      title: resource.name || resource.originalName || 'Practice material',
+      type: getResourceTypeFromItem(resource),
+    }));
+
+    const resourceBackedAssessments: CurriculumAssessment[] = assessmentResources.map((resource) => ({
+      id: resource.id,
+      title: resource.name || resource.originalName || 'Assessment',
+      status: normalizeAssessmentStatus(resource.status),
+      resourceId: resource.id,
+    }));
+    const linkedAssessments = linkedAssessmentsByTopicId.get(topicRow.id) || [];
+    const assessmentsByKey = new Map<string, CurriculumAssessment>();
+    [...linkedAssessments, ...resourceBackedAssessments].forEach((assessment) => {
+      const key = assessment.resourceId || assessment.id;
+      if (assessmentsByKey.has(key)) return;
+      assessmentsByKey.set(key, assessment);
+    });
+    const assessments = Array.from(assessmentsByKey.values());
+
+    const metrics = overviewTopicMetrics.get(topicRow.id);
+    const availableQuestionCount = Math.max(0, Number(metrics?.questionCount || 0));
+    const practiceCount = Math.max(0, Math.min(12, availableQuestionCount));
+    const mappedTopic: CurriculumTopic = {
+      id: topicRow.id,
+      title: topicRow.name || `Topic ${index + 1}`,
+      masteryPercent: Math.max(0, Math.min(100, Math.round(Number(metrics?.masteryPercent || 0)))),
+      questionCount: availableQuestionCount,
+      learn: learnResources,
+      practice: practiceCount > 0
+        ? [
+            {
+              id: `practice-${topicRow.id}`,
+              title: topicRow.name || `Topic ${index + 1}`,
+              status: 'not-started',
+              target: `Complete ${practiceCount} question${practiceCount === 1 ? '' : 's'}`,
+              questionCount: practiceCount,
+            },
+          ]
+        : [],
+      practiceMaterials,
+      assessments,
+    };
+
+    const unitOrder = index + 1;
+    const summary = `Covers 1 topic with ${availableQuestionCount} published question${availableQuestionCount === 1 ? '' : 's'}.`;
 
     return {
-      id: unit.unitId,
-      code: unit.code ? unit.code.replace(/^unit\b/i, 'Topic') : `Topic ${unit.unitNumber}`,
-      title: unit.title || `${subjectName} topic ${unit.unitNumber}`,
+      id: `topic-unit-${topicRow.id}`,
+      code: `Topic ${unitOrder}`,
+      title: mappedTopic.title || `${subjectName} topic ${unitOrder}`,
       summary,
-      masteryPercent: Math.max(0, Math.min(100, Math.round(unit.masteryPercent || 0))),
-      topics: mappedTopics,
+      masteryPercent: mappedTopic.masteryPercent,
+      topics: [mappedTopic],
     };
   });
 };
 
+const mapAssessmentsByTopic = (
+  topicsWithResources: CurriculumTopicApi[],
+  subjectAssessments: SubjectAssessmentRow[],
+  subjectResources: ResourceItem[] = []
+): Map<string, LinkedTopicAssessment[]> => {
+  const topicIdsByResourceId = new Map<string, Set<string>>();
+  topicsWithResources.forEach((topic) => {
+    (topic.resources || []).forEach((resource) => {
+      if (!topicIdsByResourceId.has(resource.id)) {
+        topicIdsByResourceId.set(resource.id, new Set());
+      }
+      const topicIds = topicIdsByResourceId.get(resource.id)!;
+      topicIds.add(topic.id);
+      (resource.topicIds || []).forEach((resourceTopicId) => topicIds.add(resourceTopicId));
+    });
+  });
+  subjectResources.forEach((resource) => {
+    if (!resource?.id) return;
+    if (!topicIdsByResourceId.has(resource.id)) {
+      topicIdsByResourceId.set(resource.id, new Set());
+    }
+    const topicIds = topicIdsByResourceId.get(resource.id)!;
+    (resource.topicIds || []).forEach((resourceTopicId) => topicIds.add(resourceTopicId));
+  });
+
+  const mapped = new Map<string, LinkedTopicAssessment[]>();
+  subjectAssessments.forEach((assessment) => {
+    const resourceId = extractAssessmentResourceId(assessment);
+    if (!resourceId) return;
+    const topicIds = topicIdsByResourceId.get(resourceId);
+    if (!topicIds || topicIds.size === 0) return;
+
+    topicIds.forEach((topicId) => {
+      const existing = mapped.get(topicId) || [];
+      existing.push({
+        id: assessment.id,
+        title: assessment.name || 'Assessment',
+        status: normalizeAssessmentStatus(assessment.status),
+        resourceId,
+      });
+      mapped.set(topicId, existing);
+    });
+  });
+
+  return mapped;
+};
+
 const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, selectedSubjectId, subjects }) => {
-  const navigate = useNavigate();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isSubjectOverviewActive, setIsSubjectOverviewActive] = useState(false);
   const [selectedUnitIndex, setSelectedUnitIndex] = useState(0);
@@ -325,6 +495,9 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
   const [detailPracticeSession, setDetailPracticeSession] = useState<StudentPracticeSession | null>(null);
   const [detailPracticeLoading, setDetailPracticeLoading] = useState(false);
   const [detailPracticeError, setDetailPracticeError] = useState<string | null>(null);
+  const [resourceBodyById, setResourceBodyById] = useState<Record<string, string>>({});
+  const [resourceBodyLoadingById, setResourceBodyLoadingById] = useState<Record<string, boolean>>({});
+  const [resourceBodyErrorById, setResourceBodyErrorById] = useState<Record<string, string>>({});
   const [unitChallengeState, setUnitChallengeState] = useState<{
     unitId: string;
     stage: UnitChallengeStage;
@@ -407,9 +580,13 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
       setCurriculumError(null);
 
       try {
-        const [overview, topics] = await Promise.all([
+        const [overview, topics, subjectAssessments, subjectResources] = await Promise.all([
           studentService.getSubjectOverview(studentId, activeSubject.id).catch(() => null),
           curriculumService.listTopicsWithResources(activeSubject.id).catch(() => []),
+          assessmentService.getAssessmentsBySubjectId(activeSubject.id)
+            .then((rows) => (Array.isArray(rows) ? (rows as unknown as SubjectAssessmentRow[]) : []))
+            .catch(() => []),
+          resourceService.listBySubject(activeSubject.id).catch(() => []),
         ]);
 
         if (!overview) {
@@ -419,7 +596,8 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
           return;
         }
 
-        const mappedUnits = mapSubjectOverviewToUnits(activeSubject.name, overview, topics);
+        const linkedAssessmentsByTopicId = mapAssessmentsByTopic(topics, subjectAssessments, subjectResources);
+        const mappedUnits = mapSubjectOverviewToUnits(activeSubject.name, overview, topics, linkedAssessmentsByTopicId);
         setSubjectOverview(overview);
         setBackendUnits(mappedUnits);
 
@@ -927,6 +1105,12 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
   const detailItems = detailTopic ? getTopicContentItems(detailTopic) : [];
   const selectedDetailItem =
     detailItems.find((item) => item.id === detailState?.contentItemId) || detailItems[0] || null;
+  const selectedDetailResourceId =
+    selectedDetailItem?.kind === 'learn'
+      ? selectedDetailItem.resource?.id || null
+      : selectedDetailItem?.kind === 'assessment'
+        ? selectedDetailItem.assessment?.resourceId || selectedDetailItem.assessment?.id || null
+        : null;
   const isDetailPracticeView = Boolean(
     selectedDetailItem &&
     selectedDetailItem.kind === 'practice' &&
@@ -943,6 +1127,47 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
     selectedDetailItemIndex >= 0 && selectedDetailItemIndex < detailItems.length - 1
       ? detailItems[selectedDetailItemIndex + 1]
       : null;
+  const selectedResourceBody = selectedDetailResourceId ? resourceBodyById[selectedDetailResourceId] : null;
+  const selectedResourceBodyLoading = selectedDetailResourceId ? Boolean(resourceBodyLoadingById[selectedDetailResourceId]) : false;
+  const selectedResourceBodyError = selectedDetailResourceId ? resourceBodyErrorById[selectedDetailResourceId] || null : null;
+  const normalizedSelectedResourceBody = selectedResourceBody ? decodeHtmlEntities(selectedResourceBody).trim() : '';
+  const selectedResourceBodyHasHtml = looksLikeHtml(normalizedSelectedResourceBody);
+  const selectedAssessmentQuestions = useMemo(
+    () => extractPracticeQuestionsFromContentBody(selectedResourceBody || ''),
+    [selectedResourceBody]
+  );
+
+  useEffect(() => {
+    const loadSelectedResourceBody = async () => {
+      if (!selectedDetailResourceId) return;
+      if (resourceBodyById[selectedDetailResourceId] !== undefined) return;
+      if (resourceBodyLoadingById[selectedDetailResourceId]) return;
+
+      try {
+        setResourceBodyLoadingById((previous) => ({ ...previous, [selectedDetailResourceId]: true }));
+        setResourceBodyErrorById((previous) => {
+          if (!previous[selectedDetailResourceId]) return previous;
+          const next = { ...previous };
+          delete next[selectedDetailResourceId];
+          return next;
+        });
+        const resource = await resourceService.get(selectedDetailResourceId);
+        setResourceBodyById((previous) => ({
+          ...previous,
+          [selectedDetailResourceId]: typeof resource.contentBody === 'string' ? resource.contentBody : '',
+        }));
+      } catch (error: any) {
+        setResourceBodyErrorById((previous) => ({
+          ...previous,
+          [selectedDetailResourceId]: error?.message || 'Failed to load content.',
+        }));
+      } finally {
+        setResourceBodyLoadingById((previous) => ({ ...previous, [selectedDetailResourceId]: false }));
+      }
+    };
+
+    void loadSelectedResourceBody();
+  }, [selectedDetailResourceId, resourceBodyById, resourceBodyLoadingById]);
 
   useEffect(() => {
     const loadDetailPracticeSession = async () => {
@@ -953,12 +1178,23 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
         return;
       }
 
+      const requestedQuestionCount = Math.max(
+        0,
+        Math.min(40, Number(selectedDetailItem.practice.questionCount || detailTopic.questionCount || 0))
+      );
+      if (requestedQuestionCount <= 0) {
+        setDetailPracticeSession(null);
+        setDetailPracticeLoading(false);
+        setDetailPracticeError('No published questions are available for this practice session.');
+        return;
+      }
+
       try {
         setDetailPracticeLoading(true);
         setDetailPracticeError(null);
         const session = await studentService.startPracticeSession(studentId, activeSubject.id, {
           topicId: detailTopic.id,
-          questionCount: parseQuestionCountFromTarget(selectedDetailItem.practice.target, 10),
+          questionCount: requestedQuestionCount,
           mode: 'topic_practice',
           title: selectedDetailItem.practice.title,
         });
@@ -988,7 +1224,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
     );
   }
 
-  if (isCurriculumLoading && units.length === 0) {
+  if (isCurriculumLoading) {
     return (
       <div className="bg-white rounded-xl overflow-hidden">
         <div className="grid grid-cols-1 xl:grid-cols-[320px_minmax(0,1fr)]">
@@ -1143,7 +1379,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                             {item.kind === 'practice'
                               ? `${practiceStatus || 'not-started'} • quiz`
                               : item.kind === 'assessment'
-                                ? `${item.assessment?.status || 'published'} • assessment`
+                                ? `${item.assessment?.status || 'published'} • practice`
                                 : `${item.resource?.type || 'notes'} • learn`}
                           </p>
                         </div>
@@ -1154,15 +1390,13 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
               </div>
             </aside>
 
-            <section className={`min-w-0 rounded-none border border-slate-200 bg-white overflow-hidden xl:will-change-[margin] xl:transition-[margin] xl:duration-300 xl:ease-in-out ${contentDesktopOffset} ${
-              isUnitChallengeActive || isDetailPracticeView ? 'min-h-[calc(100vh-var(--student-header-offset)-1.5rem)]' : ''
-            }`}>
+            <section className={`min-w-0 rounded-none border border-slate-200 bg-white overflow-hidden xl:will-change-[margin] xl:transition-[margin] xl:duration-300 xl:ease-in-out ${contentDesktopOffset} flex flex-col min-h-[calc(100vh-var(--student-header-offset)-1.5rem)]`}>
               <header className="px-6 py-5 border-b border-slate-200">
                 <h1 className="text-3xl font-bold text-slate-900">{selectedDetailItem.title}</h1>
                 <p className="text-sm text-slate-500 mt-1">{detailUnit.code}: {detailTopic.title}</p>
               </header>
 
-              <div className={isDetailPracticeView ? 'p-0' : 'p-6 pb-28 space-y-6'}>
+              <div className={isDetailPracticeView ? 'p-0' : 'flex-1 p-6 pb-6 space-y-6'}>
                 {selectedDetailItem.kind === 'practice' && selectedDetailItem.practice ? (
                   detailPracticeLoading ? (
                     <div className="px-6 py-6 pb-8">
@@ -1224,23 +1458,34 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-md bg-amber-100 text-amber-700">
                         <FileText className="w-4 h-4" />
-                        Assessment
+                        Practice
                       </span>
                       <span className="text-xs text-slate-500 capitalize">
                         Status: {selectedDetailItem.assessment.status || 'published'}
                       </span>
                     </div>
-                    <p className="text-lg text-slate-800">
-                      This assessment was published by your teacher for this topic.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => navigate('/student/assessments')}
-                      className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-                    >
-                      <ExternalLink className="w-4 h-4" />
-                      Open Assessments
-                    </button>
+
+                    {selectedResourceBodyLoading ? (
+                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                        Loading content...
+                      </div>
+                    ) : selectedResourceBodyError ? (
+                      <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+                        {selectedResourceBodyError}
+                      </div>
+                    ) : selectedAssessmentQuestions.length > 0 ? (
+                      <ol className="rounded-lg bg-white p-5 list-decimal pl-6 space-y-3 text-slate-800 leading-relaxed">
+                        {selectedAssessmentQuestions.map((question, index) => (
+                          <li key={`${selectedDetailItem.assessment?.id || 'assessment'}-${index}`}>
+                            {question}
+                          </li>
+                        ))}
+                      </ol>
+                    ) : (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
+                        No published questions are available for this practice yet.
+                      </div>
+                    )}
                   </section>
                 ) : (
                   <section className="space-y-6">
@@ -1261,32 +1506,30 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                       </div>
                     )}
 
-                    <div className="space-y-4 max-w-4xl">
-                      <h3 className="text-2xl font-semibold text-slate-900">What you will learn</h3>
-                      <p className="text-lg text-slate-800">
-                        This section explains <span className="font-semibold">{detailTopic.title.toLowerCase()}</span> and how it connects to topic mastery.
-                      </p>
-                      <p className="text-lg text-slate-800">
-                        Work through the explanations first, then move to practice for one-by-one question attempts.
-                      </p>
-                    </div>
-
-                    <div className="border-t border-slate-200 pt-4">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Related content</p>
-                      <div className="mt-2 space-y-2">
-                        {[...detailTopic.learn, ...detailTopic.practiceMaterials].map((resource) => (
-                          <button
-                            key={resource.id}
-                            type="button"
-                            onClick={() => setDetailState((previous) => (previous ? { ...previous, contentItemId: `learn-${resource.id}` } : previous))}
-                            className="w-full text-left rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50 flex items-center justify-between gap-2"
-                          >
-                            <span className="truncate">{resource.title}</span>
-                            <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
-                          </button>
-                        ))}
+                    {selectedResourceBodyLoading ? (
+                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                        Loading content...
                       </div>
-                    </div>
+                    ) : selectedResourceBodyError ? (
+                      <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+                        {selectedResourceBodyError}
+                      </div>
+                    ) : normalizedSelectedResourceBody ? (
+                      selectedResourceBodyHasHtml ? (
+                        <article
+                          className="rounded-lg bg-white p-5 text-slate-800 leading-relaxed space-y-3 [&_h1]:text-2xl [&_h1]:font-semibold [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:text-lg [&_h3]:font-semibold [&_p]:mb-3 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6"
+                          dangerouslySetInnerHTML={{ __html: normalizedSelectedResourceBody }}
+                        />
+                      ) : (
+                        <article className="rounded-lg bg-white p-5 text-slate-800 leading-relaxed whitespace-pre-wrap">
+                          {normalizedSelectedResourceBody}
+                        </article>
+                      )
+                    ) : (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
+                        No published content body is available for this resource yet.
+                      </div>
+                    )}
                   </section>
                 )}
               </div>
@@ -1369,9 +1612,6 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                     </button>
 
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
-                        <Sparkles className="w-5 h-5" />
-                      </div>
                       <div className="min-w-0">
                         <h2 className="text-xl font-bold text-slate-900 truncate">Topic test</h2>
                         <p className="text-xs text-slate-500 mt-0.5 truncate">{selectedUnit.code}: {selectedUnit.title}</p>
@@ -1427,9 +1667,6 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                     </button>
 
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
-                        <Sparkles className="w-5 h-5" />
-                      </div>
                       <div className="min-w-0">
                         <h2 className="text-xl font-bold text-slate-900 truncate">Subject challenge</h2>
                         <p className="text-xs text-slate-500 mt-0.5 truncate">{activeSubject.name}</p>
@@ -1535,8 +1772,10 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
 
             </aside>
 
-            <section className={`min-w-0 rounded-none border border-slate-200 bg-white overflow-hidden xl:will-change-[margin] xl:transition-[margin] xl:duration-300 xl:ease-in-out ${contentDesktopOffset} ${
-              isUnitChallengeActive || isSubjectChallengeActive ? 'min-h-[calc(100vh-var(--student-header-offset)-1.5rem)]' : ''
+            <section className={`min-w-0 rounded-none border border-slate-200 bg-white overflow-hidden xl:will-change-[margin] xl:transition-[margin] xl:duration-300 xl:ease-in-out ${contentDesktopOffset} flex flex-col ${
+              isUnitChallengeActive || isSubjectChallengeActive || !isSubjectOverviewActive
+                ? 'min-h-[calc(100vh-var(--student-header-offset)-1.5rem)]'
+                : ''
             }`}>
               {!isUnitChallengeActive && !isSubjectChallengeActive && !isSubjectOverviewActive && (
                 <header className="px-6 py-5 border-b border-slate-200">
@@ -1707,8 +1946,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                   })}
 
                   <section className="rounded-lg border border-slate-200 bg-slate-50 p-5">
-                    <div className="flex items-center gap-2 text-slate-700 font-semibold">
-                      <Sparkles className="w-4 h-4" />
+                    <div className="flex items-center text-slate-700 font-semibold">
                       Subject challenge
                     </div>
                     <p className="text-sm text-slate-600 mt-2">Take one challenge that spans all units in this subject.</p>
@@ -1727,7 +1965,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                   </section>
                 </div>
               ) : (
-                <div className={isUnitChallengeActive ? (isUnitChallengeRunning ? '' : 'p-6 pb-24') : 'p-6 pb-28 space-y-4'}>
+                <div className={isUnitChallengeActive ? (isUnitChallengeRunning ? '' : 'flex-1 p-6 pb-24') : 'flex-1 p-6 pb-28 flex flex-col'}>
                   {isUnitChallengeActive ? (
                     activeUnitChallengeStep === 1 && !isUnitChallengeRunning ? (
                       <div className="space-y-4">
@@ -1820,7 +2058,8 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                     )
                   ) : (
                     <>
-                      {selectedUnit.topics.map((topic) => {
+                      <div className="space-y-4">
+                        {selectedUnit.topics.map((topic) => {
                         const isTopicCollapsed = Boolean(collapsedTopicIds[topic.id]);
                         const isCriticalTopic =
                           hasTopicBeenAttempted(topic) && topic.masteryPercent < CRITICAL_TOPIC_MASTERY_THRESHOLD;
@@ -1905,13 +2144,19 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                                     <span className="text-xs text-slate-400 shrink-0">teacher material</span>
                                   </button>
                                 ))}
-                                {topic.practice.map((practice) => (
+                                {topic.practice.map((practice) => {
+                                  const practiceStatus = getPracticeStatus(practice);
+                                  const isPracticeAvailable = practice.questionCount > 0;
+                                  return (
                                   <div key={practice.id} className="rounded-md border border-slate-200 bg-slate-50 p-3 flex items-start justify-between gap-3">
                                     <div>
                                       <button
                                         type="button"
                                         onClick={() => openPractice(selectedUnit, topic, practice)}
-                                        className="text-left text-sm font-semibold text-slate-800 hover:text-blue-700"
+                                        className={`text-left text-sm font-semibold ${
+                                          isPracticeAvailable ? 'text-slate-800 hover:text-blue-700' : 'text-slate-500 cursor-not-allowed'
+                                        }`}
+                                        disabled={!isPracticeAvailable}
                                       >
                                         {practice.title}
                                       </button>
@@ -1920,19 +2165,46 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                                     <button
                                       type="button"
                                       onClick={() => openPractice(selectedUnit, topic, practice)}
+                                      disabled={!isPracticeAvailable}
                                       className={`text-xs font-semibold px-3 py-1.5 rounded-md ${
-                                        getPracticeStatus(practice) === 'mastered'
+                                        !isPracticeAvailable
+                                          ? 'border border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed'
+                                          : practiceStatus === 'mastered'
                                           ? 'bg-emerald-100 text-emerald-700'
-                                          : getPracticeStatus(practice) === 'in-progress'
+                                          : practiceStatus === 'in-progress'
                                             ? 'bg-blue-600 text-white hover:bg-blue-700'
                                             : 'border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
                                       }`}
                                     >
-                                      {getPracticeActionLabel(getPracticeStatus(practice))}
+                                      {isPracticeAvailable ? getPracticeActionLabel(practiceStatus) : 'Unavailable'}
+                                    </button>
+                                  </div>
+                                  );
+                                })}
+                                {topic.assessments.map((assessment) => (
+                                  <div key={assessment.id} className="rounded-md border border-slate-200 bg-slate-50 p-3 flex items-start justify-between gap-3">
+                                    <div>
+                                      <button
+                                        type="button"
+                                        onClick={() => openTopicDetail(selectedUnit, topic, `assessment-${assessment.id}`)}
+                                        className="text-left text-sm font-semibold text-slate-800 hover:text-blue-700"
+                                      >
+                                        {assessment.title}
+                                      </button>
+                                      <p className="text-xs text-slate-500 mt-0.5 capitalize">
+                                        Published teacher practice • {assessment.status || 'published'}
+                                      </p>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => openTopicDetail(selectedUnit, topic, `assessment-${assessment.id}`)}
+                                      className="text-xs font-semibold px-3 py-1.5 rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                                    >
+                                      Open
                                     </button>
                                   </div>
                                 ))}
-                                {topic.practiceMaterials.length === 0 && topic.practice.length === 0 && (
+                                {topic.practiceMaterials.length === 0 && topic.practice.length === 0 && topic.assessments.length === 0 && (
                                   <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-500">
                                     No published practice items yet.
                                   </p>
@@ -1944,10 +2216,10 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                           )}
                         </section>
                       )})}
+                      </div>
 
-                      <div className="border border-slate-200 rounded-lg p-5 bg-slate-50">
-                        <div className="flex items-center gap-2 text-slate-700 font-semibold">
-                          <Sparkles className="w-4 h-4" />
+                      <div className="mt-4 xl:mt-auto border border-slate-200 rounded-lg p-5 bg-slate-50">
+                        <div className="flex items-center text-slate-700 font-semibold">
                           Topic challenge
                         </div>
                         <p className="text-sm text-slate-600 mt-2">Test your understanding across this topic area.</p>

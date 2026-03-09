@@ -21,6 +21,7 @@ import { StudentPracticeSession, StudentPracticeSessionQuestion, studentService 
 interface StudentPlanViewProps {
   studentId: string;
   plan: DevelopmentPlan;
+  subjectName?: string;
   initialStepIndex?: number;
 }
 
@@ -36,6 +37,95 @@ interface ChatDragState {
   originX: number;
   originY: number;
 }
+
+const ALLOWED_RICH_TEXT_TAGS = new Set([
+  'p',
+  'strong',
+  'em',
+  'b',
+  'i',
+  'u',
+  'ul',
+  'ol',
+  'li',
+  'br',
+  'a',
+]);
+
+const decodeHtmlEntities = (value: string) => {
+  if (typeof document === 'undefined') return value;
+  const textarea = document.createElement('textarea');
+  textarea.innerHTML = value;
+  return textarea.value;
+};
+
+const hasHtmlMarkup = (value: string) => /<\/?[a-z][\s\S]*>/i.test(value);
+
+const sanitizeRichHtml = (value: string) => {
+  if (typeof document === 'undefined') return value;
+  const parser = new DOMParser();
+  const parsed = parser.parseFromString(`<div>${value}</div>`, 'text/html');
+  const container = parsed.body.firstElementChild as HTMLElement | null;
+  if (!container) return '';
+
+  const sanitizeNode = (node: Node) => {
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const element = node as HTMLElement;
+      const tagName = element.tagName.toLowerCase();
+
+      if (!ALLOWED_RICH_TEXT_TAGS.has(tagName)) {
+        const parent = element.parentNode;
+        if (parent) {
+          while (element.firstChild) {
+            parent.insertBefore(element.firstChild, element);
+          }
+          parent.removeChild(element);
+        }
+        return;
+      }
+
+      Array.from(element.attributes).forEach((attribute) => {
+        const attrName = attribute.name.toLowerCase();
+        const attrValue = attribute.value.trim();
+        const isAllowedAnchorAttribute =
+          tagName === 'a' && (attrName === 'href' || attrName === 'target' || attrName === 'rel');
+
+        if (!isAllowedAnchorAttribute) {
+          element.removeAttribute(attribute.name);
+          return;
+        }
+
+        if (attrName === 'href' && !/^(https?:|mailto:)/i.test(attrValue)) {
+          element.removeAttribute(attribute.name);
+        }
+      });
+
+      if (tagName === 'a') {
+        const href = element.getAttribute('href');
+        if (href && !element.getAttribute('target')) {
+          element.setAttribute('target', '_blank');
+        }
+        if (href && !element.getAttribute('rel')) {
+          element.setAttribute('rel', 'noopener noreferrer');
+        }
+      }
+    }
+
+    Array.from(node.childNodes).forEach(sanitizeNode);
+  };
+
+  Array.from(container.childNodes).forEach(sanitizeNode);
+  return container.innerHTML;
+};
+
+const renderLessonText = (value: string, className: string) => {
+  const decoded = decodeHtmlEntities(String(value || '').trim());
+  if (!decoded) return null;
+  if (hasHtmlMarkup(decoded)) {
+    return <div className={className} dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(decoded) }} />;
+  }
+  return <p className={className}>{decoded}</p>;
+};
 
 const getStepIcon = (type: string) => {
   switch (type) {
@@ -95,37 +185,7 @@ const getNextStepLabel = (type: string) => {
   }
 };
 
-const getStepLessonContent = (step: Step) => {
-  const content = String(step.content || '').trim();
-  if (!content) {
-    return {
-      intro: `This step focuses on ${step.title.toLowerCase()}.`,
-      sections: [
-        {
-          heading: 'Instruction',
-          paragraphs: ['No detailed content is available yet for this step.'],
-        },
-      ],
-    };
-  }
-
-  const normalized = content.replace(/\r\n/g, '\n');
-  const blocks = normalized
-    .split('\n\n')
-    .map((block) => block.trim())
-    .filter(Boolean);
-  const intro = blocks[0] || `This step focuses on ${step.title.toLowerCase()}.`;
-  const sectionParagraphs = blocks.slice(1);
-  return {
-    intro,
-    sections: [
-      {
-        heading: 'Details',
-        paragraphs: sectionParagraphs.length > 0 ? sectionParagraphs : [intro],
-      },
-    ],
-  };
-};
+const getStepPublishedContent = (step: Step) => decodeHtmlEntities(String(step.content || '').trim());
 
 const mapPracticeQuestion = (question: StudentPracticeSessionQuestion): PracticeQuestion => {
   const normalizedType = String(question.questionType || '').toLowerCase();
@@ -147,7 +207,7 @@ const mapPracticeQuestion = (question: StudentPracticeSessionQuestion): Practice
   };
 };
 
-const StudentPlanView: React.FC<StudentPlanViewProps> = ({ studentId, plan, initialStepIndex }) => {
+const StudentPlanView: React.FC<StudentPlanViewProps> = ({ studentId, plan, subjectName, initialStepIndex }) => {
   const sortedSteps = useMemo(
     () => plan.plan.steps?.slice().sort((a, b) => (a.order || 0) - (b.order || 0)) || [],
     [plan.plan.steps]
@@ -187,8 +247,8 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ studentId, plan, init
     () => (selectedPracticeSession?.questions || []).map(mapPracticeQuestion),
     [selectedPracticeSession?.questions]
   );
-  const selectedStepLesson = useMemo(
-    () => (selectedStep ? getStepLessonContent(selectedStep) : null),
+  const selectedStepContent = useMemo(
+    () => (selectedStep ? getStepPublishedContent(selectedStep) : ''),
     [selectedStep]
   );
   const sidebarDesktopWidth = isSidebarCollapsed ? 'md:w-[88px]' : 'md:w-[340px]';
@@ -433,6 +493,8 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ studentId, plan, init
 
   const selectedStepIsPractice = Boolean(selectedStep && isPracticeStep(selectedStep.type));
   const showUpNextFooter = !selectedStepIsPractice || Boolean(completedPracticeSteps[selectedStepIndex]);
+  const sidebarTitle = subjectName?.trim() || 'Subject';
+  const mainHeaderTitle = selectedStep?.title?.trim() || sidebarTitle;
 
   return (
     <motion.div
@@ -471,7 +533,7 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ studentId, plan, init
                   : 'max-w-[240px] max-h-16 opacity-100 translate-x-0'
               }`}
             >
-              <h2 className="text-lg font-bold text-slate-900 truncate">{plan.plan.name}</h2>
+              <h2 className="text-lg font-bold text-slate-900 truncate">{sidebarTitle}</h2>
               <p className="text-xs text-slate-500 mt-0.5">{totalSteps} steps</p>
             </div>
           </div>
@@ -539,12 +601,12 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ studentId, plan, init
       <div className={`min-w-0 flex flex-col min-h-[760px] border border-slate-200 md:border-l md:border-l-slate-200 md:border-r md:border-r-slate-200 bg-white md:will-change-[margin] md:transition-[margin] md:duration-300 md:ease-in-out ${contentDesktopOffset}`}>
         <header className="px-6 py-5 border-b border-slate-200 bg-white">
           <div className="flex justify-center text-center">
-            <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mt-1">{selectedStep?.title || plan.plan.name}</h1>
+            <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mt-1">{mainHeaderTitle}</h1>
           </div>
         </header>
 
         <div className="p-6 pb-28 space-y-6 bg-white">
-          {selectedStep && selectedStepLesson && !isPracticeStep(selectedStep.type) && (
+          {selectedStep && !isPracticeStep(selectedStep.type) && (
             <section className="space-y-6">
               <div className="flex flex-wrap items-center gap-2">
                 <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-md ${getStepTagColor(selectedStep.type)}`}>
@@ -561,29 +623,9 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ studentId, plan, init
               </div>
 
               <div className="space-y-5">
-                <p className="text-base text-slate-700">{selectedStepLesson.intro}</p>
-
-                {selectedStep.type === 'document' && (
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-5 flex items-center justify-center">
-                    <svg width="200" height="170" viewBox="0 0 200 170" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M100 18V152" stroke="#A855F7" strokeWidth="2" strokeDasharray="5 4" />
-                      <path d="M100 18L90 28M100 18L110 28" stroke="#A855F7" strokeWidth="2" />
-                      <path d="M100 152L90 142M100 152L110 142" stroke="#A855F7" strokeWidth="2" />
-                      <path d="M65 63L100 28L135 63L122 140H78L65 63Z" stroke="#22C55E" strokeWidth="2.5" />
-                    </svg>
-                  </div>
-                )}
-
-                {selectedStepLesson.sections.map((section) => (
-                  <div key={section.heading} className="space-y-2">
-                    <h3 className="text-xl font-semibold text-slate-900">{section.heading}</h3>
-                    {section.paragraphs.map((paragraph) => (
-                      <p key={paragraph} className="text-base leading-relaxed text-slate-800">
-                        {paragraph}
-                      </p>
-                    ))}
-                  </div>
-                ))}
+                {selectedStepContent
+                  ? renderLessonText(selectedStepContent, 'text-base text-slate-700 leading-relaxed')
+                  : <p className="text-base text-slate-500">No content has been published for this step yet.</p>}
               </div>
 
               {selectedStep.link && (
