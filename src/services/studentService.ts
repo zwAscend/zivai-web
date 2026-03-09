@@ -97,6 +97,117 @@ export interface StudentAssessmentHistoryFilters {
   to?: string;
 }
 
+export interface StudentActivityFeedItem {
+  id: string;
+  activityType: string;
+  sourceId: string;
+  title: string;
+  subjectId?: string | null;
+  subjectName?: string | null;
+  occurredAt?: string | null;
+  level?: string | null;
+  progressPercent?: number | null;
+  correctCount?: number | null;
+  totalCount?: number | null;
+  score?: number | null;
+  maxScore?: number | null;
+  timeMinutes?: number | null;
+}
+
+export interface StudentActivityFeedFilters {
+  subjectId?: string;
+  from?: string;
+  to?: string;
+  limit?: number;
+}
+
+export interface StartStudentPracticeSessionPayload {
+  topicId?: string;
+  questionCount?: number;
+  mode?: 'topic_practice' | 'topic_challenge' | 'subject_challenge';
+  title?: string;
+}
+
+export interface StudentPracticeSessionQuestion {
+  assessmentQuestionId: string;
+  questionId: string;
+  topicId?: string | null;
+  topicName?: string | null;
+  prompt: string;
+  questionType: string;
+  maxScore?: number | null;
+  options: string[];
+  multipleSelection: boolean;
+}
+
+export interface StudentPracticeSession {
+  sessionId: string;
+  assessmentId: string;
+  assignmentId: string;
+  enrollmentId: string;
+  subjectId: string;
+  subjectName: string;
+  topicId?: string | null;
+  topicName?: string | null;
+  mode: string;
+  title: string;
+  status: string;
+  startedAt?: string | null;
+  submittedAt?: string | null;
+  questionCount?: number | null;
+  answeredCount?: number | null;
+  correctCount?: number | null;
+  score?: number | null;
+  maxScore?: number | null;
+  percentage?: number | null;
+  durationMinutes?: number | null;
+  questions: StudentPracticeSessionQuestion[];
+}
+
+export interface StudentPracticeAnswerPayload {
+  assessmentQuestionId: string;
+  studentAnswerText?: string;
+  selectedOptions?: string[];
+  skipped?: boolean;
+}
+
+export interface StudentPracticeAnswerResult {
+  sessionId: string;
+  answerId: string;
+  assessmentQuestionId: string;
+  correct: boolean;
+  skipped: boolean;
+  score?: number | null;
+  maxScore?: number | null;
+  feedback?: string | null;
+  gradedAt?: string | null;
+  answeredCount?: number | null;
+  totalQuestions?: number | null;
+  correctCount?: number | null;
+  sessionScore?: number | null;
+  sessionMaxScore?: number | null;
+  sessionPercentage?: number | null;
+  completed: boolean;
+}
+
+export interface StudentPlanRuntimeProgressPayload {
+  completedStepIds?: string[];
+  activeStepId?: string;
+  status?: string;
+}
+
+export interface StudentPlanRuntimeProgressResult {
+  studentPlanId: string;
+  studentId: string;
+  activeStepId?: string | null;
+  completedStepIds: string[];
+  totalSteps: number;
+  completedSteps: number;
+  currentProgress: number;
+  status: string;
+  updatedAt?: string | null;
+}
+
 interface StudentFetchOptions {
   forceRefresh?: boolean;
 }
@@ -115,7 +226,7 @@ interface EnrollmentSummaryFallbackItem {
   updatedAt?: string | null;
 }
 
-const tryStudentAssessmentEndpoints = import.meta.env.VITE_ENABLE_STUDENT_ASSESSMENT_ENDPOINTS === 'true';
+const tryStudentAssessmentEndpoints = import.meta.env.VITE_ENABLE_STUDENT_ASSESSMENT_ENDPOINTS !== 'false';
 let supportsStudentAssessmentEndpoints: boolean | null = tryStudentAssessmentEndpoints ? null : false;
 
 const parseTimestamp = (value?: string | null): number | null => {
@@ -251,6 +362,106 @@ export const studentService = {
       `/students/${studentId}/subjects/${subjectId}/overview`,
       { cacheTtlMs: 2 * 60 * 1000 }
     );
+  },
+
+  getActivityFeed: async (
+    studentId: string,
+    filters: StudentActivityFeedFilters = {},
+    options: StudentFetchOptions = {}
+  ): Promise<StudentActivityFeedItem[]> => {
+    if (!studentId || studentId === 'undefined') {
+      throw new Error('Student id is required');
+    }
+
+    const query = new URLSearchParams();
+    if (filters.subjectId) query.set('subjectId', filters.subjectId);
+    if (filters.from) query.set('from', filters.from);
+    if (filters.to) query.set('to', filters.to);
+    if (typeof filters.limit === 'number') query.set('limit', String(filters.limit));
+
+    const endpoint = `/students/${studentId}/activity-feed${query.toString() ? `?${query.toString()}` : ''}`;
+    return fetchData<StudentActivityFeedItem[]>(endpoint, {
+      cacheTtlMs: 30 * 1000,
+      forceRefresh: !!options.forceRefresh,
+    });
+  },
+
+  startPracticeSession: async (
+    studentId: string,
+    subjectId: string,
+    payload: StartStudentPracticeSessionPayload = {}
+  ): Promise<StudentPracticeSession> => {
+    if (!studentId || studentId === 'undefined') {
+      throw new Error('Student id is required');
+    }
+    if (!subjectId || subjectId === 'undefined') {
+      throw new Error('Subject id is required');
+    }
+    return fetchData<StudentPracticeSession>(`/students/${studentId}/subjects/${subjectId}/practice-sessions`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  submitPracticeAnswer: async (
+    studentId: string,
+    sessionId: string,
+    payload: StudentPracticeAnswerPayload
+  ): Promise<StudentPracticeAnswerResult> => {
+    if (!studentId || studentId === 'undefined') {
+      throw new Error('Student id is required');
+    }
+    if (!sessionId || sessionId === 'undefined') {
+      throw new Error('Practice session id is required');
+    }
+    return fetchData<StudentPracticeAnswerResult>(`/students/${studentId}/practice-sessions/${sessionId}/answers`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  completePracticeSession: async (studentId: string, sessionId: string): Promise<StudentPracticeSession> => {
+    if (!studentId || studentId === 'undefined') {
+      throw new Error('Student id is required');
+    }
+    if (!sessionId || sessionId === 'undefined') {
+      throw new Error('Practice session id is required');
+    }
+    return fetchData<StudentPracticeSession>(`/students/${studentId}/practice-sessions/${sessionId}/complete`, {
+      method: 'POST',
+    });
+  },
+
+  getPracticeSessionHistory: async (
+    studentId: string,
+    subjectId?: string,
+    limit?: number
+  ): Promise<StudentPracticeSession[]> => {
+    if (!studentId || studentId === 'undefined') {
+      throw new Error('Student id is required');
+    }
+    const query = new URLSearchParams();
+    if (subjectId) query.set('subjectId', subjectId);
+    if (typeof limit === 'number') query.set('limit', String(limit));
+    const endpoint = `/students/${studentId}/practice-sessions/history${query.toString() ? `?${query.toString()}` : ''}`;
+    return fetchData<StudentPracticeSession[]>(endpoint, { cacheTtlMs: 30 * 1000 });
+  },
+
+  updatePlanRuntimeProgress: async (
+    studentId: string,
+    studentPlanId: string,
+    payload: StudentPlanRuntimeProgressPayload
+  ): Promise<StudentPlanRuntimeProgressResult> => {
+    if (!studentId || studentId === 'undefined') {
+      throw new Error('Student id is required');
+    }
+    if (!studentPlanId || studentPlanId === 'undefined') {
+      throw new Error('Student plan id is required');
+    }
+    return fetchData<StudentPlanRuntimeProgressResult>(`/students/${studentId}/plans/${studentPlanId}/runtime`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
   },
 
   getAssessmentHistory: async (

@@ -1,43 +1,75 @@
-import { DevelopmentPlan, StepType, Subject } from '../../../types';
+import { StepType } from '../../../types';
+import { StudentActivityFeedItem } from '../../../services/studentService';
 import { HomeProgressRow } from './types';
 
-interface SubjectPlanPair {
-  subject: Subject;
-  plan: DevelopmentPlan | null;
-}
+const clampPercent = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
 
-export const buildHomeProgressRows = (overviewSubjects: SubjectPlanPair[]): HomeProgressRow[] => {
-  const rows: HomeProgressRow[] = [];
+const resolveActivityStepType = (activityType?: string | null): StepType => {
+  const normalized = String(activityType || '').trim().toLowerCase();
+  if (normalized.includes('assessment') || normalized.includes('practice') || normalized.includes('attempt')) {
+    return 'assignment';
+  }
+  if (normalized.includes('plan')) {
+    return 'document';
+  }
+  return 'discussion';
+};
 
-  overviewSubjects.forEach(({ subject, plan }, subjectIndex) => {
-    if (!plan?.plan?.steps?.length) return;
+const resolveProgressPercent = (item: StudentActivityFeedItem): number => {
+  if (typeof item.progressPercent === 'number' && Number.isFinite(item.progressPercent)) {
+    return clampPercent(item.progressPercent);
+  }
+  if (
+    typeof item.score === 'number' &&
+    Number.isFinite(item.score) &&
+    typeof item.maxScore === 'number' &&
+    Number.isFinite(item.maxScore) &&
+    item.maxScore > 0
+  ) {
+    return clampPercent((item.score / item.maxScore) * 100);
+  }
+  return 0;
+};
 
-    const sortedSteps = [...plan.plan.steps].sort((a, b) => (a.order || 0) - (b.order || 0)).slice(0, 5);
-    const progressUnits = (Math.max(0, Math.min(100, plan.currentProgress || 0)) / 100) * Math.max(sortedSteps.length, 1);
+const resolveCorrectTotal = (item: StudentActivityFeedItem): string => {
+  if (typeof item.correctCount === 'number' && typeof item.totalCount === 'number' && item.totalCount > 0) {
+    return `${item.correctCount}/${item.totalCount}`;
+  }
+  return '–';
+};
 
-    sortedSteps.forEach((step, stepIndex) => {
-      const date = new Date();
-      date.setMinutes(date.getMinutes() - (subjectIndex * 145 + stepIndex * 38 + 12));
+const parseOccurredAt = (value?: string | null): Date | null => {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
 
-      const progressPercent = Math.max(0, Math.min(100, Math.round((progressUnits - stepIndex) * 100)));
-      const isScored = step.type === 'quiz' || step.type === 'assignment';
-      const scoredCorrect = Math.max(0, Math.min(4, Math.round((progressPercent / 100) * 4)));
-      const baseTime = step.type === 'video' ? 0 : step.type === 'document' ? 1 : step.type === 'discussion' ? 2 : 3;
+export const mapActivityFeedToProgressRows = (
+  activityFeed: StudentActivityFeedItem[],
+  fallbackSubjectNameById: Map<string, string>
+): HomeProgressRow[] => {
+  return activityFeed
+    .map((item): HomeProgressRow | null => {
+      const occurredAt = parseOccurredAt(item.occurredAt);
+      if (!occurredAt) return null;
+      const subjectName = String(item.subjectName || '').trim()
+        || (item.subjectId ? fallbackSubjectNameById.get(item.subjectId) : null)
+        || 'General';
 
-      rows.push({
-        id: `${subject.id}-${step.title}-${stepIndex}`,
-        title: step.title,
-        subjectName: subject.name,
-        type: step.type,
-        progressPercent,
-        date,
-        correctTotal: isScored ? `${scoredCorrect}/4` : '–',
-        timeMinutes: Math.max(0, baseTime + Math.round(progressPercent / 50)),
-      });
-    });
-  });
-
-  return rows.sort((a, b) => b.date.getTime() - a.date.getTime()).slice(0, 12);
+      return {
+        id: item.id || `${item.activityType}-${item.sourceId || occurredAt.toISOString()}`,
+        title: item.title || 'Learning activity',
+        subjectName,
+        type: resolveActivityStepType(item.activityType),
+        activityType: item.activityType || undefined,
+        progressPercent: resolveProgressPercent(item),
+        date: occurredAt,
+        correctTotal: resolveCorrectTotal(item),
+        timeMinutes: Math.max(0, Number(item.timeMinutes || 0)),
+      };
+    })
+    .filter((row): row is HomeProgressRow => Boolean(row))
+    .sort((a, b) => b.date.getTime() - a.date.getTime());
 };
 
 export const filterHomeProgressRows = (
@@ -75,10 +107,12 @@ export const filterHomeProgressRows = (
 };
 
 export const getProgressExerciseMinutes = (rows: HomeProgressRow[]) =>
-  Math.max(12, rows.reduce((total, row) => total + row.timeMinutes, 0));
+  rows
+    .filter((row) => !isLearnStepType(row.type))
+    .reduce((total, row) => total + Math.max(0, row.timeMinutes), 0);
 
 export const getProgressTotalLearningMinutes = (rows: HomeProgressRow[]) =>
-  Math.max(38, rows.reduce((total, row) => total + Math.max(1, row.timeMinutes + (row.progressPercent > 0 ? 1 : 0)), 0));
+  rows.reduce((total, row) => total + Math.max(0, row.timeMinutes), 0);
 
 export const formatProgressDate = (date: Date) => {
   const datePart = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });

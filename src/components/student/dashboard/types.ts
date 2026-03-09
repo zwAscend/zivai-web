@@ -11,13 +11,14 @@ export type NavItemKey =
   | 'peer-study'
   | 'profile';
 
-export type HomePanelKey = 'subjects' | 'progress' | 'profile' | 'teachers';
+export type HomePanelKey = 'subjects' | 'progress' | 'activities' | 'profile' | 'teachers';
 
 export interface HomeProgressRow {
   id: string;
   title: string;
   subjectName: string;
   type: StepType;
+  activityType?: string;
   progressPercent: number;
   date: Date;
   correctTotal: string;

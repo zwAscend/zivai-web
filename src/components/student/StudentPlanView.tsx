@@ -15,9 +15,11 @@ import {
   Video,
   X,
 } from 'lucide-react';
-import StudentPracticeRunner, { buildMockPracticeQuestions } from './StudentPracticeRunner';
+import StudentPracticeRunner, { PracticeQuestion } from './StudentPracticeRunner';
+import { StudentPracticeSession, StudentPracticeSessionQuestion, studentService } from '../../services/studentService';
 
 interface StudentPlanViewProps {
+  studentId: string;
   plan: DevelopmentPlan;
   initialStepIndex?: number;
 }
@@ -94,111 +96,58 @@ const getNextStepLabel = (type: string) => {
 };
 
 const getStepLessonContent = (step: Step) => {
-  const topic = step.title;
-
-  if (step.type === 'document') {
+  const content = String(step.content || '').trim();
+  if (!content) {
     return {
-      intro: `This lesson introduces ${topic.toLowerCase()} and explains how to apply it in worked examples.`,
+      intro: `This step focuses on ${step.title.toLowerCase()}.`,
       sections: [
         {
-          heading: 'What you will learn in this lesson',
-          paragraphs: [
-            `You will build a clear understanding of ${topic.toLowerCase()} and when to use it in classwork or assessments.`,
-            'You should be able to explain the concept in your own words and identify it in practical examples.',
-          ],
-        },
-        {
-          heading: 'Core explanation',
-          paragraphs: [
-            `Start by reading each concept slowly, then summarize each key point before moving on to the next one.`,
-            'As you read, note definitions, rules, and common mistakes to avoid.',
-          ],
+          heading: 'Instruction',
+          paragraphs: ['No detailed content is available yet for this step.'],
         },
       ],
     };
   }
 
-  if (step.type === 'assignment') {
-    return {
-      intro: `This task is focused on applying ${topic.toLowerCase()} through guided problem solving.`,
-      sections: [
-        {
-          heading: 'How to approach this task',
-          paragraphs: [
-            'Break each question into smaller parts and write your reasoning for every step.',
-            'Do not jump to a final answer without showing method, assumptions, and checks.',
-          ],
-        },
-        {
-          heading: 'Submission quality checklist',
-          paragraphs: [
-            'Show full working, include units/labels where needed, and verify final results.',
-            'Review your answer and explain why your method is valid.',
-          ],
-        },
-      ],
-    };
-  }
-
-  if (step.type === 'quiz') {
-    return {
-      intro: `This quiz checks mastery of ${topic.toLowerCase()} with timed practice items.`,
-      sections: [
-        {
-          heading: 'Before you start',
-          paragraphs: [
-            'Review your notes and recall key formulas, rules, or definitions.',
-            'Focus on accuracy first, then speed.',
-          ],
-        },
-        {
-          heading: 'After each attempt',
-          paragraphs: [
-            'Identify exactly where errors happened and classify the mistake type.',
-            'Retry similar items until your method is consistent.',
-          ],
-        },
-      ],
-    };
-  }
-
-  if (step.type === 'discussion') {
-    return {
-      intro: `This discussion step helps you strengthen reasoning for ${topic.toLowerCase()}.`,
-      sections: [
-        {
-          heading: 'Discussion focus',
-          paragraphs: [
-            'State your position clearly, then support it with evidence from your work.',
-            'Compare alternative approaches and explain which is more reliable.',
-          ],
-        },
-        {
-          heading: 'Reflection prompt',
-          paragraphs: [
-            'What changed in your understanding after this discussion?',
-            'Which misconception did you correct and how will you avoid it next time?',
-          ],
-        },
-      ],
-    };
-  }
-
+  const normalized = content.replace(/\r\n/g, '\n');
+  const blocks = normalized
+    .split('\n\n')
+    .map((block) => block.trim())
+    .filter(Boolean);
+  const intro = blocks[0] || `This step focuses on ${step.title.toLowerCase()}.`;
+  const sectionParagraphs = blocks.slice(1);
   return {
-    intro: `This learning step helps you progress through ${topic.toLowerCase()}.`,
+    intro,
     sections: [
       {
-        heading: 'Learning goal',
-        paragraphs: [
-          'Engage with the material actively and write down key takeaways.',
-          'Translate the concept into your own words to confirm understanding.',
-        ],
+        heading: 'Details',
+        paragraphs: sectionParagraphs.length > 0 ? sectionParagraphs : [intro],
       },
     ],
   };
 };
 
-const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepIndex }) => {
+const mapPracticeQuestion = (question: StudentPracticeSessionQuestion): PracticeQuestion => {
+  const normalizedType = String(question.questionType || '').toLowerCase();
+  if (normalizedType.includes('multiple') || normalizedType === 'true_false') {
+    return {
+      id: question.assessmentQuestionId,
+      type: question.multipleSelection ? 'multiple' : 'single',
+      prompt: question.prompt,
+      options: question.options || [],
+      correctOptionIndexes: [],
+    };
+  }
+  return {
+    id: question.assessmentQuestionId,
+    type: 'input',
+    prompt: question.prompt,
+    placeholder: 'Type your answer',
+    acceptedAnswers: [],
+  };
+};
+
+const StudentPlanView: React.FC<StudentPlanViewProps> = ({ studentId, plan, initialStepIndex }) => {
   const sortedSteps = useMemo(
     () => plan.plan.steps?.slice().sort((a, b) => (a.order || 0) - (b.order || 0)) || [],
     [plan.plan.steps]
@@ -212,6 +161,10 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
   const [selectedStepIndex, setSelectedStepIndex] = useState(0);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [completedPracticeSteps, setCompletedPracticeSteps] = useState<Record<number, boolean>>({});
+  const [completedStepIds, setCompletedStepIds] = useState<string[]>([]);
+  const [practiceSessionsByStep, setPracticeSessionsByStep] = useState<Record<number, StudentPracticeSession>>({});
+  const [practiceSessionError, setPracticeSessionError] = useState<string | null>(null);
+  const [isPracticeSessionLoading, setIsPracticeSessionLoading] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [chatMessages, setChatMessages] = useState<PlanChatMessage[]>([
@@ -227,7 +180,13 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
   const chatDragCleanupRef = useRef<(() => void) | null>(null);
 
   const selectedStep = sortedSteps[selectedStepIndex] || null;
+  const selectedStepId = selectedStep?.id ? String(selectedStep.id) : null;
   const nextStep = selectedStepIndex < totalSteps - 1 ? sortedSteps[selectedStepIndex + 1] : null;
+  const selectedPracticeSession = practiceSessionsByStep[selectedStepIndex] || null;
+  const selectedPracticeQuestions = useMemo(
+    () => (selectedPracticeSession?.questions || []).map(mapPracticeQuestion),
+    [selectedPracticeSession?.questions]
+  );
   const selectedStepLesson = useMemo(
     () => (selectedStep ? getStepLessonContent(selectedStep) : null),
     [selectedStep]
@@ -253,6 +212,14 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
 
   useEffect(() => {
     setCompletedPracticeSteps({});
+    const initialCompleted = sortedSteps
+      .slice(0, completedStepsCount)
+      .map((step) => (step.id ? String(step.id) : ''))
+      .filter(Boolean);
+    setCompletedStepIds(initialCompleted);
+    setPracticeSessionsByStep({});
+    setPracticeSessionError(null);
+    setIsPracticeSessionLoading(false);
     setIsChatOpen(false);
     setChatInput('');
     setChatMessages([
@@ -263,7 +230,7 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
       },
     ]);
     setChatPosition(null);
-  }, [plan.id]);
+  }, [plan.id, completedStepsCount, sortedSteps]);
 
   useEffect(() => () => {
     if (chatDragCleanupRef.current) {
@@ -290,6 +257,67 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
     setChatMessages((previous) => [...previous, studentMessage, coachReply]);
     setChatInput('');
   };
+
+  const persistRuntimeProgress = async (nextCompletedStepIds: string[], nextActiveStepId?: string | null) => {
+    if (!studentId || !plan.id) return;
+    try {
+      await studentService.updatePlanRuntimeProgress(studentId, plan.id, {
+        completedStepIds: nextCompletedStepIds,
+        activeStepId: nextActiveStepId || undefined,
+        status: 'active',
+      });
+    } catch {
+      // Non-blocking; next interaction will retry.
+    }
+  };
+
+  useEffect(() => {
+    const loadPracticeSession = async () => {
+      if (!selectedStep || !isPracticeStep(selectedStep.type)) {
+        setPracticeSessionError(null);
+        setIsPracticeSessionLoading(false);
+        return;
+      }
+      if (practiceSessionsByStep[selectedStepIndex]) {
+        return;
+      }
+      if (!plan.plan?.subjectId) {
+        setPracticeSessionError('Subject context is missing for this plan step.');
+        return;
+      }
+
+      try {
+        setIsPracticeSessionLoading(true);
+        setPracticeSessionError(null);
+        const session = await studentService.startPracticeSession(studentId, plan.plan.subjectId, {
+          mode: 'topic_practice',
+          title: selectedStep.title,
+        });
+        setPracticeSessionsByStep((previous) => ({
+          ...previous,
+          [selectedStepIndex]: session,
+        }));
+      } catch (error: any) {
+        setPracticeSessionError(error?.message || 'Failed to load practice session.');
+      } finally {
+        setIsPracticeSessionLoading(false);
+      }
+    };
+
+    void loadPracticeSession();
+  }, [
+    studentId,
+    plan.plan?.subjectId,
+    selectedStep,
+    selectedStepId,
+    selectedStepIndex,
+    practiceSessionsByStep,
+  ]);
+
+  useEffect(() => {
+    if (!selectedStepId) return;
+    void persistRuntimeProgress(completedStepIds, selectedStepId);
+  }, [selectedStepId]);
 
   const clampChatPosition = (x: number, y: number) => {
     const floatingNode = chatFloatingRef.current;
@@ -466,7 +494,9 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
               <button
                 key={`${step.title}-${index}`}
                 type="button"
-                onClick={() => setSelectedStepIndex(index)}
+                onClick={() => {
+                  setSelectedStepIndex(index);
+                }}
                 title={`Step ${index + 1}: ${step.title}`}
                 className={`relative w-full min-h-[72px] transition border-b border-slate-200 ${
                   isSelected
@@ -581,22 +611,60 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
           )}
 
           {selectedStep && isPracticeStep(selectedStep.type) && (
-            <StudentPracticeRunner
-              key={`${plan.id}-${selectedStepIndex}`}
-              title={selectedStep.title}
-              subtitle="Practice questions are delivered one at a time. Check each answer before moving on."
-              questions={buildMockPracticeQuestions(selectedStep.title, selectedStep.type === 'assignment' ? 'assignment' : 'quiz')}
-              fixedFooterStyle={{
-                left: 'calc(var(--student-plan-footer-left) - 3px)',
-                right: 'calc(var(--student-plan-footer-right) - 3px)',
-              }}
-              onComplete={() =>
-                setCompletedPracticeSteps((previous) => ({
-                  ...previous,
-                  [selectedStepIndex]: true,
-                }))
-              }
-            />
+            <>
+              {isPracticeSessionLoading ? (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-5 text-sm text-slate-600">
+                  Loading practice session...
+                </div>
+              ) : practiceSessionError ? (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700">
+                  {practiceSessionError}
+                </div>
+              ) : selectedPracticeSession && selectedPracticeQuestions.length > 0 ? (
+                <StudentPracticeRunner
+                  key={`${selectedPracticeSession.sessionId}`}
+                  title={selectedStep.title}
+                  subtitle="Practice questions are delivered one at a time. Check each answer before moving on."
+                  questions={selectedPracticeQuestions}
+                  fixedFooterStyle={{
+                    left: 'calc(var(--student-plan-footer-left) - 3px)',
+                    right: 'calc(var(--student-plan-footer-right) - 3px)',
+                  }}
+                  onSubmitAnswer={async ({ question, studentAnswerText, selectedOptions, skipped }) => {
+                    const result = await studentService.submitPracticeAnswer(studentId, selectedPracticeSession.sessionId, {
+                      assessmentQuestionId: question.id,
+                      studentAnswerText,
+                      selectedOptions,
+                      skipped,
+                    });
+                    return {
+                      correct: result.correct,
+                      skipped: result.skipped,
+                      completed: result.completed,
+                      feedback: result.feedback || null,
+                    };
+                  }}
+                  onCompleteSession={async () => {
+                    await studentService.completePracticeSession(studentId, selectedPracticeSession.sessionId);
+                  }}
+                  onComplete={async () => {
+                    setCompletedPracticeSteps((previous) => ({
+                      ...previous,
+                      [selectedStepIndex]: true,
+                    }));
+                    if (selectedStepId) {
+                      const nextCompletedStepIds = Array.from(new Set([...completedStepIds, selectedStepId]));
+                      setCompletedStepIds(nextCompletedStepIds);
+                      await persistRuntimeProgress(nextCompletedStepIds, selectedStepId);
+                    }
+                  }}
+                />
+              ) : (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm text-amber-700">
+                  No practice questions are available for this step yet.
+                </div>
+              )}
+            </>
           )}
         </div>
 
@@ -721,6 +789,13 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
                 <button
                   type="button"
                   onClick={() => {
+                    if (!selectedStepId) {
+                      if (nextStep) setSelectedStepIndex((prev) => Math.min(prev + 1, totalSteps - 1));
+                      return;
+                    }
+                    const nextCompletedStepIds = Array.from(new Set([...completedStepIds, selectedStepId]));
+                    setCompletedStepIds(nextCompletedStepIds);
+                    void persistRuntimeProgress(nextCompletedStepIds, nextStep?.id ? String(nextStep.id) : null);
                     if (nextStep) setSelectedStepIndex((prev) => Math.min(prev + 1, totalSteps - 1));
                   }}
                   disabled={!nextStep}
@@ -737,6 +812,13 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
               <button
                 type="button"
                 onClick={() => {
+                  if (!selectedStepId) {
+                    if (nextStep) setSelectedStepIndex((prev) => Math.min(prev + 1, totalSteps - 1));
+                    return;
+                  }
+                  const nextCompletedStepIds = Array.from(new Set([...completedStepIds, selectedStepId]));
+                  setCompletedStepIds(nextCompletedStepIds);
+                  void persistRuntimeProgress(nextCompletedStepIds, nextStep?.id ? String(nextStep.id) : null);
                   if (nextStep) setSelectedStepIndex((prev) => Math.min(prev + 1, totalSteps - 1));
                 }}
                 disabled={!nextStep}

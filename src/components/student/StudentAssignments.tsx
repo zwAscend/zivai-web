@@ -7,6 +7,7 @@ import {
   CheckCircle,
   Clock,
   Eye,
+  FileSearch,
   FileText,
   Loader2,
   Upload,
@@ -198,6 +199,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
   const [entries, setEntries] = useState<AssignmentEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [lastFetchedAt, setLastFetchedAt] = useState<number>(0);
 
   const [assessmentTab, setAssessmentTab] = useState<AssessmentTabKey>('attempt');
   const [selectedReviewEntryId, setSelectedReviewEntryId] = useState<string | null>(null);
@@ -297,6 +299,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
         });
 
       setEntries(mappedEntries);
+      setLastFetchedAt(Date.now());
     } catch (err: any) {
       setEntries([]);
       if (err instanceof ApiError && err.status === 404) {
@@ -308,6 +311,17 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
       setLoading(false);
     }
   }, [studentId, selectedSubjectId]);
+
+  const handleAssessmentTabChange = useCallback(
+    async (nextTab: AssessmentTabKey) => {
+      setAssessmentTab(nextTab);
+      const shouldRefresh = !lastFetchedAt || Date.now() - lastFetchedAt > 60_000;
+      if (shouldRefresh) {
+        await fetchWorkspace();
+      }
+    },
+    [fetchWorkspace, lastFetchedAt]
+  );
 
   useEffect(() => {
     fetchWorkspace();
@@ -359,6 +373,12 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
   );
 
   useEffect(() => {
+    if (assessmentTab !== 'review') {
+      setSelectedAssessmentDetail(null);
+      setLoadingAssessmentDetail(false);
+      return;
+    }
+
     const assessmentId = selectedReviewEntry?.assessmentId;
     if (!assessmentId || !studentId) {
       setSelectedAssessmentDetail(null);
@@ -411,7 +431,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
     return () => {
       cancelled = true;
     };
-  }, [studentId, selectedReviewEntry?.assessmentId, mergeAssessmentIntoEntries]);
+  }, [assessmentTab, studentId, selectedReviewEntry?.assessmentId, mergeAssessmentIntoEntries]);
 
   const reviewQuestions = useMemo(() => {
     const questions = reviewSubmissionDetail?.questions || [];
@@ -419,6 +439,12 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
   }, [reviewSubmissionDetail]);
 
   useEffect(() => {
+    if (assessmentTab !== 'review') {
+      setReviewSubmissionDetail(null);
+      setLoadingReviewDetail(false);
+      return;
+    }
+
     const submissionId = selectedReviewEntry?.submission?.id;
     if (!submissionId) {
       setReviewSubmissionDetail(null);
@@ -459,7 +485,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
     return () => {
       cancelled = true;
     };
-  }, [selectedReviewEntry?.submission?.id]);
+  }, [assessmentTab, selectedReviewEntry?.submission?.id]);
 
   const assessmentTypes = useMemo(
     () =>
@@ -668,9 +694,9 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
           </p>
 
           <nav className={`${isSidebarCollapsed ? '-mx-4 sm:-mx-5 border-y border-slate-200 bg-white overflow-hidden' : '-mx-4 sm:-mx-5 border-t border-slate-200'}`}>
-            <button
-              type="button"
-              onClick={() => setAssessmentTab('attempt')}
+              <button
+                type="button"
+                onClick={() => void handleAssessmentTabChange('attempt')}
               className={`w-full inline-flex items-center text-sm transition ${
                 isSidebarCollapsed
                   ? 'justify-center h-11 border-b border-slate-200'
@@ -706,9 +732,9 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                 <span className={`text-xs font-semibold ${assessmentTab === 'attempt' ? 'text-blue-700' : 'text-slate-500'}`}>{pendingCount}</span>
               )}
             </button>
-            <button
-              type="button"
-              onClick={() => setAssessmentTab('list')}
+              <button
+                type="button"
+                onClick={() => void handleAssessmentTabChange('list')}
               className={`w-full inline-flex items-center text-sm transition ${
                 isSidebarCollapsed
                   ? 'justify-center h-11 border-b border-slate-200'
@@ -744,9 +770,9 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                 <span className={`text-xs font-semibold ${assessmentTab === 'list' ? 'text-blue-700' : 'text-slate-500'}`}>{entries.length}</span>
               )}
             </button>
-            <button
-              type="button"
-              onClick={() => setAssessmentTab('review')}
+              <button
+                type="button"
+                onClick={() => void handleAssessmentTabChange('review')}
               className={`w-full inline-flex items-center text-sm transition ${
                 isSidebarCollapsed
                   ? 'justify-center h-11 border-b border-slate-200'
@@ -1165,10 +1191,14 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
           {assessmentTab === 'review' && (
             <>
               {!selectedReviewEntry ? (
-                <div className="rounded-lg border border-slate-200 bg-slate-50 p-8 text-center">
-                  <Eye className="w-12 h-12 text-slate-400 mx-auto mb-3" />
-                  <h3 className="text-lg font-semibold text-slate-700">Select an assessment to review</h3>
-                  <p className="text-sm text-slate-500">Open Assessment List and pick an assessment.</p>
+                <div className="rounded-lg border border-slate-200 bg-gradient-to-b from-slate-50 to-white p-8 text-center">
+                  <div className="mx-auto mb-3 inline-flex h-14 w-14 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm">
+                    <FileSearch className="h-7 w-7" />
+                  </div>
+                  <h3 className="text-lg font-semibold text-slate-700">No assessment selected for review</h3>
+                  <p className="text-sm text-slate-500">
+                    Open Assessment List, then choose an assessment to review its submission and feedback.
+                  </p>
                 </div>
               ) : (
                 <>
@@ -1182,7 +1212,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                       </div>
                       <button
                         type="button"
-                        onClick={() => setAssessmentTab('list')}
+                        onClick={() => void handleAssessmentTabChange('list')}
                         className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                       >
                         Back to list

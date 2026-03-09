@@ -17,15 +17,19 @@ import {
   Target,
   X,
 } from 'lucide-react';
-import { Question, Subject } from '../../types';
-import { aiService } from '../../services/aiService';
+import { Subject } from '../../types';
 import {
   curriculumService,
   CurriculumTopicWithResources as CurriculumTopicApi,
   CurriculumTopicResource,
 } from '../../services/curriculumService';
-import { studentService, StudentSubjectOverview } from '../../services/studentService';
-import StudentPracticeRunner, { buildMockPracticeQuestions, PracticeQuestion, PracticeRunSummary } from './StudentPracticeRunner';
+import {
+  studentService,
+  StudentPracticeSession,
+  StudentPracticeSessionQuestion,
+  StudentSubjectOverview,
+} from '../../services/studentService';
+import StudentPracticeRunner, { PracticeQuestion, PracticeRunSummary } from './StudentPracticeRunner';
 
 type PracticeStatus = 'not-started' | 'in-progress' | 'mastered';
 type ResourceType = 'video' | 'notes' | 'article';
@@ -91,10 +95,9 @@ type ChallengeDifficulty = 'easy' | 'medium' | 'hard';
 interface ChallengeGenerationConfig {
   questionCount: number;
   difficulty: ChallengeDifficulty;
-  prompt: string;
   questions: PracticeQuestion[];
+  sessionId?: string | null;
   isGenerating: boolean;
-  generatedWithAi: boolean;
   error: string | null;
 }
 
@@ -118,10 +121,9 @@ const CRITICAL_TOPIC_MASTERY_THRESHOLD = 50;
 const createChallengeGenerationConfig = (questionCount: number): ChallengeGenerationConfig => ({
   questionCount,
   difficulty: 'medium',
-  prompt: '',
   questions: [],
+  sessionId: null,
   isGenerating: false,
-  generatedWithAi: false,
   error: null,
 });
 
@@ -175,20 +177,6 @@ const getUpNextLabelForContentItem = (item: TopicContentItem) => {
 
 const normalizeText = (value: string | null | undefined) => String(value || '').trim().toLowerCase();
 
-const getQuestionOptionText = (option: unknown): string => {
-  if (typeof option === 'string') return option.trim();
-  if (option && typeof option === 'object' && 'text' in option) {
-    const text = (option as { text?: unknown }).text;
-    return typeof text === 'string' ? text.trim() : '';
-  }
-  return '';
-};
-
-const isQuestionOptionCorrect = (option: unknown): boolean => {
-  if (!option || typeof option !== 'object' || !('isCorrect' in option)) return false;
-  return Boolean((option as { isCorrect?: unknown }).isCorrect);
-};
-
 const getResourceTypeFromItem = (
   resource: Pick<CurriculumTopicResource, 'type' | 'mimeType' | 'contentType' | 'name' | 'originalName'>
 ): ResourceType => {
@@ -222,6 +210,32 @@ const getResourceTypeFromItem = (
   return 'article';
 };
 
+const parseQuestionCountFromTarget = (target?: string, fallback = 10) => {
+  const parsed = Number.parseInt(String(target || '').replace(/[^\d]/g, ''), 10);
+  if (Number.isNaN(parsed)) return fallback;
+  return Math.max(1, Math.min(40, parsed));
+};
+
+const mapPracticeQuestionFromSession = (question: StudentPracticeSessionQuestion): PracticeQuestion => {
+  const normalizedType = String(question.questionType || '').toLowerCase();
+  if (normalizedType.includes('multiple') || normalizedType === 'true_false') {
+    return {
+      id: question.assessmentQuestionId,
+      type: question.multipleSelection ? 'multiple' : 'single',
+      prompt: question.prompt,
+      options: question.options || [],
+      correctOptionIndexes: [],
+    };
+  }
+  return {
+    id: question.assessmentQuestionId,
+    type: 'input',
+    prompt: question.prompt,
+    placeholder: 'Type your answer',
+    acceptedAnswers: [],
+  };
+};
+
 const mapSubjectOverviewToUnits = (
   subjectName: string,
   overview: StudentSubjectOverview,
@@ -242,7 +256,7 @@ const mapSubjectOverviewToUnits = (
         return normalized !== 'practice' && normalized !== 'assessment_material';
       });
 
-      const learnResources: CurriculumResource[] = learnTopicResources.slice(0, 4).map((resource) => ({
+      const learnResources: CurriculumResource[] = learnTopicResources.map((resource) => ({
         id: resource.id,
         title: resource.name || resource.originalName || 'Learning resource',
         type: getResourceTypeFromItem(resource),
@@ -287,164 +301,13 @@ const mapSubjectOverviewToUnits = (
 
     return {
       id: unit.unitId,
-      code: unit.code || `Unit ${unit.unitNumber}`,
-      title: unit.title || `${subjectName} unit ${unit.unitNumber}`,
+      code: unit.code ? unit.code.replace(/^unit\b/i, 'Topic') : `Topic ${unit.unitNumber}`,
+      title: unit.title || `${subjectName} topic ${unit.unitNumber}`,
       summary,
       masteryPercent: Math.max(0, Math.min(100, Math.round(unit.masteryPercent || 0))),
       topics: mappedTopics,
     };
   });
-};
-
-const buildUnitChallengeQuestions = (unit: CurriculumUnit, targetCount = DEFAULT_UNIT_CHALLENGE_COUNT): PracticeQuestion[] => {
-  const topicSeedPool = unit.topics.flatMap((topic, topicIndex) =>
-    buildMockPracticeQuestions(`${unit.title} ${topic.title}`, 'quiz').map((question, questionIndex) => ({
-      ...question,
-      id: `${unit.id}-topic-${topicIndex + 1}-q-${questionIndex + 1}`,
-    }))
-  );
-
-  const fallbackPool = buildMockPracticeQuestions(`${unit.title} unit challenge`, 'mixed').map((question, index) => ({
-    ...question,
-    id: `${unit.id}-fallback-q-${index + 1}`,
-  }));
-
-  const dedupedByPrompt: PracticeQuestion[] = [];
-  const seenPrompts = new Set<string>();
-
-  [...topicSeedPool, ...fallbackPool].forEach((question) => {
-    const key = `${question.type}:${question.prompt.toLowerCase()}`;
-    if (seenPrompts.has(key)) return;
-    seenPrompts.add(key);
-    dedupedByPrompt.push(question);
-  });
-
-  const finalizedQuestions = [...dedupedByPrompt];
-  let fallbackIndex = 0;
-
-  while (finalizedQuestions.length < targetCount) {
-    const fallbackQuestion = fallbackPool[fallbackIndex % fallbackPool.length];
-    finalizedQuestions.push({
-      ...fallbackQuestion,
-      id: `${unit.id}-extra-q-${fallbackIndex + 1}`,
-    });
-    fallbackIndex += 1;
-  }
-
-  return finalizedQuestions.slice(0, targetCount).map((question, index) => ({
-    ...question,
-    id: `${unit.id}-challenge-q-${index + 1}`,
-  }));
-};
-
-const buildSubjectChallengeQuestions = (units: CurriculumUnit[], targetCount = DEFAULT_SUBJECT_CHALLENGE_COUNT): PracticeQuestion[] => {
-  const pooledQuestions = units.flatMap((unit, unitIndex) =>
-    buildUnitChallengeQuestions(unit).map((question, questionIndex) => ({
-      ...question,
-      id: `subject-${unitIndex + 1}-q-${questionIndex + 1}`,
-    }))
-  );
-
-  const dedupedByPrompt: PracticeQuestion[] = [];
-  const seenPrompts = new Set<string>();
-
-  pooledQuestions.forEach((question) => {
-    const key = `${question.type}:${question.prompt.toLowerCase()}`;
-    if (seenPrompts.has(key)) return;
-    seenPrompts.add(key);
-    dedupedByPrompt.push(question);
-  });
-
-  const fallbackPool = dedupedByPrompt.length > 0 ? dedupedByPrompt : buildMockPracticeQuestions('subject challenge', 'mixed');
-  const finalizedQuestions = [...dedupedByPrompt];
-  let fallbackIndex = 0;
-
-  while (finalizedQuestions.length < targetCount) {
-    const fallbackQuestion = fallbackPool[fallbackIndex % fallbackPool.length];
-    finalizedQuestions.push({
-      ...fallbackQuestion,
-      id: `subject-extra-q-${fallbackIndex + 1}`,
-    });
-    fallbackIndex += 1;
-  }
-
-  return finalizedQuestions.slice(0, targetCount).map((question, index) => ({
-    ...question,
-    id: `subject-challenge-q-${index + 1}`,
-  }));
-};
-
-const mapAiQuestionsToPractice = (
-  aiQuestions: Question[],
-  fallbackSeed: string,
-  targetCount: number
-): PracticeQuestion[] => {
-  const mappedQuestions: PracticeQuestion[] = aiQuestions.map((question, index) => {
-    const prompt = (question.text || `Question ${index + 1}`).trim();
-    const questionOptions = Array.isArray(question.options) ? (question.options as unknown[]) : [];
-
-    const optionTexts = questionOptions.map((option) => getQuestionOptionText(option)).filter((option): option is string => option.length > 0);
-
-    if ((question.type === 'multiple_choice' || question.type === 'true_false') && optionTexts.length >= 2) {
-      const correctIndexesFromFlags = questionOptions
-        .map((option, optionIndex) => {
-          return isQuestionOptionCorrect(option) ? optionIndex : null;
-        })
-        .filter((value): value is number => typeof value === 'number');
-
-      let correctOptionIndexes = correctIndexesFromFlags;
-      if (correctOptionIndexes.length === 0 && question.correctAnswer) {
-        const correctAnswers = Array.isArray(question.correctAnswer)
-          ? question.correctAnswer.map((answer) => String(answer).trim().toLowerCase())
-          : [String(question.correctAnswer).trim().toLowerCase()];
-        correctOptionIndexes = optionTexts
-          .map((option, optionIndex) => (correctAnswers.includes(option.trim().toLowerCase()) ? optionIndex : -1))
-          .filter((value) => value >= 0);
-      }
-
-      if (correctOptionIndexes.length === 0) {
-        correctOptionIndexes = [0];
-      }
-
-      return {
-        id: `ai-choice-${index + 1}`,
-        type: correctOptionIndexes.length > 1 ? 'multiple' : 'single',
-        prompt,
-        options: optionTexts,
-        correctOptionIndexes,
-      } as PracticeQuestion;
-    }
-
-    const acceptedAnswers = Array.isArray(question.correctAnswer)
-      ? question.correctAnswer.map((answer) => String(answer))
-      : question.correctAnswer
-        ? [String(question.correctAnswer)]
-        : ['sample answer'];
-
-    return {
-      id: `ai-input-${index + 1}`,
-      type: 'input',
-      prompt,
-      placeholder: 'Type your answer',
-      acceptedAnswers,
-    } as PracticeQuestion;
-  });
-
-  const fallbackQuestions = buildMockPracticeQuestions(fallbackSeed, 'quiz');
-  const finalizedQuestions = [...mappedQuestions];
-
-  while (finalizedQuestions.length < targetCount) {
-    const fallbackQuestion = fallbackQuestions[finalizedQuestions.length % fallbackQuestions.length];
-    finalizedQuestions.push({
-      ...fallbackQuestion,
-      id: `fallback-${finalizedQuestions.length + 1}`,
-    });
-  }
-
-  return finalizedQuestions.slice(0, targetCount).map((question, index) => ({
-    ...question,
-    id: `generated-${index + 1}`,
-  }));
 };
 
 const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, selectedSubjectId, subjects }) => {
@@ -459,6 +322,9 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
   const [practiceStatusOverrides, setPracticeStatusOverrides] = useState<Record<string, PracticeStatus>>({});
   const [collapsedTopicIds, setCollapsedTopicIds] = useState<Record<string, boolean>>({});
   const [detailState, setDetailState] = useState<{ unitId: string; topicId: string; contentItemId: string } | null>(null);
+  const [detailPracticeSession, setDetailPracticeSession] = useState<StudentPracticeSession | null>(null);
+  const [detailPracticeLoading, setDetailPracticeLoading] = useState(false);
+  const [detailPracticeError, setDetailPracticeError] = useState<string | null>(null);
   const [unitChallengeState, setUnitChallengeState] = useState<{
     unitId: string;
     stage: UnitChallengeStage;
@@ -579,6 +445,9 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
   useEffect(() => {
     setSelectedUnitIndex(0);
     setDetailState(null);
+    setDetailPracticeSession(null);
+    setDetailPracticeLoading(false);
+    setDetailPracticeError(null);
     setPracticeStatusOverrides({});
     setCollapsedTopicIds({});
     setSubjectOverview(null);
@@ -670,46 +539,28 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
     updateUnitChallengeConfig((current) => ({ ...current, isGenerating: true, error: null }));
 
     try {
-      const subjectAttributes = await aiService.getSubjectAttributes(activeSubject.id).catch(() => []);
-      const selectedAttributes = subjectAttributes.slice(0, 4).map((attribute) => ({
-        id: attribute.id,
-        name: attribute.name,
-        description: attribute.description,
-      }));
-
-      const generatedQuestions = await aiService.generateQuestions({
-        subjectId: activeSubject.id,
-        attributes: selectedAttributes.length > 0
-          ? selectedAttributes
-          : [{ id: selectedUnit.id, name: selectedUnit.title, description: selectedUnit.summary }],
+      const session = await studentService.startPracticeSession(studentId, activeSubject.id, {
+        topicId: selectedUnit.topics[0]?.id,
         questionCount: currentConfig.questionCount,
-        questionTypes: ['multiple_choice'],
-        difficulty: currentConfig.difficulty,
-        context: `Generate a unit challenge for ${activeSubject.name}. Unit: ${selectedUnit.code}: ${selectedUnit.title}. ${currentConfig.prompt}`.trim(),
-        tags: [activeSubject.name, selectedUnit.title, 'unit challenge'],
+        mode: 'topic_challenge',
+        title: `${selectedUnit.code}: ${selectedUnit.title} topic challenge`,
       });
-
-      const practiceQuestions = mapAiQuestionsToPractice(
-        generatedQuestions,
-        `${selectedUnit.title} unit challenge`,
-        currentConfig.questionCount
-      );
+      const practiceQuestions = (session.questions || []).map(mapPracticeQuestionFromSession);
 
       updateUnitChallengeConfig((current) => ({
         ...current,
         questions: practiceQuestions,
+        sessionId: session.sessionId,
         isGenerating: false,
-        generatedWithAi: true,
         error: null,
       }));
     } catch (error) {
-      const fallbackQuestions = buildUnitChallengeQuestions(selectedUnit, currentConfig.questionCount);
       updateUnitChallengeConfig((current) => ({
         ...current,
-        questions: fallbackQuestions,
+        questions: [],
+        sessionId: null,
         isGenerating: false,
-        generatedWithAi: false,
-        error: 'AI generation is unavailable right now. A local draft challenge has been prepared.',
+        error: 'Unable to prepare challenge questions right now. Please retry.',
       }));
     }
   };
@@ -728,46 +579,27 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
     updateSubjectChallengeConfig((current) => ({ ...current, isGenerating: true, error: null }));
 
     try {
-      const subjectAttributes = await aiService.getSubjectAttributes(activeSubject.id).catch(() => []);
-      const selectedAttributes = subjectAttributes.slice(0, 6).map((attribute) => ({
-        id: attribute.id,
-        name: attribute.name,
-        description: attribute.description,
-      }));
-
-      const generatedQuestions = await aiService.generateQuestions({
-        subjectId: activeSubject.id,
-        attributes: selectedAttributes.length > 0
-          ? selectedAttributes
-          : [{ id: activeSubject.id, name: activeSubject.name, description: `${activeSubject.name} challenge` }],
+      const session = await studentService.startPracticeSession(studentId, activeSubject.id, {
         questionCount: currentConfig.questionCount,
-        questionTypes: ['multiple_choice'],
-        difficulty: currentConfig.difficulty,
-        context: `Generate a subject challenge for ${activeSubject.name}. Include all major units and topic coverage. ${currentConfig.prompt}`.trim(),
-        tags: [activeSubject.name, 'subject challenge'],
+        mode: 'subject_challenge',
+        title: `${activeSubject.name} subject challenge`,
       });
-
-      const practiceQuestions = mapAiQuestionsToPractice(
-        generatedQuestions,
-        `${activeSubject.name} subject challenge`,
-        currentConfig.questionCount
-      );
+      const practiceQuestions = (session.questions || []).map(mapPracticeQuestionFromSession);
 
       updateSubjectChallengeConfig((current) => ({
         ...current,
         questions: practiceQuestions,
+        sessionId: session.sessionId,
         isGenerating: false,
-        generatedWithAi: true,
         error: null,
       }));
     } catch (error) {
-      const fallbackQuestions = buildSubjectChallengeQuestions(units, currentConfig.questionCount);
       updateSubjectChallengeConfig((current) => ({
         ...current,
-        questions: fallbackQuestions,
+        questions: [],
+        sessionId: null,
         isGenerating: false,
-        generatedWithAi: false,
-        error: 'AI generation is unavailable right now. A local draft challenge has been prepared.',
+        error: 'Unable to prepare challenge questions right now. Please retry.',
       }));
     }
   };
@@ -982,10 +814,10 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
   };
 
   const startUnitChallenge = () => {
-    if (!selectedUnitChallengeConfig.questions.length) {
+    if (!selectedUnitChallengeConfig.questions.length || !selectedUnitChallengeConfig.sessionId) {
       updateUnitChallengeConfig((current) => ({
         ...current,
-        error: 'Generate questions with AI before you start this challenge.',
+        error: 'Prepare challenge questions before you start.',
       }));
       return;
     }
@@ -1038,10 +870,10 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
       }));
       return;
     }
-    if (!selectedSubjectChallengeConfig.questions.length) {
+    if (!selectedSubjectChallengeConfig.questions.length || !selectedSubjectChallengeConfig.sessionId) {
       updateSubjectChallengeConfig((current) => ({
         ...current,
-        error: 'Generate questions with AI before you start this challenge.',
+        error: 'Prepare challenge questions before you start.',
       }));
       return;
     }
@@ -1066,10 +898,10 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
 
   const openUnitChallengeStep = (step: 1 | 2) => {
     if (isUnitChallengeRunning) return;
-    if (step === 2 && selectedUnitChallengeConfig.questions.length === 0) {
+    if (step === 2 && (selectedUnitChallengeConfig.questions.length === 0 || !selectedUnitChallengeConfig.sessionId)) {
       updateUnitChallengeConfig((current) => ({
         ...current,
-        error: 'Generate questions with AI in Step 1 before attempting Step 2.',
+        error: 'Prepare challenge questions in Step 1 before attempting Step 2.',
       }));
       return;
     }
@@ -1078,10 +910,10 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
 
   const openSubjectChallengeStep = (step: 1 | 2) => {
     if (isSubjectChallengeRunning) return;
-    if (step === 2 && selectedSubjectChallengeConfig.questions.length === 0) {
+    if (step === 2 && (selectedSubjectChallengeConfig.questions.length === 0 || !selectedSubjectChallengeConfig.sessionId)) {
       updateSubjectChallengeConfig((current) => ({
         ...current,
-        error: 'Generate questions with AI in Step 1 before attempting Step 2.',
+        error: 'Prepare challenge questions in Step 1 before attempting Step 2.',
       }));
       return;
     }
@@ -1100,6 +932,10 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
     selectedDetailItem.kind === 'practice' &&
     selectedDetailItem.practice
   );
+  const detailPracticeQuestions = useMemo(
+    () => (detailPracticeSession?.questions || []).map(mapPracticeQuestionFromSession),
+    [detailPracticeSession?.questions]
+  );
   const selectedDetailItemIndex = selectedDetailItem
     ? detailItems.findIndex((item) => item.id === selectedDetailItem.id)
     : -1;
@@ -1107,6 +943,42 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
     selectedDetailItemIndex >= 0 && selectedDetailItemIndex < detailItems.length - 1
       ? detailItems[selectedDetailItemIndex + 1]
       : null;
+
+  useEffect(() => {
+    const loadDetailPracticeSession = async () => {
+      if (!activeSubject || !detailTopic || !selectedDetailItem || selectedDetailItem.kind !== 'practice' || !selectedDetailItem.practice) {
+        setDetailPracticeSession(null);
+        setDetailPracticeLoading(false);
+        setDetailPracticeError(null);
+        return;
+      }
+
+      try {
+        setDetailPracticeLoading(true);
+        setDetailPracticeError(null);
+        const session = await studentService.startPracticeSession(studentId, activeSubject.id, {
+          topicId: detailTopic.id,
+          questionCount: parseQuestionCountFromTarget(selectedDetailItem.practice.target, 10),
+          mode: 'topic_practice',
+          title: selectedDetailItem.practice.title,
+        });
+        setDetailPracticeSession(session);
+      } catch (error: any) {
+        setDetailPracticeSession(null);
+        setDetailPracticeError(error?.message || 'Failed to start practice session.');
+      } finally {
+        setDetailPracticeLoading(false);
+      }
+    };
+
+    void loadDetailPracticeSession();
+  }, [
+    studentId,
+    activeSubject,
+    detailTopic,
+    selectedDetailItem?.id,
+    selectedDetailItem?.kind,
+  ]);
 
   if (!activeSubject) {
     return (
@@ -1292,24 +1164,61 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
 
               <div className={isDetailPracticeView ? 'p-0' : 'p-6 pb-28 space-y-6'}>
                 {selectedDetailItem.kind === 'practice' && selectedDetailItem.practice ? (
-                  <StudentPracticeRunner
-                    key={`${detailTopic.id}-${selectedDetailItem.practice.id}`}
-                    title={selectedDetailItem.practice.title}
-                    subtitle="Practice questions run on a dedicated screen and are answered one by one."
-                    questions={buildMockPracticeQuestions(`${activeSubject.name} ${selectedDetailItem.practice.title}`, 'quiz')}
-                    contentWrapperClassName="px-6 py-6 pb-8 space-y-6 md:pb-12"
-                    fixedFooterStyle={{
-                      left: 'var(--subjects-footer-left)',
-                      right: 'var(--subjects-footer-right)',
-                      bottom: '0.75rem',
-                    }}
-                    onComplete={() =>
-                      setPracticeStatusOverrides((previous) => ({
-                        ...previous,
-                        [selectedDetailItem.practice!.id]: 'mastered',
-                      }))
-                    }
-                  />
+                  detailPracticeLoading ? (
+                    <div className="px-6 py-6 pb-8">
+                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+                        Loading practice session...
+                      </div>
+                    </div>
+                  ) : detailPracticeError ? (
+                    <div className="px-6 py-6 pb-8">
+                      <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+                        {detailPracticeError}
+                      </div>
+                    </div>
+                  ) : detailPracticeSession && detailPracticeQuestions.length > 0 ? (
+                    <StudentPracticeRunner
+                      key={detailPracticeSession.sessionId}
+                      title={selectedDetailItem.practice.title}
+                      subtitle="Practice questions run on a dedicated screen and are answered one by one."
+                      questions={detailPracticeQuestions}
+                      contentWrapperClassName="px-6 py-6 pb-8 space-y-6 md:pb-12"
+                      fixedFooterStyle={{
+                        left: 'var(--subjects-footer-left)',
+                        right: 'var(--subjects-footer-right)',
+                        bottom: '0.75rem',
+                      }}
+                      onSubmitAnswer={async ({ question, studentAnswerText, selectedOptions, skipped }) => {
+                        const result = await studentService.submitPracticeAnswer(studentId, detailPracticeSession.sessionId, {
+                          assessmentQuestionId: question.id,
+                          studentAnswerText,
+                          selectedOptions,
+                          skipped,
+                        });
+                        return {
+                          correct: result.correct,
+                          skipped: result.skipped,
+                          completed: result.completed,
+                          feedback: result.feedback || null,
+                        };
+                      }}
+                      onCompleteSession={async () => {
+                        await studentService.completePracticeSession(studentId, detailPracticeSession.sessionId);
+                      }}
+                      onComplete={async () => {
+                        setPracticeStatusOverrides((previous) => ({
+                          ...previous,
+                          [selectedDetailItem.practice!.id]: 'mastered',
+                        }));
+                      }}
+                    />
+                  ) : (
+                    <div className="px-6 py-6 pb-8">
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
+                        No practice questions are available for this topic yet.
+                      </div>
+                    </div>
+                  )
                 ) : selectedDetailItem.kind === 'assessment' && selectedDetailItem.assessment ? (
                   <section className="space-y-6 max-w-4xl">
                     <div className="flex flex-wrap items-center gap-2">
@@ -1355,7 +1264,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                     <div className="space-y-4 max-w-4xl">
                       <h3 className="text-2xl font-semibold text-slate-900">What you will learn</h3>
                       <p className="text-lg text-slate-800">
-                        This section explains <span className="font-semibold">{detailTopic.title.toLowerCase()}</span> and how it connects to unit mastery.
+                        This section explains <span className="font-semibold">{detailTopic.title.toLowerCase()}</span> and how it connects to topic mastery.
                       </p>
                       <p className="text-lg text-slate-800">
                         Work through the explanations first, then move to practice for one-by-one question attempts.
@@ -1387,13 +1296,13 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
           {selectedDetailItem.kind !== 'practice' && (
             <>
               <div
-                className="hidden xl:block fixed bottom-3 z-30"
+                className="hidden xl:block fixed bottom-0 z-30"
                 style={{
-                  left: 'var(--subjects-footer-left)',
-                  right: 'var(--subjects-footer-right)',
+                  left: 'calc(var(--subjects-footer-left) - 1px)',
+                  right: 'calc(var(--subjects-footer-right) - 1px)',
                 }}
               >
-                <footer className="box-border border-t border-l border-r border-slate-200 bg-white px-6 py-4">
+                <footer className="box-border border border-b-0 border-slate-200 bg-white px-6 py-4 shadow-[0_-8px_16px_-12px_rgba(15,23,42,0.35)]">
                   <div className="flex justify-end">
                     <button
                       type="button"
@@ -1456,7 +1365,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                       className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-blue-700"
                     >
                       <ArrowLeft className="w-3.5 h-3.5" />
-                      Back to unit page
+                      Back to topic page
                     </button>
 
                     <div className="flex items-center gap-3">
@@ -1464,7 +1373,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                         <Sparkles className="w-5 h-5" />
                       </div>
                       <div className="min-w-0">
-                        <h2 className="text-xl font-bold text-slate-900 truncate">Unit test</h2>
+                        <h2 className="text-xl font-bold text-slate-900 truncate">Topic test</h2>
                         <p className="text-xs text-slate-500 mt-0.5 truncate">{selectedUnit.code}: {selectedUnit.title}</p>
                       </div>
                     </div>
@@ -1481,7 +1390,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                       >
                         <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">Step 1</p>
                         <p className="text-sm font-semibold text-slate-800">Generate challenge</p>
-                        <p className="text-xs text-slate-500">Set question count and prompt AI.</p>
+                        <p className="text-xs text-slate-500">Choose question count and prepare challenge.</p>
                       </button>
                       <button
                         type="button"
@@ -1539,7 +1448,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                       >
                         <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">Step 1</p>
                         <p className="text-sm font-semibold text-slate-800">Generate challenge</p>
-                        <p className="text-xs text-slate-500">Set question count and prompt AI.</p>
+                        <p className="text-xs text-slate-500">Choose question count and prepare challenge.</p>
                       </button>
                       <button
                         type="button"
@@ -1650,7 +1559,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                 activeSubjectChallengeStep === 1 && !isSubjectChallengeRunning ? (
                   <div className="p-6 pb-24 space-y-4">
                     <div className="rounded-md border border-slate-200 bg-white p-3 space-y-3">
-                      <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">AI challenge builder</p>
+                      <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">Challenge builder</p>
                       <div>
                         <label className="text-xs font-semibold text-slate-600">Questions</label>
                         <input
@@ -1672,7 +1581,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                         disabled={selectedSubjectChallengeConfig.isGenerating || !isSubjectChallengeEligible}
                         className="w-full rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-400"
                       >
-                        {selectedSubjectChallengeConfig.isGenerating ? 'Generating...' : 'Generate with AI'}
+                        {selectedSubjectChallengeConfig.isGenerating ? 'Preparing...' : 'Prepare challenge'}
                       </button>
                       {!isSubjectChallengeEligible && (
                         <p className="text-xs text-amber-700">
@@ -1682,7 +1591,6 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                       {selectedSubjectChallengeConfig.questions.length > 0 && (
                         <p className="text-xs text-emerald-700">
                           {selectedSubjectChallengeConfig.questions.length} questions ready.
-                          {selectedSubjectChallengeConfig.generatedWithAi ? ' Generated by AI.' : ' Generated locally.'}
                         </p>
                       )}
                       {selectedSubjectChallengeConfig.error && (
@@ -1703,6 +1611,29 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                           right: 'var(--subjects-footer-right)',
                           bottom: '0.75rem',
                         }}
+                        onSubmitAnswer={async ({ question, studentAnswerText, selectedOptions, skipped }) => {
+                          const sessionId = selectedSubjectChallengeConfig.sessionId;
+                          if (!sessionId) {
+                            throw new Error('Challenge session is unavailable.');
+                          }
+                          const result = await studentService.submitPracticeAnswer(studentId, sessionId, {
+                            assessmentQuestionId: question.id,
+                            studentAnswerText,
+                            selectedOptions,
+                            skipped,
+                          });
+                          return {
+                            correct: result.correct,
+                            skipped: result.skipped,
+                            completed: result.completed,
+                            feedback: result.feedback || null,
+                          };
+                        }}
+                        onCompleteSession={async () => {
+                          const sessionId = selectedSubjectChallengeConfig.sessionId;
+                          if (!sessionId) return;
+                          await studentService.completePracticeSession(studentId, sessionId);
+                        }}
                         onComplete={completeSubjectChallenge}
                       />
                     ) : (
@@ -1714,8 +1645,8 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                             {!isSubjectChallengeEligible
                               ? `${subjectChallengeBlockedReason}`
                               : selectedSubjectChallengeConfig.questions.length > 0
-                              ? `Your AI challenge is ready. Test your skills across all units and topics in ${activeSubject.name}.`
-                              : `Return to Step 1 and generate questions first.`}
+                              ? `Your challenge is ready. Test your skills across all topics in ${activeSubject.name}.`
+                              : `Return to Step 1 and prepare questions first.`}
                           </p>
                           <p className="mt-4 text-xl font-semibold">
                             {subjectChallengeQuestionTotal} questions • {subjectChallengeEstimatedMinutes}-{subjectChallengeEstimatedMinutes + 5} minutes
@@ -1731,7 +1662,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                     <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Subject overview</p>
                     <h1 className="mt-2 text-3xl font-bold text-slate-900">{activeSubject.name}</h1>
                     <p className="mt-2 text-sm text-slate-600">
-                      Browse all units and topics. Click a unit for the in-depth unit page or click a topic to jump directly into it.
+                      Browse all topics. Click a topic for the in-depth topic page and jump directly into activities.
                     </p>
                   </section>
 
@@ -1754,7 +1685,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                           </button>
                           <span className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-700">
                             <Target className="h-3.5 w-3.5" />
-                            Unit mastery: {unit.masteryPercent}%
+                            Topic mastery: {unit.masteryPercent}%
                           </span>
                         </div>
 
@@ -1801,7 +1732,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                     activeUnitChallengeStep === 1 && !isUnitChallengeRunning ? (
                       <div className="space-y-4">
                         <div className="rounded-md border border-slate-200 bg-white p-3 space-y-3">
-                          <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">AI challenge builder</p>
+                          <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">Challenge builder</p>
                           <div>
                             <label className="text-xs font-semibold text-slate-600">Questions</label>
                             <input
@@ -1823,12 +1754,11 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                             disabled={selectedUnitChallengeConfig.isGenerating}
                             className="w-full rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-400"
                           >
-                            {selectedUnitChallengeConfig.isGenerating ? 'Generating...' : 'Generate with AI'}
+                            {selectedUnitChallengeConfig.isGenerating ? 'Preparing...' : 'Prepare challenge'}
                           </button>
                           {selectedUnitChallengeConfig.questions.length > 0 && (
                             <p className="text-xs text-emerald-700">
                               {selectedUnitChallengeConfig.questions.length} questions ready.
-                              {selectedUnitChallengeConfig.generatedWithAi ? ' Generated by AI.' : ' Generated locally.'}
                             </p>
                           )}
                           {selectedUnitChallengeConfig.error && (
@@ -1839,7 +1769,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                     ) : activeUnitChallenge?.stage === 'running' ? (
                       <StudentPracticeRunner
                         title={`${selectedUnit.code}: ${selectedUnit.title}`}
-                        subtitle="Unit challenge"
+                        subtitle="Topic challenge"
                         questions={selectedUnitChallengeConfig.questions}
                         contentWrapperClassName="px-6 py-6 pb-8 space-y-6 md:pb-12"
                         fixedFooterStyle={{
@@ -1847,17 +1777,40 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                           right: 'var(--subjects-footer-right)',
                           bottom: '0.75rem',
                         }}
+                        onSubmitAnswer={async ({ question, studentAnswerText, selectedOptions, skipped }) => {
+                          const sessionId = selectedUnitChallengeConfig.sessionId;
+                          if (!sessionId) {
+                            throw new Error('Challenge session is unavailable.');
+                          }
+                          const result = await studentService.submitPracticeAnswer(studentId, sessionId, {
+                            assessmentQuestionId: question.id,
+                            studentAnswerText,
+                            selectedOptions,
+                            skipped,
+                          });
+                          return {
+                            correct: result.correct,
+                            skipped: result.skipped,
+                            completed: result.completed,
+                            feedback: result.feedback || null,
+                          };
+                        }}
+                        onCompleteSession={async () => {
+                          const sessionId = selectedUnitChallengeConfig.sessionId;
+                          if (!sessionId) return;
+                          await studentService.completePracticeSession(studentId, sessionId);
+                        }}
                         onComplete={completeUnitChallenge}
                       />
                     ) : (
                       <section className="overflow-hidden rounded-lg border border-slate-200">
                         <div className="bg-slate-900 px-6 py-10 text-center text-white">
                           <p className="text-xs uppercase tracking-[0.2em] text-blue-200">Step 2 of 2</p>
-                          <h3 className="mt-3 text-4xl font-bold">Attempt unit challenge</h3>
+                          <h3 className="mt-3 text-4xl font-bold">Attempt topic challenge</h3>
                           <p className="mt-3 text-lg text-blue-100">
                             {selectedUnitChallengeConfig.questions.length > 0
-                              ? 'Your AI challenge is ready. Test your skills across all topics in this unit.'
-                              : 'Return to Step 1 and generate questions first.'}
+                              ? 'Your challenge is ready. Test your skills across this topic area.'
+                              : 'Return to Step 1 and prepare questions first.'}
                           </p>
                           <p className="mt-4 text-xl font-semibold">
                             {unitChallengeQuestionTotal} questions • {unitChallengeEstimatedMinutes}-{unitChallengeEstimatedMinutes + 5} minutes
@@ -1891,7 +1844,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                             <div className="flex items-center gap-2">
                               {isCriticalTopic && (
                                 <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-md border border-red-200 bg-red-100 text-red-700">
-                                  Critical unit
+                                  Critical topic
                                 </span>
                               )}
                               <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-md bg-slate-100 text-slate-700">
@@ -1910,7 +1863,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                           </div>
 
                           {!isTopicCollapsed && (
-                          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                             <div>
                               <p className="text-sm font-semibold text-slate-700 mb-2">Learn</p>
                               <div className="space-y-2">
@@ -1987,32 +1940,6 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                               </div>
                             </div>
 
-                            <div>
-                              <p className="text-sm font-semibold text-slate-700 mb-2">Assessments</p>
-                              <div className="space-y-2">
-                                {topic.assessments.map((assessment) => (
-                                  <button
-                                    key={assessment.id}
-                                    type="button"
-                                    onClick={() => openTopicDetail(selectedUnit, topic, `assessment-${assessment.id}`)}
-                                    className="w-full flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
-                                  >
-                                    <span className="flex items-center gap-2 min-w-0">
-                                      <FileText className="w-4 h-4 text-slate-500 shrink-0" />
-                                      <span className="truncate">{assessment.title}</span>
-                                    </span>
-                                    <span className="text-xs text-slate-400 capitalize shrink-0">
-                                      {assessment.status || 'published'}
-                                    </span>
-                                  </button>
-                                ))}
-                                {topic.assessments.length === 0 && (
-                                  <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                                    No published assessments yet.
-                                  </p>
-                                )}
-                              </div>
-                            </div>
                           </div>
                           )}
                         </section>
@@ -2023,14 +1950,14 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                           <Sparkles className="w-4 h-4" />
                           Topic challenge
                         </div>
-                        <p className="text-sm text-slate-600 mt-2">Test your understanding across all topics in this unit.</p>
+                        <p className="text-sm text-slate-600 mt-2">Test your understanding across this topic area.</p>
                         <button
                           type="button"
                           onClick={openUnitChallenge}
                           className="mt-3 inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white text-slate-700 px-4 py-2 text-sm font-semibold hover:bg-slate-100"
                         >
                           <ChevronRight className="w-4 h-4" />
-                          Start unit challenge
+                          Start topic challenge
                         </button>
                       </div>
                     </>
@@ -2043,13 +1970,13 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
           {!isUnitChallengeActive && !isSubjectChallengeActive && !isSubjectOverviewActive && (
             <>
               <div
-                className="hidden xl:block fixed bottom-3 z-30"
+                className="hidden xl:block fixed bottom-0 z-30"
                 style={{
-                  left: 'var(--subjects-footer-left)',
-                  right: 'var(--subjects-footer-right)',
+                  left: 'calc(var(--subjects-footer-left) - 1px)',
+                  right: 'calc(var(--subjects-footer-right) - 1px)',
                 }}
               >
-                <footer className="box-border border-t border-l border-r border-slate-200 bg-white px-6 py-4">
+                <footer className="box-border border border-b-0 border-slate-200 bg-white px-6 py-4 shadow-[0_-8px_16px_-12px_rgba(15,23,42,0.35)]">
                   <div className="flex justify-end">
                     <button
                       type="button"
@@ -2059,7 +1986,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                       disabled={!nextUnit}
                       className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
                     >
-                      {nextUnit ? `Up next: ${nextUnit.title.toLowerCase()}` : 'Unit complete'}
+                      {nextUnit ? `Up next: ${nextUnit.title.toLowerCase()}` : 'Topic complete'}
                     </button>
                   </div>
                 </footer>
@@ -2075,7 +2002,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                     disabled={!nextUnit}
                     className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
                   >
-                    {nextUnit ? `Up next: ${nextUnit.title.toLowerCase()}` : 'Unit complete'}
+                    {nextUnit ? `Up next: ${nextUnit.title.toLowerCase()}` : 'Topic complete'}
                   </button>
                 </div>
               </div>
@@ -2085,17 +2012,17 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
           {isUnitChallengeActive && !isUnitChallengeRunning && (
             <>
               <div
-                className="hidden xl:block fixed bottom-3 z-30"
+                className="hidden xl:block fixed bottom-0 z-30"
                 style={{
-                  left: 'var(--subjects-footer-left)',
-                  right: 'var(--subjects-footer-right)',
+                  left: 'calc(var(--subjects-footer-left) - 1px)',
+                  right: 'calc(var(--subjects-footer-right) - 1px)',
                 }}
               >
-                <footer className="box-border border-t border-l border-r border-slate-200 bg-white px-6 py-4">
+                <footer className="box-border border border-b-0 border-slate-200 bg-white px-6 py-4 shadow-[0_-8px_16px_-12px_rgba(15,23,42,0.35)]">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     {activeUnitChallenge?.stage === 'completed' && activeUnitChallenge.summary ? (
                       <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
-                        Unit challenge complete: {activeUnitChallenge.summary.correct}/{activeUnitChallenge.summary.total} correct.
+                        Topic challenge complete: {activeUnitChallenge.summary.correct}/{activeUnitChallenge.summary.total} correct.
                       </div>
                     ) : (
                       <div />
@@ -2107,12 +2034,12 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                         onClick={exitUnitChallenge}
                         className="inline-flex items-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                       >
-                        Back to unit
+                        Back to topic
                       </button>
                       <button
                         type="button"
                         onClick={startUnitChallenge}
-                        disabled={selectedUnitChallengeConfig.questions.length === 0 || selectedUnitChallengeConfig.isGenerating}
+                        disabled={selectedUnitChallengeConfig.questions.length === 0 || !selectedUnitChallengeConfig.sessionId || selectedUnitChallengeConfig.isGenerating}
                         className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
                       >
                         {activeUnitChallenge?.stage === 'completed' ? 'Retake challenge' : "Let's go"}
@@ -2125,7 +2052,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
               <div className="xl:hidden border-t border-slate-200 bg-white px-6 py-4">
                 {activeUnitChallenge?.stage === 'completed' && activeUnitChallenge.summary ? (
                   <div className="mb-3 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
-                    Unit challenge complete: {activeUnitChallenge.summary.correct}/{activeUnitChallenge.summary.total} correct.
+                    Topic challenge complete: {activeUnitChallenge.summary.correct}/{activeUnitChallenge.summary.total} correct.
                   </div>
                 ) : null}
 
@@ -2135,12 +2062,12 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                     onClick={exitUnitChallenge}
                     className="inline-flex items-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                   >
-                    Back to unit
+                    Back to topic
                   </button>
                   <button
                     type="button"
                     onClick={startUnitChallenge}
-                    disabled={selectedUnitChallengeConfig.questions.length === 0 || selectedUnitChallengeConfig.isGenerating}
+                    disabled={selectedUnitChallengeConfig.questions.length === 0 || !selectedUnitChallengeConfig.sessionId || selectedUnitChallengeConfig.isGenerating}
                     className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
                   >
                     {activeUnitChallenge?.stage === 'completed' ? 'Retake challenge' : "Let's go"}
@@ -2153,13 +2080,13 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
           {isSubjectChallengeActive && !isSubjectChallengeRunning && (
             <>
               <div
-                className="hidden xl:block fixed bottom-3 z-30"
+                className="hidden xl:block fixed bottom-0 z-30"
                 style={{
-                  left: 'var(--subjects-footer-left)',
-                  right: 'var(--subjects-footer-right)',
+                  left: 'calc(var(--subjects-footer-left) - 1px)',
+                  right: 'calc(var(--subjects-footer-right) - 1px)',
                 }}
               >
-                <footer className="box-border border-t border-l border-r border-slate-200 bg-white px-6 py-4">
+                <footer className="box-border border border-b-0 border-slate-200 bg-white px-6 py-4 shadow-[0_-8px_16px_-12px_rgba(15,23,42,0.35)]">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     {subjectChallengeState?.stage === 'completed' && subjectChallengeState.summary ? (
                       <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
@@ -2180,7 +2107,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                       <button
                         type="button"
                         onClick={startSubjectChallenge}
-                        disabled={selectedSubjectChallengeConfig.questions.length === 0 || selectedSubjectChallengeConfig.isGenerating}
+                        disabled={selectedSubjectChallengeConfig.questions.length === 0 || !selectedSubjectChallengeConfig.sessionId || selectedSubjectChallengeConfig.isGenerating}
                         className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
                       >
                         {subjectChallengeState?.stage === 'completed' ? 'Retake challenge' : "Let's go"}
@@ -2208,7 +2135,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                   <button
                     type="button"
                     onClick={startSubjectChallenge}
-                    disabled={selectedSubjectChallengeConfig.questions.length === 0 || selectedSubjectChallengeConfig.isGenerating}
+                    disabled={selectedSubjectChallengeConfig.questions.length === 0 || !selectedSubjectChallengeConfig.sessionId || selectedSubjectChallengeConfig.isGenerating}
                     className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
                   >
                     {subjectChallengeState?.stage === 'completed' ? 'Retake challenge' : "Let's go"}

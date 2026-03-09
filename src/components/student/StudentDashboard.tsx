@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { Student, DevelopmentPlan, Subject } from '../../types';
 import { studentService, developmentService, subjectService, calendarService, notificationService, authService } from '../../services/api';
-import { StudentTeacher } from '../../services/studentService';
+import { StudentActivityFeedItem, StudentTeacher } from '../../services/studentService';
 import StudentPlanView from './StudentPlanView';
 import StudentAssignments from './StudentAssignments';
 import StudentReportCard from './StudentReportCard';
@@ -35,11 +35,11 @@ import StudentSubjectsView from './StudentSubjectsView';
 import { HomePanelKey, HomeProgressRow, NavItemKey } from './dashboard/types';
 import { getStepIcon } from './dashboard/icons';
 import {
-  buildHomeProgressRows,
   filterHomeProgressRows,
   formatProgressDate,
   getProgressExerciseMinutes,
   getProgressTotalLearningMinutes,
+  mapActivityFeedToProgressRows,
 } from './dashboard/progress';
 import HomeTeachersPanel from './dashboard/HomeTeachersPanel';
 import { reportService, StudentReportCardResponse } from '../../services/reportService';
@@ -76,6 +76,14 @@ const getRouteViewFromPathname = (pathname: string): StudentRouteViewKey | null 
 
 const isRoutableStudentView = (view: NavItemKey): view is StudentRouteViewKey =>
   Object.prototype.hasOwnProperty.call(STUDENT_VIEW_PATHS, view);
+
+const getDeadlineEventCategory = (event?: CalendarEvent | null) => {
+  if (!event) return 'Deadline';
+  const eventType = String(event.type || '').toLowerCase();
+  if (eventType === 'assignment_due' || eventType === 'project_due') return 'Work';
+  if (eventType === 'exam' || eventType === 'quiz' || eventType === 'presentation') return 'Assessment';
+  return 'Activity';
+};
 
 const DashboardSkeleton = () => (
   <div className="min-h-screen bg-slate-100">
@@ -173,6 +181,7 @@ const StudentDashboard: React.FC = () => {
   const [homeUnreadNotificationCount, setHomeUnreadNotificationCount] = useState(0);
   const [homeUpcomingEvents, setHomeUpcomingEvents] = useState<CalendarEvent[]>([]);
   const [homeSubjectEvents, setHomeSubjectEvents] = useState<CalendarEvent[]>([]);
+  const [homeActivityFeed, setHomeActivityFeed] = useState<StudentActivityFeedItem[]>([]);
   const [homeMasterySignals, setHomeMasterySignals] = useState<MasterySignalsSummary | null>(null);
   const [homeLiveLoading, setHomeLiveLoading] = useState(false);
   const [homeLiveError, setHomeLiveError] = useState<string | null>(null);
@@ -188,6 +197,7 @@ const StudentDashboard: React.FC = () => {
   const [isHeaderCompact, setIsHeaderCompact] = useState(false);
   const [planEntryStepIndex, setPlanEntryStepIndex] = useState<number | null>(null);
   const [homeMasterySubjectIndex, setHomeMasterySubjectIndex] = useState(0);
+  const [homeDeadlineEventIndex, setHomeDeadlineEventIndex] = useState(0);
   const [homeStreakSummary, setHomeStreakSummary] = useState<StudentStreakSummary | null>(null);
   const accountMenuRef = useRef<HTMLDivElement | null>(null);
   const notificationMenuRef = useRef<HTMLDivElement | null>(null);
@@ -274,8 +284,17 @@ const StudentDashboard: React.FC = () => {
   }, [displaySubjects, realPlanBySubjectId]);
 
   const overviewSubjects = useMemo(
-    () => displaySubjects.map((subject) => ({ subject, plan: displayPlanBySubjectId.get(subject.id) || null })),
+    () =>
+      displaySubjects.map((subject) => ({
+        subject,
+        plan: displayPlanBySubjectId.get(subject.id) || null,
+      })),
     [displaySubjects, displayPlanBySubjectId]
+  );
+
+  const subjectNameById = useMemo(
+    () => new Map(displaySubjects.map((subject) => [subject.id, subject.name])),
+    [displaySubjects]
   );
 
   const getGradeFromPercent = (percent: number) => {
@@ -324,7 +343,10 @@ const StudentDashboard: React.FC = () => {
   const activeHomeMasterySubject =
     homeMasteryBySubject.length > 0 ? homeMasteryBySubject[homeMasterySubjectIndex % homeMasteryBySubject.length] : null;
 
-  const homeProgressRows = useMemo<HomeProgressRow[]>(() => buildHomeProgressRows(overviewSubjects), [overviewSubjects]);
+  const homeProgressRows = useMemo<HomeProgressRow[]>(
+    () => mapActivityFeedToProgressRows(homeActivityFeed, subjectNameById),
+    [homeActivityFeed, subjectNameById]
+  );
 
   const streakWeeks = homeStreakSummary?.streakWeeks ?? 0;
   const streakLevel = homeStreakSummary?.level ?? 1;
@@ -358,11 +380,51 @@ const StudentDashboard: React.FC = () => {
     [selectedSubjectId, homeSubjectEvents, homeUpcomingEvents]
   );
 
-  const nextLiveEvent = useMemo(() => {
-    if (homeLiveEvents.length === 0) return null;
-    const sorted = [...homeLiveEvents].sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
-    return sorted[0];
-  }, [homeLiveEvents]);
+  const sortedHomeLiveEvents = useMemo(
+    () => [...homeLiveEvents].sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime()),
+    [homeLiveEvents]
+  );
+
+  const activeHomeDeadlineEvent =
+    sortedHomeLiveEvents.length > 0
+      ? sortedHomeLiveEvents[homeDeadlineEventIndex % sortedHomeLiveEvents.length]
+      : null;
+
+  const homeActivityDeadlines = useMemo(() => {
+    const now = Date.now();
+    return sortedHomeLiveEvents.map((event) => {
+      const startDate = new Date(event.start);
+      const startTime = startDate.getTime();
+      const hasValidStart = Number.isFinite(startTime);
+      const msRemaining = hasValidStart ? startTime - now : null;
+      const isOverdue = hasValidStart ? startTime < now : false;
+      const isDueToday = hasValidStart
+        ? startDate.toDateString() === new Date(now).toDateString()
+        : false;
+      return {
+        id: event.id,
+        title: event.title || 'Scheduled activity',
+        category: getDeadlineEventCategory(event),
+        eventType: String(event.type || '').toLowerCase(),
+        subjectId: event.subjectId || null,
+        subjectName: event.subjectName || 'General',
+        start: event.start,
+        msRemaining,
+        isOverdue,
+        isDueToday,
+      };
+    });
+  }, [sortedHomeLiveEvents]);
+
+  const overdueActivityCount = useMemo(
+    () => homeActivityDeadlines.filter((item) => item.isOverdue).length,
+    [homeActivityDeadlines]
+  );
+
+  const dueTodayActivityCount = useMemo(
+    () => homeActivityDeadlines.filter((item) => item.isDueToday && !item.isOverdue).length,
+    [homeActivityDeadlines]
+  );
 
   const criticalNotifications = useMemo(
     () =>
@@ -564,11 +626,28 @@ const StudentDashboard: React.FC = () => {
   }, [homeMasteryBySubject.length]);
 
   useEffect(() => {
+    if (sortedHomeLiveEvents.length === 0) {
+      setHomeDeadlineEventIndex(0);
+      return;
+    }
+    setHomeDeadlineEventIndex((previous) => Math.min(previous, sortedHomeLiveEvents.length - 1));
+  }, [sortedHomeLiveEvents.length]);
+
+  useEffect(() => {
+    if (sortedHomeLiveEvents.length <= 1) return;
+    const intervalId = window.setInterval(() => {
+      setHomeDeadlineEventIndex((previous) => (previous + 1) % sortedHomeLiveEvents.length);
+    }, 4800);
+    return () => window.clearInterval(intervalId);
+  }, [sortedHomeLiveEvents.length]);
+
+  useEffect(() => {
     if (!student?.id) {
       setHomeNotifications([]);
       setHomeUnreadNotificationCount(0);
       setHomeUpcomingEvents([]);
       setHomeSubjectEvents([]);
+      setHomeActivityFeed([]);
       setHomeMasterySignals(null);
       setHomeStreakSummary(null);
       return;
@@ -591,6 +670,7 @@ const StudentDashboard: React.FC = () => {
           upcomingEvents,
           allCalendarEvents,
           subjectEvents,
+          activityFeed,
           masterySignals,
           streakSummary,
         ] = await Promise.all([
@@ -601,6 +681,12 @@ const StudentDashboard: React.FC = () => {
           selectedSubjectId !== 'all'
             ? calendarService.getSubjectEvents(selectedSubjectId, student.id).catch(() => [])
             : Promise.resolve([]),
+          studentService
+            .getActivityFeed(student.id, {
+              subjectId: selectedSubjectId !== 'all' ? selectedSubjectId : undefined,
+              limit: 250,
+            })
+            .catch(() => []),
           developmentService
             .getStudentMasterySignalsSummary(student.id, selectedSubjectId !== 'all' ? selectedSubjectId : undefined)
             .catch(() => null),
@@ -613,6 +699,7 @@ const StudentDashboard: React.FC = () => {
         setHomeUnreadNotificationCount(Number(unreadCount || 0));
         setHomeUpcomingEvents((upcomingEvents || []).slice(0, 6));
         setHomeSubjectEvents((subjectEvents || []).slice(0, 6));
+        setHomeActivityFeed(activityFeed || []);
         setHomeMasterySignals(masterySignals);
         setHomeStreakSummary(streakSummary);
 
@@ -809,6 +896,20 @@ const StudentDashboard: React.FC = () => {
     setViewWithTransition('tutor');
   };
 
+  const handleOpenActivityDeadline = (deadline: {
+    eventType: string;
+    subjectId: string | null;
+  }) => {
+    if (deadline.subjectId) {
+      setSelectedSubjectId(deadline.subjectId);
+    }
+    if (deadline.eventType === 'exam' || deadline.eventType === 'quiz' || deadline.eventType === 'presentation') {
+      setViewWithTransition('assessments');
+      return;
+    }
+    setViewWithTransition('subjects');
+  };
+
   const handleOpenProfile = () => {
     setViewWithTransition('profile');
     setAccountMenuOpen(false);
@@ -866,6 +967,21 @@ const StudentDashboard: React.FC = () => {
     return date.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
   };
 
+  const formatDeadlineRelative = (msRemaining: number | null) => {
+    if (msRemaining === null) return 'Date pending';
+    if (msRemaining < 0) {
+      const hoursLate = Math.floor(Math.abs(msRemaining) / (60 * 60 * 1000));
+      if (hoursLate < 24) return `Overdue by ${hoursLate || 1}h`;
+      const daysLate = Math.floor(hoursLate / 24);
+      return `Overdue by ${daysLate || 1}d`;
+    }
+    const hoursLeft = Math.floor(msRemaining / (60 * 60 * 1000));
+    if (hoursLeft < 1) return 'Due in under 1h';
+    if (hoursLeft < 24) return `Due in ${hoursLeft}h`;
+    const daysLeft = Math.floor(hoursLeft / 24);
+    return `Due in ${daysLeft}d`;
+  };
+
   const formatNotificationTime = (value: string | undefined) => {
     if (!value) return '';
     const timestamp = new Date(value);
@@ -875,7 +991,7 @@ const StudentDashboard: React.FC = () => {
 
   const renderOverview = () => (
     <div className="space-y-4">
-      <section className="relative left-1/2 right-1/2 w-screen -translate-x-1/2 border-y border-orange-100 bg-gradient-to-r from-amber-50 via-orange-50 to-yellow-50">
+      <section className="w-full border-y border-orange-100 bg-gradient-to-r from-amber-50 via-orange-50 to-yellow-50">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <p className="text-lg sm:text-xl font-semibold text-slate-900">
@@ -929,11 +1045,23 @@ const StudentDashboard: React.FC = () => {
                 <p className="text-sm font-semibold">Upcoming deadlines</p>
               </div>
               <p className="mt-2 text-2xl font-bold text-slate-900">{homeLiveEvents.length}</p>
-              <p className="text-xs text-slate-500">
-                {nextLiveEvent
-                  ? `${nextLiveEvent.title} • ${formatCalendarEventTime(nextLiveEvent.start)}`
-                  : 'No upcoming events.'}
-              </p>
+              <div className="h-8 overflow-hidden">
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={activeHomeDeadlineEvent?.id || 'deadline-fallback'}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    transition={{ duration: 0.35, ease: 'easeInOut' }}
+                  >
+                    <p className="text-xs text-slate-500">
+                      {activeHomeDeadlineEvent
+                        ? `${getDeadlineEventCategory(activeHomeDeadlineEvent)} • ${activeHomeDeadlineEvent.title} • ${formatCalendarEventTime(activeHomeDeadlineEvent.start)}`
+                        : 'No upcoming events.'}
+                    </p>
+                  </motion.div>
+                </AnimatePresence>
+              </div>
             </article>
 
             <article className="rounded-lg border border-slate-200 bg-white px-4 py-3">
@@ -1032,6 +1160,15 @@ const StudentDashboard: React.FC = () => {
                 }`}
               >
                 Progress
+              </button>
+              <button
+                type="button"
+                onClick={() => setHomePanel('activities')}
+                className={`w-full text-left rounded-md px-4 py-2 text-sm ${
+                  homePanel === 'activities' ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                Activities
               </button>
               <button
                 type="button"
@@ -1306,6 +1443,82 @@ const StudentDashboard: React.FC = () => {
                   </button>
                 </div>
                 </motion.div>
+              ) : homePanel === 'activities' ? (
+                <motion.div
+                  key="home-activities-panel"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.22, ease: 'easeInOut' }}
+                  className="space-y-5"
+                >
+                  <div className="space-y-1">
+                    <h2 className="text-3xl font-bold text-slate-900">My activities</h2>
+                    <p className="text-sm text-slate-500">Track deadlines for assessments, activities, and class work.</p>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <article className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+                      <p className="text-xs font-medium tracking-wide text-slate-500 uppercase">Total deadlines</p>
+                      <p className="mt-1 text-2xl font-semibold text-slate-900">{homeActivityDeadlines.length}</p>
+                    </article>
+                    <article className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3">
+                      <p className="text-xs font-medium tracking-wide text-amber-700 uppercase">Due today</p>
+                      <p className="mt-1 text-2xl font-semibold text-amber-800">{dueTodayActivityCount}</p>
+                    </article>
+                    <article className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3">
+                      <p className="text-xs font-medium tracking-wide text-rose-700 uppercase">Overdue</p>
+                      <p className="mt-1 text-2xl font-semibold text-rose-800">{overdueActivityCount}</p>
+                    </article>
+                  </div>
+
+                  <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
+                    <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+                      <p className="text-sm font-semibold text-slate-800">Activity deadlines</p>
+                    </div>
+                    {homeActivityDeadlines.length === 0 ? (
+                      <div className="px-4 py-10 text-center">
+                        <CalendarClock className="mx-auto h-10 w-10 text-slate-300" />
+                        <p className="mt-2 text-sm font-semibold text-slate-700">No upcoming activities</p>
+                        <p className="mt-1 text-xs text-slate-500">Your upcoming deadlines will appear here.</p>
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-slate-200">
+                        {homeActivityDeadlines.map((deadline) => (
+                          <button
+                            key={deadline.id}
+                            type="button"
+                            onClick={() => handleOpenActivityDeadline(deadline)}
+                            className="flex w-full flex-wrap items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-slate-50"
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold text-slate-900">{deadline.title}</p>
+                              <p className="mt-0.5 text-xs text-slate-500">
+                                {deadline.subjectName} • {formatCalendarEventTime(deadline.start)}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700">
+                                {deadline.category}
+                              </span>
+                              <span
+                                className={`rounded-full px-2 py-1 text-[11px] font-semibold ${
+                                  deadline.isOverdue
+                                    ? 'bg-rose-100 text-rose-700'
+                                    : deadline.isDueToday
+                                      ? 'bg-amber-100 text-amber-700'
+                                      : 'bg-blue-100 text-blue-700'
+                                }`}
+                              >
+                                {formatDeadlineRelative(deadline.msRemaining)}
+                              </span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
               ) : homePanel === 'profile' ? (
                 <motion.div
                   key="home-profile-panel"
@@ -1347,7 +1560,7 @@ const StudentDashboard: React.FC = () => {
               <aside className="hidden lg:block border-r border-slate-200 bg-slate-50 p-5">
                 <div className="h-3 w-20 rounded bg-slate-200" />
                 <div className="mt-3 border-t border-slate-200">
-                  {Array.from({ length: 4 }).map((_, index) => (
+                  {Array.from({ length: 5 }).map((_, index) => (
                     <div key={index} className="h-10 border-b border-slate-200 bg-slate-100" />
                   ))}
                 </div>
@@ -1531,7 +1744,11 @@ const StudentDashboard: React.FC = () => {
     switch (activeView) {
       case 'plan':
         return activePlan ? (
-          <StudentPlanView plan={activePlan} initialStepIndex={planEntryStepIndex ?? undefined} />
+          <StudentPlanView
+            studentId={student.id}
+            plan={activePlan}
+            initialStepIndex={planEntryStepIndex ?? undefined}
+          />
         ) : (
           <div className="bg-white rounded-2xl shadow-sm p-8 text-center">
             <BookOpen className="w-16 h-16 text-slate-300 mx-auto mb-4" />
