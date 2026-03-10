@@ -38,11 +38,42 @@ export interface PracticeRunSummary {
   skipped: number;
 }
 
+interface PracticeSubmissionPayload {
+  question: PracticeQuestion;
+  studentAnswerText?: string;
+  selectedOptions?: string[];
+  uploadFile?: File | null;
+  skipped: boolean;
+}
+
+interface PracticeSubmissionResult {
+  correct: boolean;
+  skipped: boolean;
+  completed?: boolean;
+  feedback?: string | null;
+}
+
+interface PracticeOpenResponseAssessmentPayload {
+  question: InputPracticeQuestion;
+  studentAnswerText?: string;
+  uploadFile?: File | null;
+}
+
+interface PracticeOpenResponseAssessmentResult {
+  correct?: boolean;
+  feedback?: string | null;
+}
+
 interface StudentPracticeRunnerProps {
   title: string;
   subtitle?: string;
   questions: PracticeQuestion[];
-  onComplete?: (summary: PracticeRunSummary) => void;
+  onComplete?: (summary: PracticeRunSummary) => void | Promise<void>;
+  onSubmitAnswer?: (payload: PracticeSubmissionPayload) => Promise<PracticeSubmissionResult>;
+  onAssessOpenResponse?: (
+    payload: PracticeOpenResponseAssessmentPayload
+  ) => Promise<PracticeOpenResponseAssessmentResult>;
+  onCompleteSession?: () => Promise<void>;
   fixedFooterStyle?: React.CSSProperties;
   contentWrapperClassName?: string;
 }
@@ -58,156 +89,23 @@ const buildSummary = (results: Record<string, QuestionResult>, total: number): P
   return { total, correct, incorrect, skipped };
 };
 
-export const buildMockPracticeQuestions = (seedText: string, mode: 'assignment' | 'quiz' | 'mixed' = 'mixed'): PracticeQuestion[] => {
-  const seed = seedText.toLowerCase();
-
-  if (seed.includes('polynomial') || seed.includes('algebra') || seed.includes('equation') || seed.includes('quiz')) {
-    return [
-      {
-        id: 'q1',
-        type: 'input',
-        prompt: 'What is the degree of 5x^3 - 2x^4 - 9x^2 + z?',
-        placeholder: 'Type your answer',
-        acceptedAnswers: ['4', 'degree 4'],
-      },
-      {
-        id: 'q2',
-        type: 'multiple',
-        prompt: 'Which expressions are in standard form? Choose all that apply.',
-        options: ['10 - n', '5n + 3n^3 - 1', 'n + 4n^2 - 7n^3', 'None of the above'],
-        correctOptionIndexes: [0],
-      },
-      {
-        id: 'q3',
-        type: 'single',
-        prompt: 'Which option is a polynomial?',
-        options: ['3/x + 2', 'x^2 + 4x - 7', 'sqrt(x) + 1', '1/(x-1)'],
-        correctOptionIndexes: [1],
-      },
-      {
-        id: 'q4',
-        type: 'input',
-        prompt: 'In one short phrase, what should you do before submitting your final answer?',
-        placeholder: 'e.g. verify working',
-        acceptedAnswers: ['check your work', 'verify working', 'review your answer', 'verify final result'],
-      },
-    ];
-  }
-
-  if (seed.includes('english') || seed.includes('writing') || seed.includes('vocabulary') || seed.includes('context')) {
-    return [
-      {
-        id: 'q1',
-        type: 'single',
-        prompt: 'Choose the word that best fits: "The evidence was ____ and supported the claim clearly."',
-        options: ['vague', 'arbitrary', 'convincing', 'unrelated'],
-        correctOptionIndexes: [2],
-      },
-      {
-        id: 'q2',
-        type: 'multiple',
-        prompt: 'Which actions improve a paragraph response? Choose all that apply.',
-        options: [
-          'Use one clear main idea per paragraph',
-          'Skip evidence to save time',
-          'Link evidence back to your claim',
-          'Revise for clarity and grammar',
-        ],
-        correctOptionIndexes: [0, 2, 3],
-      },
-      {
-        id: 'q3',
-        type: 'input',
-        prompt: 'Write one sentence starter you can use to explain evidence.',
-        placeholder: 'Type a sentence starter',
-        acceptedAnswers: ['this shows that', 'this suggests that', 'this evidence shows', 'this indicates that'],
-      },
-      {
-        id: 'q4',
-        type: 'single',
-        prompt: 'What is the best final step before submission?',
-        options: ['Add new ideas', 'Check for coherence and accuracy', 'Delete topic sentence', 'Ignore feedback'],
-        correctOptionIndexes: [1],
-      },
-    ];
-  }
-
-  if (mode === 'assignment') {
-    return [
-      {
-        id: 'q1',
-        type: 'input',
-        prompt: `What is the first thing you should do in "${seedText}"?`,
-        placeholder: 'Short response',
-        acceptedAnswers: ['break it down', 'plan steps', 'identify requirements', 'understand the task'],
-      },
-      {
-        id: 'q2',
-        type: 'single',
-        prompt: 'Which approach best shows strong reasoning?',
-        options: ['Guess and move on', 'Write only final answer', 'Show method and checks', 'Copy a classmate'],
-        correctOptionIndexes: [2],
-      },
-      {
-        id: 'q3',
-        type: 'multiple',
-        prompt: 'Select all habits that improve accuracy.',
-        options: ['Check assumptions', 'Skip units', 'Review calculations', 'Explain each step'],
-        correctOptionIndexes: [0, 2, 3],
-      },
-      {
-        id: 'q4',
-        type: 'input',
-        prompt: 'Type one reflection question you should ask yourself after solving.',
-        placeholder: 'Reflection question',
-        acceptedAnswers: ['does this make sense', 'can i justify this', 'what did i learn', 'is my method valid'],
-      },
-    ];
-  }
-
-  return [
-    {
-      id: 'q1',
-      type: 'single',
-      prompt: `Quick check: what is the main goal of "${seedText}"?`,
-      options: ['Memorize answers', 'Develop understanding and reasoning', 'Skip hard parts', 'Only finish quickly'],
-      correctOptionIndexes: [1],
-    },
-    {
-      id: 'q2',
-      type: 'input',
-      prompt: 'Write one phrase that describes a good problem-solving process.',
-      placeholder: 'Type a phrase',
-      acceptedAnswers: ['explain reasoning', 'show working', 'check method', 'verify answer'],
-    },
-    {
-      id: 'q3',
-      type: 'multiple',
-      prompt: 'Which behaviors show productive learning? Choose all that apply.',
-      options: ['Ask clarifying questions', 'Reflect after attempts', 'Avoid feedback', 'Retry with improvements'],
-      correctOptionIndexes: [0, 1, 3],
-    },
-    {
-      id: 'q4',
-      type: 'single',
-      prompt: 'What should you do when your first answer is wrong?',
-      options: ['Stop immediately', 'Try the same step without changes', 'Review mistakes and retry', 'Skip everything'],
-      correctOptionIndexes: [2],
-    },
-  ];
-};
-
 const StudentPracticeRunner: React.FC<StudentPracticeRunnerProps> = ({
   questions,
   onComplete,
+  onSubmitAnswer,
+  onAssessOpenResponse,
+  onCompleteSession,
   fixedFooterStyle,
   contentWrapperClassName,
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [textAnswers, setTextAnswers] = useState<Record<string, string>>({});
+  const [uploadedFilesByQuestion, setUploadedFilesByQuestion] = useState<Record<string, File | null>>({});
   const [selectedOptionIndexes, setSelectedOptionIndexes] = useState<Record<string, number[]>>({});
   const [results, setResults] = useState<Record<string, QuestionResult>>({});
   const [feedback, setFeedback] = useState<'correct' | 'incorrect' | 'missing' | null>(null);
+  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [sessionCompleted, setSessionCompleted] = useState(false);
   const [hasSubmittedSummary, setHasSubmittedSummary] = useState(false);
 
@@ -216,32 +114,37 @@ const StudentPracticeRunner: React.FC<StudentPracticeRunnerProps> = ({
   const progressSummary = useMemo(() => buildSummary(results, questions.length), [results, questions.length]);
 
   const currentTextAnswer = currentQuestion?.type === 'input' ? textAnswers[currentQuestion.id] || '' : '';
+  const currentUploadedFile = currentQuestion?.type === 'input' ? uploadedFilesByQuestion[currentQuestion.id] || null : null;
   const currentSelectedIndexes = currentQuestion?.type !== 'input' ? selectedOptionIndexes[currentQuestion.id] || [] : [];
 
   const canCheck = useMemo(() => {
     if (!currentQuestion) return false;
     if (currentQuestion.type === 'input') {
-      return currentTextAnswer.trim().length > 0;
+      return currentTextAnswer.trim().length > 0 || Boolean(currentUploadedFile);
     }
     return currentSelectedIndexes.length > 0;
-  }, [currentQuestion, currentSelectedIndexes.length, currentTextAnswer]);
+  }, [currentQuestion, currentSelectedIndexes.length, currentTextAnswer, currentUploadedFile]);
 
-  const markComplete = () => {
+  const markComplete = async () => {
     if (!sessionCompleted) {
       setSessionCompleted(true);
     }
 
     if (!hasSubmittedSummary) {
-      onComplete?.(buildSummary(results, questions.length));
+      if (onCompleteSession) {
+        await onCompleteSession();
+      }
+      await onComplete?.(buildSummary(results, questions.length));
       setHasSubmittedSummary(true);
     }
   };
 
-  const goToNextQuestion = () => {
+  const goToNextQuestion = async () => {
     setFeedback(null);
+    setFeedbackMessage(null);
 
     if (currentIndex >= questions.length - 1) {
-      markComplete();
+      await markComplete();
       return;
     }
 
@@ -261,39 +164,137 @@ const StudentPracticeRunner: React.FC<StudentPracticeRunnerProps> = ({
     return submitted.length === expected.length && submitted.every((value, index) => value === expected[index]);
   };
 
-  const handleCheck = () => {
+  const handleCheck = async () => {
     if (!currentQuestion) return;
+    if (isSubmitting) return;
     if (!canCheck) {
       setFeedback('missing');
+      setFeedbackMessage(null);
       return;
     }
 
-    const correct = isCurrentAnswerCorrect();
+    const trimmedInputAnswer = currentQuestion.type === 'input' ? currentTextAnswer.trim() : '';
+    let openResponseAssessment: PracticeOpenResponseAssessmentResult | null = null;
+    if (
+      currentQuestion.type === 'input' &&
+      onAssessOpenResponse &&
+      (trimmedInputAnswer.length > 0 || Boolean(currentUploadedFile))
+    ) {
+      try {
+        openResponseAssessment = await onAssessOpenResponse({
+          question: currentQuestion,
+          studentAnswerText: trimmedInputAnswer || undefined,
+          uploadFile: currentUploadedFile || undefined,
+        });
+      } catch {
+        openResponseAssessment = {
+          feedback: 'AI feedback is unavailable right now. Your answer was still submitted.',
+        };
+      }
+    }
+
+    if (onSubmitAnswer) {
+      const selectedOptions = currentQuestion.type === 'input'
+        ? []
+        : (currentSelectedIndexes || [])
+          .map((optionIndex) => currentQuestion.options[optionIndex])
+          .filter((option): option is string => Boolean(option));
+      const studentAnswerText = currentQuestion.type === 'input'
+        ? (trimmedInputAnswer || (currentUploadedFile ? `[Image submission] ${currentUploadedFile.name}` : undefined))
+        : undefined;
+
+      try {
+        setIsSubmitting(true);
+        const result = await onSubmitAnswer({
+          question: currentQuestion,
+          studentAnswerText,
+          selectedOptions,
+          uploadFile: currentUploadedFile || undefined,
+          skipped: false,
+        });
+
+        const reviewOnlyFeedback = typeof result.feedback === 'string'
+          && result.feedback.toLowerCase().includes('submitted for review');
+        const effectiveCorrect = typeof openResponseAssessment?.correct === 'boolean'
+          ? openResponseAssessment.correct
+          : reviewOnlyFeedback
+            ? true
+            : result.correct;
+        const mergedFeedback = [openResponseAssessment?.feedback, result.feedback]
+          .map((item) => (typeof item === 'string' ? item.trim() : ''))
+          .filter((item, index, collection) => item.length > 0 && collection.indexOf(item) === index)
+          .join(' ');
+
+        setResults((previous) => ({
+          ...previous,
+          [currentQuestion.id]: result.skipped ? 'skipped' : effectiveCorrect ? 'correct' : 'incorrect',
+        }));
+        setFeedback(effectiveCorrect ? 'correct' : 'incorrect');
+        setFeedbackMessage(mergedFeedback || null);
+      } catch {
+        setFeedback('incorrect');
+        setFeedbackMessage('Answer submission failed. Please try again.');
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
+    const correct = typeof openResponseAssessment?.correct === 'boolean'
+      ? openResponseAssessment.correct
+      : isCurrentAnswerCorrect();
     setResults((previous) => ({ ...previous, [currentQuestion.id]: correct ? 'correct' : 'incorrect' }));
     setFeedback(correct ? 'correct' : 'incorrect');
+    setFeedbackMessage(openResponseAssessment?.feedback || null);
   };
 
-  const handlePrimaryAction = () => {
+  const handlePrimaryAction = async () => {
     if (sessionCompleted) return;
+    if (isSubmitting) return;
 
     if (feedback === 'correct') {
-      goToNextQuestion();
+      await goToNextQuestion();
       return;
     }
 
     if (feedback === 'incorrect' || feedback === 'missing') {
       setFeedback(null);
+      setFeedbackMessage(null);
       return;
     }
 
-    handleCheck();
+    await handleCheck();
   };
 
-  const handleSkip = () => {
+  const handleSkip = async () => {
     if (!currentQuestion || sessionCompleted) return;
+    if (isSubmitting) return;
+
+    if (onSubmitAnswer) {
+      try {
+        setIsSubmitting(true);
+        const result = await onSubmitAnswer({
+          question: currentQuestion,
+          studentAnswerText: undefined,
+          selectedOptions: [],
+          skipped: true,
+        });
+        setResults((previous) => ({
+          ...previous,
+          [currentQuestion.id]: result.skipped ? 'skipped' : result.correct ? 'correct' : 'incorrect',
+        }));
+        await goToNextQuestion();
+      } catch {
+        setFeedback('incorrect');
+        setFeedbackMessage('Unable to skip this question right now. Please try again.');
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
 
     setResults((previous) => ({ ...previous, [currentQuestion.id]: previous[currentQuestion.id] || 'skipped' }));
-    goToNextQuestion();
+    await goToNextQuestion();
   };
 
   const toggleOption = (optionIndex: number) => {
@@ -320,9 +321,11 @@ const StudentPracticeRunner: React.FC<StudentPracticeRunnerProps> = ({
         : 'Next question'
       : feedback === 'incorrect'
         ? 'Try again'
-        : feedback === 'missing'
-          ? 'Check'
-        : 'Check';
+      : feedback === 'missing'
+        ? 'Check'
+        : isSubmitting
+          ? 'Checking...'
+          : 'Check';
 
   const showFeedbackToast = feedback !== null;
   const desktopFeedbackStyle: React.CSSProperties = {
@@ -349,12 +352,47 @@ const StudentPracticeRunner: React.FC<StudentPracticeRunnerProps> = ({
             </div>
 
             {currentQuestion.type === 'input' && (
-              <input
-                value={currentTextAnswer}
-                onChange={(event) => setTextAnswers((previous) => ({ ...previous, [currentQuestion.id]: event.target.value }))}
-                placeholder={currentQuestion.placeholder || 'Type your answer'}
-                className="w-full max-w-sm rounded-md border border-slate-300 px-3 py-2 text-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
+              <div className="w-full max-w-3xl rounded-xl border border-slate-200 bg-slate-50/70 p-4">
+                <label className="block text-sm font-semibold text-slate-700" htmlFor={`practice-input-${currentQuestion.id}`}>
+                  Your response
+                </label>
+                <textarea
+                  id={`practice-input-${currentQuestion.id}`}
+                  rows={5}
+                  value={currentTextAnswer}
+                  onChange={(event) => setTextAnswers((previous) => ({ ...previous, [currentQuestion.id]: event.target.value }))}
+                  placeholder={currentQuestion.placeholder || 'Type your answer'}
+                  className="mt-2 w-full resize-y rounded-lg border border-slate-300 bg-white px-4 py-3 text-base text-slate-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 md:text-lg"
+                />
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <label className="inline-flex cursor-pointer items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0] || null;
+                        setUploadedFilesByQuestion((previous) => ({ ...previous, [currentQuestion.id]: file }));
+                        event.currentTarget.value = '';
+                      }}
+                    />
+                    {currentUploadedFile ? `Image attached: ${currentUploadedFile.name}` : 'Upload answer image (optional)'}
+                  </label>
+                  {currentUploadedFile && (
+                    <button
+                      type="button"
+                      onClick={() => setUploadedFilesByQuestion((previous) => ({ ...previous, [currentQuestion.id]: null }))}
+                      className="inline-flex items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                    >
+                      Remove image
+                    </button>
+                  )}
+                </div>
+                <div className="mt-2 flex items-center justify-between gap-2 text-xs text-slate-500">
+                  <span>Type your answer and/or upload a photo of written work.</span>
+                  <span>{currentTextAnswer.trim().length} chars</span>
+                </div>
+              </div>
             )}
 
             {(currentQuestion.type === 'single' || currentQuestion.type === 'multiple') && (
@@ -411,7 +449,9 @@ const StudentPracticeRunner: React.FC<StudentPracticeRunnerProps> = ({
                   {feedback === 'correct' ? 'Great work!' : feedback === 'missing' ? 'Select an answer first' : 'Not quite yet...'}
                 </p>
                 <p className="text-xs text-slate-600 mt-1">
-                  {feedback === 'correct'
+                  {feedbackMessage
+                    ? feedbackMessage
+                    : feedback === 'correct'
                     ? 'You got it. Onward!'
                     : feedback === 'missing'
                       ? 'Choose an option or type your answer, then check again.'
@@ -440,7 +480,9 @@ const StudentPracticeRunner: React.FC<StudentPracticeRunnerProps> = ({
                   {feedback === 'correct' ? 'Great work!' : feedback === 'missing' ? 'Select an answer first' : 'Not quite yet...'}
                 </p>
                 <p className="text-xs text-slate-600 mt-1">
-                  {feedback === 'correct'
+                  {feedbackMessage
+                    ? feedbackMessage
+                    : feedback === 'correct'
                     ? 'You got it. Onward!'
                     : feedback === 'missing'
                       ? 'Choose an option or type your answer, then check again.'
@@ -475,16 +517,16 @@ const StudentPracticeRunner: React.FC<StudentPracticeRunnerProps> = ({
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={handleSkip}
-                disabled={sessionCompleted}
+                onClick={() => void handleSkip()}
+                disabled={sessionCompleted || isSubmitting}
                 className="inline-flex items-center rounded-md px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Skip
               </button>
               <button
                 type="button"
-                onClick={handlePrimaryAction}
-                disabled={sessionCompleted}
+                onClick={() => void handlePrimaryAction()}
+                disabled={sessionCompleted || isSubmitting}
                 className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
               >
                 {footerPrimaryLabel}
@@ -512,20 +554,20 @@ const StudentPracticeRunner: React.FC<StudentPracticeRunnerProps> = ({
 
           <div className="flex items-center gap-2">
             <button
-              type="button"
-              onClick={handleSkip}
-              disabled={sessionCompleted}
-              className="inline-flex items-center rounded-md px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              Skip
-            </button>
-            <button
-              type="button"
-              onClick={handlePrimaryAction}
-              disabled={sessionCompleted}
-              className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
-            >
-              {footerPrimaryLabel}
+            type="button"
+            onClick={() => void handleSkip()}
+            disabled={sessionCompleted || isSubmitting}
+            className="inline-flex items-center rounded-md px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Skip
+          </button>
+          <button
+            type="button"
+            onClick={() => void handlePrimaryAction()}
+            disabled={sessionCompleted || isSubmitting}
+            className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
+          >
+            {footerPrimaryLabel}
             </button>
           </div>
         </div>

@@ -24,6 +24,7 @@ import {
   Redo2,
   Search,
   SendHorizontal,
+  Settings2,
   Trash2,
   Underline,
   Undo2,
@@ -34,11 +35,29 @@ interface DevelopmentViewProps {
 }
 
 type AiPlanApproach = 'balanced' | 'practice' | 'intervention';
+type NewStepPreset = 'resource' | 'practice';
 
 interface AiPlanStepDraft {
   title: string;
   type: StepType;
   content: string;
+}
+
+type PracticeResponseType = 'short-answer' | 'multiple-choice' | 'true-false';
+
+interface PracticeBuilderQuestion {
+  id: string;
+  prompt: string;
+  responseType: PracticeResponseType;
+  marks: number;
+  expectedAnswer: string;
+  options: string[];
+  correctOptions: string[];
+}
+
+interface PracticeBuilderDraft {
+  name: string;
+  questions: PracticeBuilderQuestion[];
 }
 
 const isValidUuid = (value: string) => /^[0-9a-fA-F-]{36}$/.test(value);
@@ -84,6 +103,202 @@ const getStepTypeForApproach = (approach: AiPlanApproach, index: number): StepTy
 
 const getStepCategoryLabel = (type: StepType): 'Resource' | 'Practice/Assessment' =>
   type === 'document' ? 'Resource' : 'Practice/Assessment';
+
+const isPracticeStepType = (type?: string) => type === 'quiz' || type === 'assignment' || type === 'assessment';
+
+const escapeHtml = (value: string) =>
+  value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+
+const decodeHtmlEntities = (value: string) => {
+  if (typeof document === 'undefined') return value;
+  const textarea = document.createElement('textarea');
+  textarea.innerHTML = value;
+  return textarea.value;
+};
+
+const normalizePracticeQuestionOptions = (rawOptions: string[]): string[] =>
+  rawOptions.map((option) => option.trim()).filter(Boolean);
+
+const normalizePracticeCorrectOptions = (rawOptions: string[]): string[] =>
+  rawOptions.map((option) => option.trim()).filter(Boolean);
+
+const isTrueFalseOptionSet = (options: string[]): boolean => {
+  const normalized = options.map((option) => option.trim().toLowerCase()).filter(Boolean);
+  return normalized.length === 2 && normalized.includes('true') && normalized.includes('false');
+};
+
+const parsePracticeQuestionFromLine = (rawLine: string, index: number): PracticeBuilderQuestion => {
+  const baseQuestion: PracticeBuilderQuestion = {
+    id: `practice-question-${Date.now()}-${index}`,
+    prompt: '',
+    responseType: 'short-answer',
+    marks: 5,
+    expectedAnswer: '',
+    options: [],
+    correctOptions: [],
+  };
+  const line = decodeHtmlEntities(String(rawLine || '').replace(/<[^>]+>/g, ' ').trim());
+  if (!line) return baseQuestion;
+
+  const marksMatch = line.match(/\((\d+)\s*marks?\)/i);
+  const parsedMarks = marksMatch ? Number.parseInt(marksMatch[1], 10) : NaN;
+  const marks = Number.isNaN(parsedMarks) ? 5 : Math.max(1, parsedMarks);
+  const optionsMatch = line.match(/(?:^|\s)Options:\s*([\s\S]*?)(?=\s+Answer\(s\):|\s+Answer:|\s+Marking guide:|$)/i);
+  const answersMatch = line.match(/(?:^|\s)Answer\(s\):\s*([\s\S]*?)(?=\s+Marking guide:|$)/i)
+    || line.match(/(?:^|\s)Answer:\s*([\s\S]*?)(?=\s+Marking guide:|$)/i);
+  const prompt = line
+    .replace(/\s+Options:\s*[\s\S]*$/i, '')
+    .replace(/\s+Answer\(s\):\s*[\s\S]*$/i, '')
+    .replace(/\s+Answer:\s*[\s\S]*$/i, '')
+    .replace(/\s+Marking guide:\s*[\s\S]*$/i, '')
+    .replace(/\((\d+)\s*marks?\)/i, '')
+    .trim();
+
+  const options = normalizePracticeQuestionOptions(
+    (optionsMatch?.[1] || '')
+      .split(/[|,;]+/)
+      .map((option) => option.trim())
+  );
+  const answers = normalizePracticeCorrectOptions(
+    (answersMatch?.[1] || '')
+      .split(/[|,;]+/)
+      .map((answer) => answer.trim())
+  );
+
+  if (options.length === 0) {
+    return {
+      ...baseQuestion,
+      prompt,
+      marks,
+      expectedAnswer: answers.join(', '),
+    };
+  }
+
+  if (isTrueFalseOptionSet(options)) {
+    const normalizedAnswers = answers
+      .map((answer) => (answer.toLowerCase() === 'true' ? 'True' : answer.toLowerCase() === 'false' ? 'False' : ''))
+      .filter(Boolean);
+    return {
+      ...baseQuestion,
+      prompt,
+      marks,
+      responseType: 'true-false',
+      options: ['True', 'False'],
+      correctOptions: normalizedAnswers.slice(0, 1),
+    };
+  }
+
+  const validAnswers = answers.filter((answer) => options.includes(answer));
+  return {
+    ...baseQuestion,
+    prompt,
+    marks,
+    responseType: 'multiple-choice',
+    options,
+    correctOptions: validAnswers,
+  };
+};
+
+const createPracticeQuestion = (index: number, prompt = ''): PracticeBuilderQuestion => ({
+  id: `practice-question-${Date.now()}-${index}`,
+  prompt,
+  responseType: 'short-answer',
+  marks: 5,
+  expectedAnswer: '',
+  options: ['', ''],
+  correctOptions: [],
+});
+
+const createEmptyPracticeDraft = (name = ''): PracticeBuilderDraft => ({
+  name,
+  questions: [createPracticeQuestion(1), createPracticeQuestion(2)],
+});
+
+const parsePracticeDraftFromStep = (step: Step, fallbackName: string): PracticeBuilderDraft => {
+  const rawContent = String(step.content || '');
+  const questionMatches = Array.from(rawContent.matchAll(/<li[^>]*>([\s\S]*?)<\/li>/gi))
+    .map((match) => decodeHtmlEntities(match[1].trim()))
+    .filter(Boolean);
+  const questionLines = questionMatches.length > 0
+    ? questionMatches
+    : [createPracticeQuestion(1).prompt, createPracticeQuestion(2).prompt];
+  const questions = questionLines.map((line, index) => parsePracticeQuestionFromLine(String(line || ''), index + 1));
+
+  return {
+    name: step.title || fallbackName,
+    questions,
+  };
+};
+
+const buildPracticeContentFromDraft = (draft: PracticeBuilderDraft): string => {
+  const questionItems = draft.questions
+    .map((question) => {
+      const prompt = question.prompt.trim();
+      if (!prompt) return '';
+      const marks = Number.isFinite(Number(question.marks)) ? Math.max(1, Number(question.marks)) : 1;
+      const promptWithMarks = `${escapeHtml(prompt)} (${marks} marks)`;
+      if (question.responseType === 'short-answer') {
+        const answer = question.expectedAnswer.trim();
+        return `<li>${promptWithMarks}${answer ? ` Answer: ${escapeHtml(answer)}` : ''}</li>`;
+      }
+
+      const options = question.responseType === 'true-false'
+        ? ['True', 'False']
+        : normalizePracticeQuestionOptions(question.options);
+      const answers = normalizePracticeCorrectOptions(question.correctOptions).filter((answer) =>
+        options.some((option) => option.trim() === answer)
+      );
+      const optionsText = options.length > 0
+        ? ` Options: ${options.map((option) => escapeHtml(option)).join(' | ')}`
+        : '';
+      const answersText = answers.length > 0
+        ? ` Answer(s): ${answers.map((answer) => escapeHtml(answer)).join(' | ')}`
+        : '';
+      return `<li>${promptWithMarks}${optionsText}${answersText}</li>`;
+    })
+    .filter(Boolean);
+  const questions = questionItems.length > 0 ? questionItems : ['<li>Write question 1 here.</li>'];
+  const escapedName = escapeHtml(draft.name.trim());
+  return [
+    escapedName ? `<p><strong>Practice focus:</strong> ${escapedName}</p>` : '',
+    '<p><strong>Questions:</strong></p>',
+    `<ol>${questions.join('')}</ol>`,
+  ].filter(Boolean).join('');
+};
+
+const createNewStepDraft = (order: number, preset: NewStepPreset, subjectName: string): Step => {
+  if (preset === 'practice') {
+    return {
+      title: `${subjectName} Practice ${order}`,
+      type: 'quiz',
+      content: [
+        `<p><strong>Practice focus:</strong> ${subjectName}</p>`,
+        '<p><strong>Questions:</strong></p>',
+        '<ol>',
+        '<li>Write question 1 here.</li>',
+        '<li>Write question 2 here.</li>',
+        '</ol>',
+      ].join(''),
+      order,
+      link: '',
+      additionalResources: [],
+    };
+  }
+
+  return {
+    title: '',
+    type: 'document',
+    content: '',
+    order,
+    link: '',
+    additionalResources: [],
+  };
+};
 
 const getStepTitleForApproach = (
   approach: AiPlanApproach,
@@ -195,6 +410,10 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
     link: '',
     additionalResources: [],
   });
+  const [practiceWorkspaceDraft, setPracticeWorkspaceDraft] = useState<PracticeBuilderDraft>(
+    createEmptyPracticeDraft('')
+  );
+  const [isPracticePreviewVisible, setIsPracticePreviewVisible] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiMessages, setAiMessages] = useState<Array<{ role: 'assistant' | 'teacher'; content: string }>>([
     { role: 'assistant', content: 'I can help draft or refine this step. Ask me for a clearer activity, quiz, or rubric.' },
@@ -215,14 +434,20 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
   const { toast } = useToast();
 
   const getActiveSubjectContext = () => {
-    const subjectId = studentsSubjectFilter || getStudentPrimarySubjectId(selectedStudent);
+    const planSubjectId = currentDisplayPlan?.plan?.subjectId;
+    const subjectId = planSubjectId || studentsSubjectFilter || getStudentPrimarySubjectId(selectedStudent);
     const selectedSubjectOption = subjectOptions.find((subject) => subject.id === subjectId);
     const subjectFromStudent = selectedStudent?.subjects?.find((subject) =>
       typeof subject === 'string' ? subject === subjectId : subject.id === subjectId
     );
+    const inferredPlanSubjectName = (currentDisplayPlan?.plan?.name || '')
+      .replace(/\bdevelopment plan\b/i, '')
+      .replace(/\bplan\b/i, '')
+      .trim();
     const subjectName =
       selectedSubjectOption?.name ||
       (subjectFromStudent && typeof subjectFromStudent !== 'string' ? subjectFromStudent.name : '') ||
+      inferredPlanSubjectName ||
       'Selected subject';
 
     return { subjectId, subjectName };
@@ -683,7 +908,15 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
       return;
     }
     const { subjectId } = getActiveSubjectContext();
-    setCurrentDisplayPlan(selectPlanForSubject(allStudentDevelopmentPlans, subjectId));
+    setCurrentDisplayPlan((previous) => {
+      if (previous) {
+        const matchingPlan = allStudentDevelopmentPlans.find((plan) => plan.id === previous.id);
+        if (matchingPlan && (!subjectId || matchingPlan.plan?.subjectId === subjectId)) {
+          return matchingPlan;
+        }
+      }
+      return selectPlanForSubject(allStudentDevelopmentPlans, subjectId);
+    });
   }, [allStudentDevelopmentPlans, selectedStudent, studentsSubjectFilter]);
 
   const syncUpdatedPlanInState = (updatedPlan: DevelopmentPlan) => {
@@ -693,7 +926,7 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
     setCurrentDisplayPlan((previous) => (previous?.id === updatedPlan.id ? updatedPlan : previous));
   };
 
-  const openStepWorkspace = (index?: number) => {
+  const openStepWorkspace = (index?: number, preset: NewStepPreset = 'resource') => {
     if (!currentDisplayPlan) return;
     if (typeof index === 'number') {
       const step = currentDisplayPlan.plan.steps[index];
@@ -706,38 +939,73 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
         link: step.link || '',
         additionalResources: step.additionalResources || [],
       });
+      if (isPracticeStepType(step.type)) {
+        setPracticeWorkspaceDraft(parsePracticeDraftFromStep(step, step.title || 'Practice step'));
+      } else {
+        setPracticeWorkspaceDraft(createEmptyPracticeDraft(''));
+      }
     } else {
       setEditingStepIndex(null);
-      setStepWorkspaceDraft({
-        title: '',
-        type: 'document',
-        content: '',
-        order: (currentDisplayPlan.plan.steps?.length || 0) + 1,
-        link: '',
-        additionalResources: [],
-      });
+      const nextOrder = (currentDisplayPlan.plan.steps?.length || 0) + 1;
+      const { subjectName } = getActiveSubjectContext();
+      const nextStepDraft = createNewStepDraft(nextOrder, preset, subjectName);
+      setStepWorkspaceDraft(nextStepDraft);
+      if (preset === 'practice') {
+        setPracticeWorkspaceDraft(parsePracticeDraftFromStep(nextStepDraft, `${subjectName} Practice ${nextOrder}`));
+      } else {
+        setPracticeWorkspaceDraft(createEmptyPracticeDraft(''));
+      }
     }
+    setIsPracticePreviewVisible(false);
     setIsStepWorkspaceOpen(true);
+  };
+
+  const handleWorkspaceStepSelect = (selectedValue: string) => {
+    if (selectedValue === '__new') {
+      if (editingStepIndex === null) return;
+      openStepWorkspace();
+      return;
+    }
+    const selectedIndex = Number(selectedValue);
+    if (!Number.isNaN(selectedIndex)) {
+      openStepWorkspace(selectedIndex);
+    }
+  };
+
+  const toggleNewStepWorkspacePreset = (preset: NewStepPreset) => {
+    if (editingStepIndex !== null) return;
+    openStepWorkspace(undefined, preset);
   };
 
   const closeStepWorkspace = () => {
     setIsStepWorkspaceOpen(false);
     setEditingStepIndex(null);
     setIsStepWorkspaceMaximized(false);
+    setIsPracticePreviewVisible(false);
   };
 
   const saveStepWorkspace = async () => {
     if (!currentDisplayPlan) return;
-    if (!stepWorkspaceDraft.title.trim()) {
+    const isPracticeDraft = isPracticeStepType(stepWorkspaceDraft.type);
+    const normalizedTitle = isPracticeDraft
+      ? practiceWorkspaceDraft.name.trim()
+      : stepWorkspaceDraft.title.trim();
+
+    if (!normalizedTitle) {
       toast.error('Step title is required');
       return;
     }
 
     const normalizedStep: Step = {
       ...stepWorkspaceDraft,
-      title: stepWorkspaceDraft.title.trim(),
-      content: stepWorkspaceDraft.content || '',
-      link: stepWorkspaceDraft.link || '',
+      title: normalizedTitle,
+      content: isPracticeDraft
+        ? buildPracticeContentFromDraft({
+            ...practiceWorkspaceDraft,
+            name: normalizedTitle,
+          })
+        : (stepWorkspaceDraft.content || ''),
+      link: isPracticeDraft ? '' : (stepWorkspaceDraft.link || ''),
     };
 
     try {
@@ -989,6 +1257,22 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
   }
 
   const fullName = `${selectedStudent.firstName} ${selectedStudent.lastName}`;
+  const isPracticeWorkspace = isPracticeStepType(stepWorkspaceDraft.type);
+  const canSavePracticeWorkspace =
+    practiceWorkspaceDraft.name.trim().length > 0 &&
+    practiceWorkspaceDraft.questions.some((question) => question.prompt.trim().length > 0) &&
+    practiceWorkspaceDraft.questions
+      .filter((question) => question.prompt.trim().length > 0)
+      .every((question) => {
+        if (question.responseType === 'short-answer') return true;
+        const options = question.responseType === 'true-false'
+          ? ['True', 'False']
+          : normalizePracticeQuestionOptions(question.options);
+        const correctOptions = normalizePracticeCorrectOptions(question.correctOptions).filter((answer) =>
+          options.some((option) => option.trim() === answer)
+        );
+        return options.length >= 2 && correctOptions.length > 0;
+      });
 
   return (
     <>
@@ -1100,7 +1384,7 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
             </div>
           </div>
         ) : isStepWorkspaceOpen ? (
-          <div className="grid grid-cols-1 gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_56px]">
+          <div className="grid h-full min-h-0 grid-cols-1 gap-4 p-4 xl:grid-cols-[minmax(0,1fr)_56px]">
             <input
               ref={imageInputRef}
               type="file"
@@ -1115,219 +1399,623 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
               }}
             />
 
-            <div className="col-span-full min-h-0 overflow-hidden">
-              <div className="mx-auto flex h-full max-w-7xl min-h-0 flex-col overflow-hidden">
+            <div className="col-span-full flex min-h-0 overflow-hidden">
+              <div className="mx-auto flex h-full min-h-0 w-full max-w-7xl flex-col overflow-hidden">
                 <div className="min-h-0 flex-1">
-                  <div className="flex h-full min-h-[640px] flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow">
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 p-3">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={closeStepWorkspace}
-                          className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
-                        >
-                          <ChevronLeft className="h-3.5 w-3.5" />
-                          Back to plan
-                        </button>
-                        <button
-                          type="button"
-                          onClick={saveStepWorkspace}
-                          disabled={isPersistingPlan}
-                          className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
-                        >
-                          Save step
-                        </button>
+                  <div className="flex h-full min-h-0 max-h-full flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow">
+                    {!isPracticeWorkspace ? (
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 p-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={closeStepWorkspace}
+                            className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                          >
+                            <ChevronLeft className="h-3.5 w-3.5" />
+                            Back to plan
+                          </button>
+                          <button
+                            type="button"
+                            onClick={saveStepWorkspace}
+                            disabled={isPersistingPlan}
+                            className="inline-flex items-center gap-1 rounded-md border border-blue-700 bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-300 disabled:text-slate-100"
+                          >
+                            Save step
+                          </button>
+                          {editingStepIndex === null ? (
+                            <button
+                              type="button"
+                              onClick={() => toggleNewStepWorkspacePreset('practice')}
+                              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                              Switch to practice step
+                            </button>
+                          ) : null}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={editingStepIndex === null ? '__new' : String(editingStepIndex)}
+                            onChange={(e) => handleWorkspaceStepSelect(e.target.value)}
+                            className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600"
+                          >
+                            {sortedStepEntries.map(({ step, index, order }) => (
+                              <option key={`${step.title}-${index}`} value={String(index)}>
+                                {`Step ${order} (${isPracticeStepType(step.type) ? 'Practice' : 'Resource'}): ${step.title || 'Untitled step'}`}
+                              </option>
+                            ))}
+                            <option value="__new">New step</option>
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => setIsStepWorkspaceMaximized((prev) => !prev)}
+                            className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
+                            aria-label={isStepWorkspaceMaximized ? 'Restore editor size' : 'Expand editor size'}
+                            title={isStepWorkspaceMaximized ? 'Restore' : 'Expand'}
+                          >
+                            {isStepWorkspaceMaximized ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+                          </button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <select
-                          value={editingStepIndex === null ? '__new' : String(editingStepIndex)}
-                          onChange={(e) => {
-                            const selected = e.target.value;
-                            if (selected === '__new') {
-                              openStepWorkspace();
-                              return;
-                            }
-                            const selectedIndex = Number(selected);
-                            if (!Number.isNaN(selectedIndex)) {
-                              openStepWorkspace(selectedIndex);
-                            }
-                          }}
-                          className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600"
-                        >
-                          {sortedStepEntries.map(({ step, index, order }) => (
-                            <option key={`${step.title}-${index}`} value={String(index)}>
-                              {`Step ${order}: ${step.title || 'Untitled step'}`}
-                            </option>
-                          ))}
-                          <option value="__new">New step</option>
-                        </select>
-                        <button
-                          type="button"
-                          onClick={() => setIsStepWorkspaceMaximized((prev) => !prev)}
-                          className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
-                          aria-label={isStepWorkspaceMaximized ? 'Restore editor size' : 'Expand editor size'}
-                          title={isStepWorkspaceMaximized ? 'Restore' : 'Expand'}
-                        >
-                          {isStepWorkspaceMaximized ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-                        </button>
-                      </div>
-                    </div>
+                    ) : null}
 
                     <div className="flex min-h-0 flex-1 flex-col overflow-hidden xl:flex-row">
-                      <div className="relative z-0 min-h-0 min-w-0 flex-1 overflow-y-auto p-3">
-                        <div className="rounded-lg border border-slate-200 bg-white">
-                  <div className="space-y-3 border-b border-slate-200 p-3">
-                    <input
-                      value={stepWorkspaceDraft.title}
-                      onChange={(e) => setStepWorkspaceDraft((prev) => ({ ...prev, title: e.target.value }))}
-                      className="w-full rounded-md border border-slate-200 px-3 py-2 text-base font-semibold text-slate-900"
-                      placeholder="Step title"
-                    />
-                    <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                      <select
-                        value={stepWorkspaceDraft.type}
-                        onChange={(e) =>
-                          setStepWorkspaceDraft((prev) => ({ ...prev, type: e.target.value as Step['type'] }))
-                        }
-                        className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700"
-                      >
-                        <option value="document">Document</option>
-                        <option value="video">Video</option>
-                        <option value="assessment">Assessment</option>
-                        <option value="assignment">Assignment</option>
-                        <option value="quiz">Quiz</option>
-                        <option value="discussion">Discussion</option>
-                      </select>
+                      {isPracticeWorkspace ? (
+                        <div className="relative z-0 min-h-0 min-w-0 flex-1 overflow-hidden p-3">
+                          <div className="flex h-full flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow">
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 p-4">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={closeStepWorkspace}
+                                  className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                                >
+                                  <ChevronLeft className="h-3.5 w-3.5" />
+                                  Back to plan
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setIsPracticePreviewVisible((previous) => !previous)}
+                                  className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                                >
+                                  Preview Practice
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={closeStepWorkspace}
+                                  className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={saveStepWorkspace}
+                                  disabled={isPersistingPlan || !canSavePracticeWorkspace}
+                                  className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {editingStepIndex === null ? 'Save Practice' : 'Update Practice'}
+                                </button>
+                                {editingStepIndex === null ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleNewStepWorkspacePreset('resource')}
+                                    className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                                  >
+                                    <Plus className="h-3.5 w-3.5" />
+                                    Switch to resource step
+                                  </button>
+                                ) : null}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <select
+                                  value={editingStepIndex === null ? '__new' : String(editingStepIndex)}
+                                  onChange={(e) => handleWorkspaceStepSelect(e.target.value)}
+                                  className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs text-slate-600"
+                                >
+                                  {sortedStepEntries.map(({ step, index, order }) => (
+                                    <option key={`${step.title}-${index}`} value={String(index)}>
+                                      {`Step ${order} (${isPracticeStepType(step.type) ? 'Practice' : 'Resource'}): ${step.title || 'Untitled step'}`}
+                                    </option>
+                                  ))}
+                                  <option value="__new">New step</option>
+                                </select>
+                                <button
+                                  type="button"
+                                  onClick={() => setIsStepWorkspaceMaximized((prev) => !prev)}
+                                  className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
+                                  aria-label="Expand practice workspace"
+                                  title={isStepWorkspaceMaximized ? 'Restore' : 'Expand'}
+                                >
+                                  {isStepWorkspaceMaximized ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+                                </button>
+                              </div>
+                            </div>
+                            <div className="relative z-0 min-h-0 min-w-0 flex-1 space-y-6 overflow-y-auto p-6">
+                              <section className="space-y-4">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Practice Canvas</h2>
+                                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                                      {canSavePracticeWorkspace ? 'Configured' : 'Draft'}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-3">
+                                    <button
+                                      type="button"
+                                      className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                                    >
+                                      <Settings2 className="h-3.5 w-3.5" />
+                                      Configure
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setPracticeWorkspaceDraft((previous) => ({
+                                          ...previous,
+                                          questions: [...previous.questions, createPracticeQuestion(previous.questions.length + 1)],
+                                        }));
+                                      }}
+                                      className="text-sm text-blue-600 hover:text-blue-700"
+                                    >
+                                      + Add practice question
+                                    </button>
+                                  </div>
+                                </div>
+
+                                <div className="rounded-lg border border-slate-200 bg-white p-4">
+                                  <label className="block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                    Practice name
+                                    <input
+                                      value={practiceWorkspaceDraft.name}
+                                      onChange={(event) => {
+                                        const value = event.target.value;
+                                        setPracticeWorkspaceDraft((previous) => ({
+                                          ...previous,
+                                          name: value,
+                                        }));
+                                        setStepWorkspaceDraft((previous) => ({ ...previous, title: value }));
+                                      }}
+                                      placeholder="Enter practice name"
+                                      className="mt-2 w-full rounded-md border border-slate-200 px-3 py-2 text-sm font-medium text-slate-900"
+                                    />
+                                  </label>
+                                </div>
+
+                                {isPracticePreviewVisible ? (
+                                  <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-blue-700">Preview</p>
+                                    <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm text-slate-700">
+                                      {practiceWorkspaceDraft.questions
+                                        .map((question) => question.prompt.trim())
+                                        .filter(Boolean)
+                                        .map((question, index) => (
+                                          <li key={`preview-question-${index}`}>{question}</li>
+                                        ))}
+                                    </ol>
+                                  </div>
+                                ) : null}
+
+                                <div className="relative min-h-[220px]">
+                                  <div className="space-y-3">
+                                    {practiceWorkspaceDraft.questions.map((question, index) => (
+                                      <div key={question.id} className="rounded-lg border border-slate-200 bg-white p-4">
+                                        <div className="mb-3 flex items-center justify-between gap-2">
+                                          <p className="text-sm font-semibold text-slate-800">Question {index + 1}</p>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setPracticeWorkspaceDraft((previous) => {
+                                                if (previous.questions.length <= 1) return previous;
+                                                return {
+                                                  ...previous,
+                                                  questions: previous.questions.filter((existing) => existing.id !== question.id),
+                                                };
+                                              });
+                                            }}
+                                            className="inline-flex items-center gap-1 rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs font-medium text-rose-600 hover:bg-rose-100"
+                                          >
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                            Remove
+                                          </button>
+                                        </div>
+                                        <div className="space-y-3">
+                                          <label className="block text-xs text-gray-500">
+                                            <textarea
+                                              value={question.prompt}
+                                              onChange={(event) => {
+                                                const value = event.target.value;
+                                                setPracticeWorkspaceDraft((previous) => ({
+                                                  ...previous,
+                                                  questions: previous.questions.map((existing) =>
+                                                    existing.id === question.id ? { ...existing, prompt: value } : existing
+                                                  ),
+                                                }));
+                                              }}
+                                              className="mt-1 min-h-[88px] w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
+                                              placeholder="Write the question here..."
+                                            />
+                                          </label>
+                                          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                            <label className="block text-xs text-gray-500">
+                                              Response Type
+                                              <select
+                                                value={question.responseType}
+                                                onChange={(event) => {
+                                                  const value = event.target.value as PracticeResponseType;
+                                                  setPracticeWorkspaceDraft((previous) => ({
+                                                    ...previous,
+                                                    questions: previous.questions.map((existing) =>
+                                                      existing.id === question.id
+                                                        ? {
+                                                            ...existing,
+                                                            responseType: value,
+                                                            expectedAnswer: value === 'short-answer' ? existing.expectedAnswer : '',
+                                                            options:
+                                                              value === 'multiple-choice'
+                                                                ? (existing.options.length >= 2 ? existing.options : ['', ''])
+                                                                : value === 'true-false'
+                                                                  ? ['True', 'False']
+                                                                  : [],
+                                                            correctOptions:
+                                                              value === 'short-answer'
+                                                                ? []
+                                                                : value === 'true-false'
+                                                                  ? normalizePracticeCorrectOptions(existing.correctOptions)
+                                                                      .map((answer) =>
+                                                                        answer.toLowerCase() === 'true'
+                                                                          ? 'True'
+                                                                          : answer.toLowerCase() === 'false'
+                                                                            ? 'False'
+                                                                            : ''
+                                                                      )
+                                                                      .filter(Boolean)
+                                                                      .slice(0, 1)
+                                                                  : normalizePracticeCorrectOptions(existing.correctOptions),
+                                                          }
+                                                        : existing
+                                                    ),
+                                                  }));
+                                                }}
+                                                className="mt-1 w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
+                                              >
+                                                <option value="short-answer">Short answer</option>
+                                                <option value="multiple-choice">Multiple choice</option>
+                                                <option value="true-false">True/False</option>
+                                              </select>
+                                            </label>
+                                            <label className="block text-xs text-gray-500">
+                                              Marks
+                                              <input
+                                                type="number"
+                                                min="1"
+                                                value={question.marks}
+                                                onChange={(event) => {
+                                                  const parsed = Number.parseInt(event.target.value, 10);
+                                                  const marks = Number.isNaN(parsed) ? 1 : Math.max(1, parsed);
+                                                  setPracticeWorkspaceDraft((previous) => ({
+                                                    ...previous,
+                                                    questions: previous.questions.map((existing) =>
+                                                      existing.id === question.id ? { ...existing, marks } : existing
+                                                    ),
+                                                  }));
+                                                }}
+                                                className="mt-1 w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
+                                              />
+                                            </label>
+                                          </div>
+                                          {question.responseType === 'short-answer' ? (
+                                            <label className="block text-xs text-gray-500">
+                                              Correct / expected answer
+                                              <textarea
+                                                rows={2}
+                                                value={question.expectedAnswer}
+                                                onChange={(event) => {
+                                                  const value = event.target.value;
+                                                  setPracticeWorkspaceDraft((previous) => ({
+                                                    ...previous,
+                                                    questions: previous.questions.map((existing) =>
+                                                      existing.id === question.id ? { ...existing, expectedAnswer: value } : existing
+                                                    ),
+                                                  }));
+                                                }}
+                                                className="mt-1 min-h-[72px] w-full resize-none overflow-hidden rounded-md border border-gray-200 px-3 py-2 text-sm"
+                                                placeholder="Provide the expected answer"
+                                              />
+                                            </label>
+                                          ) : (
+                                            <div className="space-y-3">
+                                              <div className="flex items-center justify-between">
+                                                <label className="text-xs text-gray-500">Options</label>
+                                                {question.responseType === 'multiple-choice' ? (
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                      setPracticeWorkspaceDraft((previous) => ({
+                                                        ...previous,
+                                                        questions: previous.questions.map((existing) =>
+                                                          existing.id === question.id
+                                                            ? { ...existing, options: [...existing.options, ''] }
+                                                            : existing
+                                                        ),
+                                                      }));
+                                                    }}
+                                                    className="text-xs text-blue-600 hover:text-blue-700"
+                                                  >
+                                                    + Add option
+                                                  </button>
+                                                ) : null}
+                                              </div>
+
+                                              <div className="space-y-2">
+                                                {(question.responseType === 'true-false' ? ['True', 'False'] : (
+                                                  question.options.length >= 2 ? question.options : ['', '']
+                                                )).map((option, optionIndex) => {
+                                                  const normalizedOption = option.trim();
+                                                  const isCorrect = normalizePracticeCorrectOptions(question.correctOptions).includes(normalizedOption);
+                                                  const disableCorrect = normalizedOption.length === 0;
+
+                                                  return (
+                                                    <div key={`${question.id}-option-${optionIndex}`} className="flex items-center gap-2">
+                                                      <input
+                                                        value={option}
+                                                        onChange={(event) => {
+                                                          const nextValue = event.target.value;
+                                                          setPracticeWorkspaceDraft((previous) => ({
+                                                            ...previous,
+                                                            questions: previous.questions.map((existing) => {
+                                                              if (existing.id !== question.id || existing.responseType === 'true-false') {
+                                                                return existing;
+                                                              }
+                                                              const nextOptions = [...existing.options];
+                                                              nextOptions[optionIndex] = nextValue;
+                                                              const cleanedOptions = normalizePracticeQuestionOptions(nextOptions);
+                                                              const nextCorrectOptions = normalizePracticeCorrectOptions(existing.correctOptions)
+                                                                .filter((answer) => cleanedOptions.includes(answer));
+                                                              return {
+                                                                ...existing,
+                                                                options: nextOptions,
+                                                                correctOptions: nextCorrectOptions,
+                                                              };
+                                                            }),
+                                                          }));
+                                                        }}
+                                                        disabled={question.responseType === 'true-false'}
+                                                        className="flex-1 rounded-md border border-gray-200 px-3 py-2 text-sm disabled:bg-slate-50 disabled:text-slate-500"
+                                                        placeholder={`Option ${optionIndex + 1}`}
+                                                      />
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                          setPracticeWorkspaceDraft((previous) => ({
+                                                            ...previous,
+                                                            questions: previous.questions.map((existing) => {
+                                                              if (existing.id !== question.id || !normalizedOption) return existing;
+                                                              const current = normalizePracticeCorrectOptions(existing.correctOptions);
+                                                              if (existing.responseType === 'true-false') {
+                                                                return { ...existing, correctOptions: [normalizedOption] };
+                                                              }
+                                                              const exists = current.includes(normalizedOption);
+                                                              const next = exists
+                                                                ? current.filter((answer) => answer !== normalizedOption)
+                                                                : [...current, normalizedOption];
+                                                              return { ...existing, correctOptions: next };
+                                                            }),
+                                                          }));
+                                                        }}
+                                                        disabled={disableCorrect}
+                                                        className={`rounded-md border px-2 py-1 text-xs ${
+                                                          isCorrect
+                                                            ? 'border-blue-500 bg-blue-50 text-blue-700'
+                                                            : 'border-gray-200 text-gray-500'
+                                                        } disabled:cursor-not-allowed disabled:opacity-50`}
+                                                      >
+                                                        Correct
+                                                      </button>
+                                                      {question.responseType === 'multiple-choice' && (
+                                                        <button
+                                                          type="button"
+                                                          onClick={() => {
+                                                            setPracticeWorkspaceDraft((previous) => ({
+                                                              ...previous,
+                                                              questions: previous.questions.map((existing) => {
+                                                                if (existing.id !== question.id) return existing;
+                                                                if (existing.options.length <= 2) return existing;
+                                                                const removedOption = existing.options[optionIndex]?.trim();
+                                                                const nextOptions = existing.options.filter((_, idx) => idx !== optionIndex);
+                                                                const nextCorrectOptions = normalizePracticeCorrectOptions(existing.correctOptions)
+                                                                  .filter((answer) => answer !== removedOption);
+                                                                return {
+                                                                  ...existing,
+                                                                  options: nextOptions,
+                                                                  correctOptions: nextCorrectOptions,
+                                                                };
+                                                              }),
+                                                            }));
+                                                          }}
+                                                          className="rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-600 hover:bg-rose-100"
+                                                        >
+                                                          Remove
+                                                        </button>
+                                                      )}
+                                                    </div>
+                                                  );
+                                                })}
+                                              </div>
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              </section>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="relative z-0 min-h-0 min-w-0 flex-1 overflow-y-auto p-3">
+                          <div className="rounded-lg border border-slate-200 bg-white">
+                    <div className="space-y-3 border-b border-slate-200 p-3">
                       <input
-                        value={stepWorkspaceDraft.link || ''}
-                        onChange={(e) => setStepWorkspaceDraft((prev) => ({ ...prev, link: e.target.value }))}
-                        className="w-full rounded-md border border-slate-200 px-3 py-2 text-xs text-slate-700"
-                        placeholder="Optional external link"
+                        value={stepWorkspaceDraft.title}
+                        onChange={(e) => {
+                          const title = e.target.value;
+                          setStepWorkspaceDraft((prev) => ({ ...prev, title }));
+                        }}
+                        className="w-full rounded-md border border-slate-200 px-3 py-2 text-base font-semibold text-slate-900"
+                        placeholder="Step title"
                       />
+                      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                        <select
+                          value={stepWorkspaceDraft.type}
+                          onChange={(e) => {
+                            const type = e.target.value as Step['type'];
+                            setStepWorkspaceDraft((prev) => ({ ...prev, type }));
+                          }}
+                          className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700"
+                        >
+                          <option value="document">Document</option>
+                          <option value="video">Video</option>
+                          <option value="assessment">Assessment</option>
+                          <option value="assignment">Assignment</option>
+                          <option value="quiz">Quiz</option>
+                          <option value="discussion">Discussion</option>
+                        </select>
+                        <input
+                          value={stepWorkspaceDraft.link || ''}
+                          onChange={(e) => {
+                            const link = e.target.value;
+                            setStepWorkspaceDraft((prev) => ({ ...prev, link }));
+                          }}
+                          className="w-full rounded-md border border-slate-200 px-3 py-2 text-xs text-slate-700"
+                          placeholder="Optional external link"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2">
+                      <button
+                        type="button"
+                        onClick={() => applyStepEditorCommand('undo')}
+                        className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
+                        title="Undo"
+                      >
+                        <Undo2 className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyStepEditorCommand('redo')}
+                        className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
+                        title="Redo"
+                      >
+                        <Redo2 className="h-3.5 w-3.5" />
+                      </button>
+                      <select
+                        className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700"
+                        onChange={(e) => {
+                          handleStepBlockStyle(e.target.value);
+                          e.currentTarget.value = 'P';
+                        }}
+                        defaultValue="P"
+                      >
+                        <option value="P">Paragraph</option>
+                        <option value="H1">Title</option>
+                        <option value="H2">Heading</option>
+                        <option value="H3">Subheading</option>
+                        <option value="blockquote">Block quote</option>
+                        <option value="bulleted-list">Bulleted list</option>
+                        <option value="numbered-list">Numbered list</option>
+                        <option value="code">Code block</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => applyStepEditorCommand('bold')}
+                        className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
+                        title="Bold"
+                      >
+                        <Bold className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyStepEditorCommand('italic')}
+                        className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
+                        title="Italic"
+                      >
+                        <Italic className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyStepEditorCommand('underline')}
+                        className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
+                        title="Underline"
+                      >
+                        <Underline className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyStepEditorCommand('insertUnorderedList')}
+                        className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
+                        title="Bulleted list"
+                      >
+                        <List className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyStepEditorCommand('insertOrderedList')}
+                        className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
+                        title="Numbered list"
+                      >
+                        <ListOrdered className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleInsertStepLink()}
+                        className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
+                        title="Insert link"
+                      >
+                        <Link2 className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => imageInputRef.current?.click()}
+                        className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
+                        title="Insert image"
+                      >
+                        <ImagePlus className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => applyStepEditorCommand('formatBlock', 'PRE')}
+                        className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
+                        title="Code block"
+                      >
+                        <Code2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+
+                    <div className="relative p-3">
+                      <div
+                        ref={stepEditorRef}
+                        contentEditable
+                        suppressContentEditableWarning
+                        onInput={(e) => {
+                          const content = (e.currentTarget as HTMLDivElement).innerHTML;
+                          setStepWorkspaceDraft((prev) => ({
+                            ...prev,
+                            content,
+                          }));
+                        }}
+                        className="min-h-[440px] w-full rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      {!stepWorkspaceDraft.content ? (
+                        <span className="pointer-events-none absolute left-6 top-5 text-sm text-slate-400">
+                          Start writing step content here...
+                        </span>
+                      ) : null}
                     </div>
                   </div>
-
-                  <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2">
-                    <button
-                      type="button"
-                      onClick={() => applyStepEditorCommand('undo')}
-                      className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
-                      title="Undo"
-                    >
-                      <Undo2 className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => applyStepEditorCommand('redo')}
-                      className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
-                      title="Redo"
-                    >
-                      <Redo2 className="h-3.5 w-3.5" />
-                    </button>
-                    <select
-                      className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs font-medium text-slate-700"
-                      onChange={(e) => {
-                        handleStepBlockStyle(e.target.value);
-                        e.currentTarget.value = 'P';
-                      }}
-                      defaultValue="P"
-                    >
-                      <option value="P">Paragraph</option>
-                      <option value="H1">Title</option>
-                      <option value="H2">Heading</option>
-                      <option value="H3">Subheading</option>
-                      <option value="blockquote">Block quote</option>
-                      <option value="bulleted-list">Bulleted list</option>
-                      <option value="numbered-list">Numbered list</option>
-                      <option value="code">Code block</option>
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => applyStepEditorCommand('bold')}
-                      className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
-                      title="Bold"
-                    >
-                      <Bold className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => applyStepEditorCommand('italic')}
-                      className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
-                      title="Italic"
-                    >
-                      <Italic className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => applyStepEditorCommand('underline')}
-                      className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
-                      title="Underline"
-                    >
-                      <Underline className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => applyStepEditorCommand('insertUnorderedList')}
-                      className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
-                      title="Bulleted list"
-                    >
-                      <List className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => applyStepEditorCommand('insertOrderedList')}
-                      className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
-                      title="Numbered list"
-                    >
-                      <ListOrdered className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleInsertStepLink()}
-                      className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
-                      title="Insert link"
-                    >
-                      <Link2 className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => imageInputRef.current?.click()}
-                      className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
-                      title="Insert image"
-                    >
-                      <ImagePlus className="h-3.5 w-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => applyStepEditorCommand('formatBlock', 'PRE')}
-                      className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
-                      title="Code block"
-                    >
-                      <Code2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-
-                  <div className="relative p-3">
-                    <div
-                      ref={stepEditorRef}
-                      contentEditable
-                      suppressContentEditableWarning
-                      onInput={(e) =>
-                        setStepWorkspaceDraft((prev) => ({
-                          ...prev,
-                          content: (e.currentTarget as HTMLDivElement).innerHTML,
-                        }))
-                      }
-                      className="min-h-[440px] w-full rounded-md border border-slate-200 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    {!stepWorkspaceDraft.content ? (
-                      <span className="pointer-events-none absolute left-6 top-5 text-sm text-slate-400">
-                        Start writing step content here...
-                      </span>
-                    ) : null}
-                  </div>
                 </div>
-              </div>
+                      )}
 
               {!isStepAiCollapsed ? (
                 <button
@@ -1343,7 +2031,7 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                 className={`relative z-10 overflow-hidden border-slate-100 bg-slate-50 transition-all duration-200 ${
                   isStepAiCollapsed
                     ? 'flex h-full flex-col items-center gap-2 border-t p-2.5 xl:w-14 xl:border-l xl:border-t-0'
-                    : 'flex min-h-0 w-full flex-col border-t p-3 xl:w-80 xl:border-l xl:border-t-0'
+                    : 'flex h-full min-h-0 w-full flex-col border-t p-3 xl:w-80 xl:border-l xl:border-t-0'
                 }`}
               >
                 {isStepAiCollapsed ? (
@@ -1377,7 +2065,6 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                       </button>
                     </div>
                     <div className="flex min-h-0 flex-1 flex-col rounded-md border border-slate-200 bg-white p-2">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Assistant chat</p>
                       <div className="mt-2 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
                         {aiMessages.map((msg, idx) => (
                           <div
@@ -1611,15 +2298,26 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
               <div className="rounded-xl border border-slate-200 bg-white p-4">
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Plan Workflow</h2>
-                <button
-                  type="button"
-                  onClick={() => openStepWorkspace()}
-                  disabled={isPersistingPlan}
-                  className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  Add Step
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => openStepWorkspace(undefined, 'resource')}
+                    disabled={isPersistingPlan}
+                    className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Add Resource Step
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openStepWorkspace(undefined, 'practice')}
+                    disabled={isPersistingPlan}
+                    className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    Add Practice Step
+                  </button>
+                </div>
               </div>
               <div className="space-y-2">
                 {sortedStepEntries.map(({ step, index, order }) => (

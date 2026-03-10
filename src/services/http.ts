@@ -1,5 +1,6 @@
 import { getActiveAuthToken } from './authSession';
 export const API_URL = import.meta.env.VITE_API_URL || '/api';
+const DEV_PROXY_API_URL = '/api';
 
 const DEFAULT_GET_CACHE_TTL_MS = 20_000;
 const BROWSER_CACHE_PREFIX = 'zivai:http-cache:v1:';
@@ -104,6 +105,59 @@ function buildCacheKey(endpoint: string, method: string, token: string | null): 
   return `${method}:${endpoint}:token=${token ?? 'anon'}`;
 }
 
+function normalizeEndpoint(endpoint: string): string {
+  if (!endpoint) return '/';
+  return endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+}
+
+function normalizeBaseUrl(baseUrl: string): string {
+  const normalized = (baseUrl || '').trim();
+  if (!normalized) return DEV_PROXY_API_URL;
+  return normalized.endsWith('/') ? normalized.slice(0, -1) : normalized;
+}
+
+function isAbsoluteHttpUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value);
+}
+
+function buildRequestUrlCandidates(endpoint: string): string[] {
+  const candidates: string[] = [];
+  const configuredBase = normalizeBaseUrl(API_URL);
+  const normalizedEndpoint = normalizeEndpoint(endpoint);
+  const configuredUrl = `${configuredBase}${normalizedEndpoint}`;
+  candidates.push(configuredUrl);
+
+  if (import.meta.env.DEV) {
+    const proxyUrl = `${DEV_PROXY_API_URL}${normalizedEndpoint}`;
+    if (!candidates.includes(proxyUrl)) {
+      candidates.push(proxyUrl);
+    }
+
+    if (typeof window !== 'undefined' && isAbsoluteHttpUrl(configuredBase)) {
+      try {
+        const parsed = new URL(configuredBase);
+        const browserHost = window.location.hostname;
+        if (
+          browserHost &&
+          browserHost !== parsed.hostname &&
+          (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1')
+        ) {
+          parsed.hostname = browserHost;
+          const hostAdjustedBase = normalizeBaseUrl(parsed.toString());
+          const hostAdjustedUrl = `${hostAdjustedBase}${normalizedEndpoint}`;
+          if (!candidates.includes(hostAdjustedUrl)) {
+            candidates.push(hostAdjustedUrl);
+          }
+        }
+      } catch {
+        // Ignore malformed URL and use default candidates only.
+      }
+    }
+  }
+
+  return candidates;
+}
+
 function sanitizeApiErrorMessage(status: number, rawMessage: string): string {
   if (status === 401) return 'Your session has expired. Please sign in again.';
   if (status === 403) return 'You are not allowed to access this resource.';
@@ -154,14 +208,43 @@ export async function fetchData<T = any>(endpoint: string, options: FetchOptions
   }
 
   const requestPromise = (async () => {
-    const response = await fetch(`${API_URL}${endpoint}`, {
-      ...requestOptions,
-      method,
-      headers: {
-        ...defaultHeaders,
-        ...requestOptions.headers,
-      },
-    });
+    const requestUrls = buildRequestUrlCandidates(endpoint);
+    let response: Response | null = null;
+    let lastNetworkError: unknown = null;
+    let requestUrl = requestUrls[0];
+
+    for (const candidateUrl of requestUrls) {
+      requestUrl = candidateUrl;
+      try {
+        response = await fetch(candidateUrl, {
+          ...requestOptions,
+          method,
+          headers: {
+            ...defaultHeaders,
+            ...requestOptions.headers,
+          },
+        });
+        break;
+      } catch (error) {
+        lastNetworkError = error;
+        if (error instanceof TypeError) {
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    if (!response) {
+      throw new ApiError(
+        0,
+        'Unable to reach API service. Check backend connectivity and API URL settings.',
+        endpoint,
+        {
+          requestUrls,
+          cause: lastNetworkError instanceof Error ? lastNetworkError.message : String(lastNetworkError || ''),
+        }
+      );
+    }
 
     if (!response.ok) {
       const errorPayload = await response.json().catch(() => ({
@@ -172,7 +255,10 @@ export async function fetchData<T = any>(endpoint: string, options: FetchOptions
           ? errorPayload.message
           : '';
       const message = sanitizeApiErrorMessage(response.status, rawMessage);
-      throw new ApiError(response.status, message, endpoint, errorPayload);
+      throw new ApiError(response.status, message, endpoint, {
+        ...errorPayload,
+        requestUrl,
+      });
     }
 
     if (response.status === 204) {

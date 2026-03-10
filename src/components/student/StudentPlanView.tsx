@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { DevelopmentPlan, Step } from '../../types';
 import {
@@ -15,10 +15,14 @@ import {
   Video,
   X,
 } from 'lucide-react';
-import StudentPracticeRunner, { buildMockPracticeQuestions } from './StudentPracticeRunner';
+import StudentPracticeRunner, { PracticeQuestion } from './StudentPracticeRunner';
+import { StudentPracticeSession, StudentPracticeSessionQuestion, studentService } from '../../services/studentService';
+import { externalAssessmentService } from '../../services/externalAssessmentService';
 
 interface StudentPlanViewProps {
+  studentId: string;
   plan: DevelopmentPlan;
+  subjectName?: string;
   initialStepIndex?: number;
 }
 
@@ -34,6 +38,157 @@ interface ChatDragState {
   originX: number;
   originY: number;
 }
+
+const ALLOWED_RICH_TEXT_TAGS = new Set([
+  'p',
+  'strong',
+  'em',
+  'b',
+  'i',
+  'u',
+  'ul',
+  'ol',
+  'li',
+  'br',
+  'a',
+]);
+
+const decodeHtmlEntities = (value: string) => {
+  if (typeof document === 'undefined') return value;
+  const textarea = document.createElement('textarea');
+  textarea.innerHTML = value;
+  return textarea.value;
+};
+
+const hasHtmlMarkup = (value: string) => /<\/?[a-z][\s\S]*>/i.test(value);
+
+const getErrorMessage = (error: unknown, fallback: string): string => {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === 'string' && message.trim()) return message;
+  }
+  return fallback;
+};
+
+const stripAssessmentRevealMetadata = (value: string): string => {
+  const line = String(value || '').trim();
+  if (!line) return '';
+  if (!/(?:options:|answer\(s\):|answer:|correct answer\(s\):|expected answer:|marking guide:|rubric:)/i.test(line)) {
+    return line;
+  }
+
+  return line
+    .replace(/\s+options:\s*[\s\S]*$/i, '')
+    .replace(/\s+answer\(s\):\s*[\s\S]*$/i, '')
+    .replace(/\s+answer:\s*[\s\S]*$/i, '')
+    .replace(/\s+correct answer\(s\):\s*[\s\S]*$/i, '')
+    .replace(/\s+expected answer:\s*[\s\S]*$/i, '')
+    .replace(/\s+marking guide:\s*[\s\S]*$/i, '')
+    .replace(/\s+rubric:\s*[\s\S]*$/i, '')
+    .trim();
+};
+
+const redactAssessmentRevealContent = (value: string): string => {
+  const input = String(value || '').trim();
+  if (!input) return '';
+
+  if (typeof document === 'undefined' || !hasHtmlMarkup(input)) {
+    return input
+      .split('\n')
+      .map((line) => stripAssessmentRevealMetadata(line))
+      .filter(Boolean)
+      .join('\n');
+  }
+
+  const parser = new DOMParser();
+  const parsed = parser.parseFromString(`<div>${input}</div>`, 'text/html');
+  const container = parsed.body.firstElementChild as HTMLElement | null;
+  if (!container) return input;
+
+  container.querySelectorAll('li, p').forEach((element) => {
+    const originalText = String(element.textContent || '').trim();
+    if (!originalText) return;
+
+    const cleaned = stripAssessmentRevealMetadata(originalText);
+    if (!cleaned) {
+      element.remove();
+      return;
+    }
+    if (cleaned !== originalText) {
+      element.textContent = cleaned;
+    }
+  });
+
+  return container.innerHTML.trim();
+};
+
+const sanitizeRichHtml = (value: string) => {
+  if (typeof document === 'undefined') return value;
+  const parser = new DOMParser();
+  const parsed = parser.parseFromString(`<div>${value}</div>`, 'text/html');
+  const container = parsed.body.firstElementChild as HTMLElement | null;
+  if (!container) return '';
+
+  const sanitizeNode = (node: Node) => {
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const element = node as HTMLElement;
+      const tagName = element.tagName.toLowerCase();
+
+      if (!ALLOWED_RICH_TEXT_TAGS.has(tagName)) {
+        const parent = element.parentNode;
+        if (parent) {
+          while (element.firstChild) {
+            parent.insertBefore(element.firstChild, element);
+          }
+          parent.removeChild(element);
+        }
+        return;
+      }
+
+      Array.from(element.attributes).forEach((attribute) => {
+        const attrName = attribute.name.toLowerCase();
+        const attrValue = attribute.value.trim();
+        const isAllowedAnchorAttribute =
+          tagName === 'a' && (attrName === 'href' || attrName === 'target' || attrName === 'rel');
+
+        if (!isAllowedAnchorAttribute) {
+          element.removeAttribute(attribute.name);
+          return;
+        }
+
+        if (attrName === 'href' && !/^(https?:|mailto:)/i.test(attrValue)) {
+          element.removeAttribute(attribute.name);
+        }
+      });
+
+      if (tagName === 'a') {
+        const href = element.getAttribute('href');
+        if (href && !element.getAttribute('target')) {
+          element.setAttribute('target', '_blank');
+        }
+        if (href && !element.getAttribute('rel')) {
+          element.setAttribute('rel', 'noopener noreferrer');
+        }
+      }
+    }
+
+    Array.from(node.childNodes).forEach(sanitizeNode);
+  };
+
+  Array.from(container.childNodes).forEach(sanitizeNode);
+  return container.innerHTML;
+};
+
+const renderLessonText = (value: string, className: string) => {
+  const decoded = decodeHtmlEntities(String(value || '').trim());
+  const redacted = redactAssessmentRevealContent(decoded);
+  if (!redacted) return null;
+  if (hasHtmlMarkup(redacted)) {
+    return <div className={className} dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(redacted) }} />;
+  }
+  return <p className={className}>{redacted}</p>;
+};
 
 const getStepIcon = (type: string) => {
   switch (type) {
@@ -93,112 +248,29 @@ const getNextStepLabel = (type: string) => {
   }
 };
 
-const getStepLessonContent = (step: Step) => {
-  const topic = step.title;
+const getStepPublishedContent = (step: Step) => decodeHtmlEntities(String(step.content || '').trim());
 
-  if (step.type === 'document') {
+const mapPracticeQuestion = (question: StudentPracticeSessionQuestion): PracticeQuestion => {
+  const normalizedType = String(question.questionType || '').toLowerCase();
+  if (normalizedType.includes('multiple') || normalizedType === 'true_false') {
     return {
-      intro: `This lesson introduces ${topic.toLowerCase()} and explains how to apply it in worked examples.`,
-      sections: [
-        {
-          heading: 'What you will learn in this lesson',
-          paragraphs: [
-            `You will build a clear understanding of ${topic.toLowerCase()} and when to use it in classwork or assessments.`,
-            'You should be able to explain the concept in your own words and identify it in practical examples.',
-          ],
-        },
-        {
-          heading: 'Core explanation',
-          paragraphs: [
-            `Start by reading each concept slowly, then summarize each key point before moving on to the next one.`,
-            'As you read, note definitions, rules, and common mistakes to avoid.',
-          ],
-        },
-      ],
+      id: question.assessmentQuestionId,
+      type: question.multipleSelection ? 'multiple' : 'single',
+      prompt: question.prompt,
+      options: question.options || [],
+      correctOptionIndexes: [],
     };
   }
-
-  if (step.type === 'assignment') {
-    return {
-      intro: `This task is focused on applying ${topic.toLowerCase()} through guided problem solving.`,
-      sections: [
-        {
-          heading: 'How to approach this task',
-          paragraphs: [
-            'Break each question into smaller parts and write your reasoning for every step.',
-            'Do not jump to a final answer without showing method, assumptions, and checks.',
-          ],
-        },
-        {
-          heading: 'Submission quality checklist',
-          paragraphs: [
-            'Show full working, include units/labels where needed, and verify final results.',
-            'Review your answer and explain why your method is valid.',
-          ],
-        },
-      ],
-    };
-  }
-
-  if (step.type === 'quiz') {
-    return {
-      intro: `This quiz checks mastery of ${topic.toLowerCase()} with timed practice items.`,
-      sections: [
-        {
-          heading: 'Before you start',
-          paragraphs: [
-            'Review your notes and recall key formulas, rules, or definitions.',
-            'Focus on accuracy first, then speed.',
-          ],
-        },
-        {
-          heading: 'After each attempt',
-          paragraphs: [
-            'Identify exactly where errors happened and classify the mistake type.',
-            'Retry similar items until your method is consistent.',
-          ],
-        },
-      ],
-    };
-  }
-
-  if (step.type === 'discussion') {
-    return {
-      intro: `This discussion step helps you strengthen reasoning for ${topic.toLowerCase()}.`,
-      sections: [
-        {
-          heading: 'Discussion focus',
-          paragraphs: [
-            'State your position clearly, then support it with evidence from your work.',
-            'Compare alternative approaches and explain which is more reliable.',
-          ],
-        },
-        {
-          heading: 'Reflection prompt',
-          paragraphs: [
-            'What changed in your understanding after this discussion?',
-            'Which misconception did you correct and how will you avoid it next time?',
-          ],
-        },
-      ],
-    };
-  }
-
   return {
-    intro: `This learning step helps you progress through ${topic.toLowerCase()}.`,
-    sections: [
-      {
-        heading: 'Learning goal',
-        paragraphs: [
-          'Engage with the material actively and write down key takeaways.',
-          'Translate the concept into your own words to confirm understanding.',
-        ],
-      },
-    ],
+    id: question.assessmentQuestionId,
+    type: 'input',
+    prompt: question.prompt,
+    placeholder: 'Type your answer',
+    acceptedAnswers: [],
   };
 };
 
-const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepIndex }) => {
+const StudentPlanView: React.FC<StudentPlanViewProps> = ({ studentId, plan, subjectName, initialStepIndex }) => {
   const sortedSteps = useMemo(
     () => plan.plan.steps?.slice().sort((a, b) => (a.order || 0) - (b.order || 0)) || [],
     [plan.plan.steps]
@@ -212,6 +284,16 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
   const [selectedStepIndex, setSelectedStepIndex] = useState(0);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [completedPracticeSteps, setCompletedPracticeSteps] = useState<Record<number, boolean>>({});
+  const [completedStepIds, setCompletedStepIds] = useState<string[]>([]);
+  const [practiceSessionsByStep, setPracticeSessionsByStep] = useState<Record<number, StudentPracticeSession>>({});
+  const [practiceSessionError, setPracticeSessionError] = useState<string | null>(null);
+  const [isPracticeSessionLoading, setIsPracticeSessionLoading] = useState(false);
+  const [isStepContentTransitionLoading, setIsStepContentTransitionLoading] = useState(false);
+  const [manualPracticeAnswerText, setManualPracticeAnswerText] = useState('');
+  const [manualPracticeImageFile, setManualPracticeImageFile] = useState<File | null>(null);
+  const [manualPracticeFeedback, setManualPracticeFeedback] = useState<string | null>(null);
+  const [manualPracticeError, setManualPracticeError] = useState<string | null>(null);
+  const [isManualPracticeAssessing, setIsManualPracticeAssessing] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [chatMessages, setChatMessages] = useState<PlanChatMessage[]>([
@@ -225,11 +307,18 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
   const chatFloatingRef = useRef<HTMLDivElement | null>(null);
   const chatDragStateRef = useRef<ChatDragState | null>(null);
   const chatDragCleanupRef = useRef<(() => void) | null>(null);
+  const stepLoadingTimeoutRef = useRef<number | null>(null);
 
   const selectedStep = sortedSteps[selectedStepIndex] || null;
+  const selectedStepId = selectedStep?.id ? String(selectedStep.id) : null;
   const nextStep = selectedStepIndex < totalSteps - 1 ? sortedSteps[selectedStepIndex + 1] : null;
-  const selectedStepLesson = useMemo(
-    () => (selectedStep ? getStepLessonContent(selectedStep) : null),
+  const selectedPracticeSession = practiceSessionsByStep[selectedStepIndex] || null;
+  const selectedPracticeQuestions = useMemo(
+    () => (selectedPracticeSession?.questions || []).map(mapPracticeQuestion),
+    [selectedPracticeSession?.questions]
+  );
+  const selectedStepContent = useMemo(
+    () => (selectedStep ? getStepPublishedContent(selectedStep) : ''),
     [selectedStep]
   );
   const sidebarDesktopWidth = isSidebarCollapsed ? 'md:w-[88px]' : 'md:w-[340px]';
@@ -253,6 +342,24 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
 
   useEffect(() => {
     setCompletedPracticeSteps({});
+    const initialCompleted = sortedSteps
+      .slice(0, completedStepsCount)
+      .map((step) => (step.id ? String(step.id) : ''))
+      .filter(Boolean);
+    setCompletedStepIds(initialCompleted);
+    setPracticeSessionsByStep({});
+    setPracticeSessionError(null);
+    setIsPracticeSessionLoading(false);
+    setManualPracticeAnswerText('');
+    setManualPracticeImageFile(null);
+    setManualPracticeFeedback(null);
+    setManualPracticeError(null);
+    setIsManualPracticeAssessing(false);
+    setIsStepContentTransitionLoading(false);
+    if (stepLoadingTimeoutRef.current) {
+      window.clearTimeout(stepLoadingTimeoutRef.current);
+      stepLoadingTimeoutRef.current = null;
+    }
     setIsChatOpen(false);
     setChatInput('');
     setChatMessages([
@@ -263,9 +370,13 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
       },
     ]);
     setChatPosition(null);
-  }, [plan.id]);
+  }, [plan.id, completedStepsCount, sortedSteps]);
 
   useEffect(() => () => {
+    if (stepLoadingTimeoutRef.current) {
+      window.clearTimeout(stepLoadingTimeoutRef.current);
+      stepLoadingTimeoutRef.current = null;
+    }
     if (chatDragCleanupRef.current) {
       chatDragCleanupRef.current();
     }
@@ -290,6 +401,90 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
     setChatMessages((previous) => [...previous, studentMessage, coachReply]);
     setChatInput('');
   };
+
+  const persistRuntimeProgress = useCallback(async (nextCompletedStepIds: string[], nextActiveStepId?: string | null) => {
+    if (!studentId || !plan.id) return;
+    try {
+      await studentService.updatePlanRuntimeProgress(studentId, plan.id, {
+        completedStepIds: nextCompletedStepIds,
+        activeStepId: nextActiveStepId || undefined,
+        status: 'active',
+      });
+    } catch {
+      // Non-blocking; next interaction will retry.
+    }
+  }, [plan.id, studentId]);
+
+  useEffect(() => {
+    const loadPracticeSession = async () => {
+      if (!selectedStep || !isPracticeStep(selectedStep.type)) {
+        setPracticeSessionError(null);
+        setIsPracticeSessionLoading(false);
+        return;
+      }
+      if (practiceSessionsByStep[selectedStepIndex]) {
+        return;
+      }
+      if (!plan.plan?.subjectId) {
+        setPracticeSessionError('Subject context is missing for this plan step.');
+        return;
+      }
+
+      try {
+        setIsPracticeSessionLoading(true);
+        setPracticeSessionError(null);
+        const session = await studentService.startPracticeSession(studentId, plan.plan.subjectId, {
+          mode: 'topic_practice',
+          title: selectedStep.title,
+        });
+        setPracticeSessionsByStep((previous) => ({
+          ...previous,
+          [selectedStepIndex]: session,
+        }));
+      } catch (error: unknown) {
+        setPracticeSessionError(getErrorMessage(error, 'Failed to load practice session.'));
+      } finally {
+        setIsPracticeSessionLoading(false);
+      }
+    };
+
+    void loadPracticeSession();
+  }, [
+    studentId,
+    plan.plan?.subjectId,
+    selectedStep,
+    selectedStepId,
+    selectedStepIndex,
+    practiceSessionsByStep,
+  ]);
+
+  useEffect(() => {
+    if (!selectedStepId) return;
+    void persistRuntimeProgress(completedStepIds, selectedStepId);
+  }, [completedStepIds, persistRuntimeProgress, selectedStepId]);
+
+  useEffect(() => {
+    if (!selectedStepId) {
+      setIsStepContentTransitionLoading(false);
+      return;
+    }
+    setIsStepContentTransitionLoading(true);
+    if (stepLoadingTimeoutRef.current) {
+      window.clearTimeout(stepLoadingTimeoutRef.current);
+    }
+    stepLoadingTimeoutRef.current = window.setTimeout(() => {
+      setIsStepContentTransitionLoading(false);
+      stepLoadingTimeoutRef.current = null;
+    }, 220);
+  }, [selectedStepId]);
+
+  useEffect(() => {
+    setManualPracticeAnswerText('');
+    setManualPracticeImageFile(null);
+    setManualPracticeFeedback(null);
+    setManualPracticeError(null);
+    setIsManualPracticeAssessing(false);
+  }, [selectedStepId]);
 
   const clampChatPosition = (x: number, y: number) => {
     const floatingNode = chatFloatingRef.current;
@@ -401,10 +596,82 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
       window.cancelAnimationFrame(frameId);
       window.removeEventListener('resize', handleResize);
     };
-  }, [isChatOpen, chatPosition?.x, chatPosition?.y]);
+  }, [isChatOpen, chatPosition]);
+
+  const assessOpenResponseWithAi = async (
+    responseText?: string,
+    imageFile?: File | null
+  ): Promise<{ feedback: string; correct: boolean }> => {
+    const normalizedText = (responseText || '').trim();
+    const candidateImage = imageFile || null;
+    if (!normalizedText && !candidateImage) {
+      throw new Error('Enter a response or upload an image before requesting AI feedback.');
+    }
+
+    const moduleName = selectedStep?.title?.trim() || subjectName?.trim() || 'Practice step';
+    const assessmentResult = candidateImage
+      ? await externalAssessmentService.assessDocument(candidateImage, moduleName)
+      : await externalAssessmentService.assessText(normalizedText, moduleName);
+
+    if (!assessmentResult.success || !assessmentResult.data?.assessment) {
+      throw new Error(assessmentResult.error || assessmentResult.message || 'AI assessment is unavailable right now.');
+    }
+
+    const assessment = assessmentResult.data.assessment;
+    const safePercentage = Number.isFinite(Number(assessment.marks_percentage))
+      ? Math.max(0, Math.min(100, Number(assessment.marks_percentage)))
+      : null;
+    const summaryParts: string[] = [];
+    if (safePercentage !== null) {
+      summaryParts.push(`AI score: ${Math.round(safePercentage)}% (${assessment.marks_achieved}/${assessment.total_possible_marks}).`);
+    }
+    if (assessment.overall_feedback) {
+      summaryParts.push(assessment.overall_feedback);
+    }
+    if (assessment.strengths?.length) {
+      summaryParts.push(`Strengths: ${assessment.strengths.slice(0, 2).join('; ')}.`);
+    }
+    if (assessment.improvements?.length) {
+      summaryParts.push(`Next steps: ${assessment.improvements.slice(0, 2).join('; ')}.`);
+    }
+    const feedback = summaryParts.join(' ').trim() || 'AI feedback generated.';
+    return {
+      feedback,
+      correct: safePercentage === null ? true : safePercentage >= 50,
+    };
+  };
+
+  const markCurrentPracticeStepComplete = async () => {
+    setCompletedPracticeSteps((previous) => ({
+      ...previous,
+      [selectedStepIndex]: true,
+    }));
+    if (selectedStepId) {
+      const nextCompletedStepIds = Array.from(new Set([...completedStepIds, selectedStepId]));
+      setCompletedStepIds(nextCompletedStepIds);
+      await persistRuntimeProgress(nextCompletedStepIds, selectedStepId);
+    }
+  };
+
+  const handleManualPracticeAssess = async () => {
+    if (isManualPracticeAssessing) return;
+    try {
+      setIsManualPracticeAssessing(true);
+      setManualPracticeError(null);
+      const result = await assessOpenResponseWithAi(manualPracticeAnswerText, manualPracticeImageFile);
+      setManualPracticeFeedback(result.feedback);
+    } catch (error: unknown) {
+      setManualPracticeFeedback(null);
+      setManualPracticeError(getErrorMessage(error, 'Unable to assess your response right now.'));
+    } finally {
+      setIsManualPracticeAssessing(false);
+    }
+  };
 
   const selectedStepIsPractice = Boolean(selectedStep && isPracticeStep(selectedStep.type));
   const showUpNextFooter = !selectedStepIsPractice || Boolean(completedPracticeSteps[selectedStepIndex]);
+  const sidebarTitle = subjectName?.trim() || 'Subject';
+  const mainHeaderTitle = selectedStep?.title?.trim() || sidebarTitle;
 
   return (
     <motion.div
@@ -443,7 +710,7 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
                   : 'max-w-[240px] max-h-16 opacity-100 translate-x-0'
               }`}
             >
-              <h2 className="text-lg font-bold text-slate-900 truncate">{plan.plan.name}</h2>
+              <h2 className="text-lg font-bold text-slate-900 truncate">{sidebarTitle}</h2>
               <p className="text-xs text-slate-500 mt-0.5">{totalSteps} steps</p>
             </div>
           </div>
@@ -466,7 +733,9 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
               <button
                 key={`${step.title}-${index}`}
                 type="button"
-                onClick={() => setSelectedStepIndex(index)}
+                onClick={() => {
+                  setSelectedStepIndex(index);
+                }}
                 title={`Step ${index + 1}: ${step.title}`}
                 className={`relative w-full min-h-[72px] transition border-b border-slate-200 ${
                   isSelected
@@ -509,12 +778,32 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
       <div className={`min-w-0 flex flex-col min-h-[760px] border border-slate-200 md:border-l md:border-l-slate-200 md:border-r md:border-r-slate-200 bg-white md:will-change-[margin] md:transition-[margin] md:duration-300 md:ease-in-out ${contentDesktopOffset}`}>
         <header className="px-6 py-5 border-b border-slate-200 bg-white">
           <div className="flex justify-center text-center">
-            <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mt-1">{selectedStep?.title || plan.plan.name}</h1>
+            <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mt-1">{mainHeaderTitle}</h1>
           </div>
         </header>
 
         <div className="p-6 pb-28 space-y-6 bg-white">
-          {selectedStep && selectedStepLesson && !isPracticeStep(selectedStep.type) && (
+          {isStepContentTransitionLoading && (
+            <section className="space-y-6 animate-pulse">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="h-6 w-28 rounded-md bg-slate-200" />
+                <div className="h-4 w-24 rounded-md bg-slate-200" />
+              </div>
+              <div className="space-y-3">
+                <div className="h-6 w-2/3 rounded-md bg-slate-200" />
+                <div className="h-4 w-full rounded-md bg-slate-200" />
+                <div className="h-4 w-5/6 rounded-md bg-slate-200" />
+                <div className="h-4 w-4/6 rounded-md bg-slate-200" />
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-3">
+                <div className="h-4 w-32 rounded-md bg-slate-200" />
+                <div className="h-20 w-full rounded-md bg-slate-200" />
+                <div className="h-4 w-40 rounded-md bg-slate-200" />
+              </div>
+            </section>
+          )}
+
+          {!isStepContentTransitionLoading && selectedStep && !isPracticeStep(selectedStep.type) && (
             <section className="space-y-6">
               <div className="flex flex-wrap items-center gap-2">
                 <span className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-md ${getStepTagColor(selectedStep.type)}`}>
@@ -531,29 +820,9 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
               </div>
 
               <div className="space-y-5">
-                <p className="text-base text-slate-700">{selectedStepLesson.intro}</p>
-
-                {selectedStep.type === 'document' && (
-                  <div className="rounded-lg border border-slate-200 bg-slate-50 p-5 flex items-center justify-center">
-                    <svg width="200" height="170" viewBox="0 0 200 170" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M100 18V152" stroke="#A855F7" strokeWidth="2" strokeDasharray="5 4" />
-                      <path d="M100 18L90 28M100 18L110 28" stroke="#A855F7" strokeWidth="2" />
-                      <path d="M100 152L90 142M100 152L110 142" stroke="#A855F7" strokeWidth="2" />
-                      <path d="M65 63L100 28L135 63L122 140H78L65 63Z" stroke="#22C55E" strokeWidth="2.5" />
-                    </svg>
-                  </div>
-                )}
-
-                {selectedStepLesson.sections.map((section) => (
-                  <div key={section.heading} className="space-y-2">
-                    <h3 className="text-xl font-semibold text-slate-900">{section.heading}</h3>
-                    {section.paragraphs.map((paragraph) => (
-                      <p key={paragraph} className="text-base leading-relaxed text-slate-800">
-                        {paragraph}
-                      </p>
-                    ))}
-                  </div>
-                ))}
+                {selectedStepContent
+                  ? renderLessonText(selectedStepContent, 'text-base text-slate-700 leading-relaxed')
+                  : <p className="text-base text-slate-500">No content has been published for this step yet.</p>}
               </div>
 
               {selectedStep.link && (
@@ -580,23 +849,144 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
             </section>
           )}
 
-          {selectedStep && isPracticeStep(selectedStep.type) && (
-            <StudentPracticeRunner
-              key={`${plan.id}-${selectedStepIndex}`}
-              title={selectedStep.title}
-              subtitle="Practice questions are delivered one at a time. Check each answer before moving on."
-              questions={buildMockPracticeQuestions(selectedStep.title, selectedStep.type === 'assignment' ? 'assignment' : 'quiz')}
-              fixedFooterStyle={{
-                left: 'calc(var(--student-plan-footer-left) - 3px)',
-                right: 'calc(var(--student-plan-footer-right) - 3px)',
-              }}
-              onComplete={() =>
-                setCompletedPracticeSteps((previous) => ({
-                  ...previous,
-                  [selectedStepIndex]: true,
-                }))
-              }
-            />
+          {!isStepContentTransitionLoading && selectedStep && isPracticeStep(selectedStep.type) && (
+            <>
+              {isPracticeSessionLoading ? (
+                <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-3 animate-pulse">
+                  <div className="h-5 w-40 rounded-md bg-slate-200" />
+                  <div className="h-4 w-3/4 rounded-md bg-slate-200" />
+                  <div className="h-28 w-full rounded-md bg-slate-200" />
+                  <div className="h-10 w-36 rounded-md bg-slate-200" />
+                </div>
+              ) : practiceSessionError ? (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700">
+                  {practiceSessionError}
+                </div>
+              ) : selectedPracticeSession && selectedPracticeQuestions.length > 0 ? (
+                <StudentPracticeRunner
+                  key={`${selectedPracticeSession.sessionId}`}
+                  title={selectedStep.title}
+                  subtitle="Practice questions are delivered one at a time. Check each answer before moving on."
+                  questions={selectedPracticeQuestions}
+                  fixedFooterStyle={{
+                    left: 'calc(var(--student-plan-footer-left) - 3px)',
+                    right: 'calc(var(--student-plan-footer-right) - 3px)',
+                  }}
+                  onSubmitAnswer={async ({ question, studentAnswerText, selectedOptions, skipped }) => {
+                    const result = await studentService.submitPracticeAnswer(studentId, selectedPracticeSession.sessionId, {
+                      assessmentQuestionId: question.id,
+                      studentAnswerText,
+                      selectedOptions,
+                      skipped,
+                    });
+                    return {
+                      correct: result.correct,
+                      skipped: result.skipped,
+                      completed: result.completed,
+                      feedback: result.feedback || null,
+                    };
+                  }}
+                  onAssessOpenResponse={async ({ studentAnswerText, uploadFile }) => {
+                    try {
+                      return await assessOpenResponseWithAi(studentAnswerText, uploadFile);
+                    } catch (error: unknown) {
+                      return {
+                        feedback: getErrorMessage(error, 'AI feedback is unavailable right now.'),
+                      };
+                    }
+                  }}
+                  onCompleteSession={async () => {
+                    await studentService.completePracticeSession(studentId, selectedPracticeSession.sessionId);
+                  }}
+                  onComplete={markCurrentPracticeStepComplete}
+                />
+              ) : (
+                <section className="space-y-5">
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-5 text-sm text-amber-700">
+                    No objective practice questions are published for this step yet. You can still submit your work for AI feedback below.
+                  </div>
+
+                  <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-4">
+                    <div className="space-y-2">
+                      <p className="text-sm font-semibold text-slate-800">Practice task prompt</p>
+                      {selectedStepContent
+                        ? renderLessonText(selectedStepContent, 'text-base text-slate-700 leading-relaxed')
+                        : <p className="text-sm text-slate-500">No prompt text has been published for this step yet.</p>}
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700" htmlFor="manual-practice-answer">
+                        Your response
+                      </label>
+                      <textarea
+                        id="manual-practice-answer"
+                        rows={6}
+                        value={manualPracticeAnswerText}
+                        onChange={(event) => setManualPracticeAnswerText(event.target.value)}
+                        placeholder="Type your answer or explanation..."
+                        className="mt-2 w-full resize-y rounded-lg border border-slate-300 bg-white px-4 py-3 text-base text-slate-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label className="inline-flex cursor-pointer items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0] || null;
+                            setManualPracticeImageFile(file);
+                            event.currentTarget.value = '';
+                          }}
+                        />
+                        {manualPracticeImageFile ? `Image attached: ${manualPracticeImageFile.name}` : 'Upload answer image (optional)'}
+                      </label>
+                      {manualPracticeImageFile && (
+                        <button
+                          type="button"
+                          onClick={() => setManualPracticeImageFile(null)}
+                          className="inline-flex items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                        >
+                          Remove image
+                        </button>
+                      )}
+                    </div>
+
+                    {manualPracticeError && (
+                      <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                        {manualPracticeError}
+                      </div>
+                    )}
+
+                    {manualPracticeFeedback && (
+                      <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                        {manualPracticeFeedback}
+                      </div>
+                    )}
+
+                    <div className="flex flex-wrap items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleManualPracticeAssess()}
+                        disabled={isManualPracticeAssessing}
+                        className="inline-flex items-center rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {isManualPracticeAssessing ? 'Assessing...' : 'Get AI feedback'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void markCurrentPracticeStepComplete()}
+                        disabled={!manualPracticeFeedback}
+                        className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-400"
+                      >
+                        Complete step
+                      </button>
+                    </div>
+                  </div>
+                </section>
+              )}
+            </>
           )}
         </div>
 
@@ -721,6 +1111,13 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
                 <button
                   type="button"
                   onClick={() => {
+                    if (!selectedStepId) {
+                      if (nextStep) setSelectedStepIndex((prev) => Math.min(prev + 1, totalSteps - 1));
+                      return;
+                    }
+                    const nextCompletedStepIds = Array.from(new Set([...completedStepIds, selectedStepId]));
+                    setCompletedStepIds(nextCompletedStepIds);
+                    void persistRuntimeProgress(nextCompletedStepIds, nextStep?.id ? String(nextStep.id) : null);
                     if (nextStep) setSelectedStepIndex((prev) => Math.min(prev + 1, totalSteps - 1));
                   }}
                   disabled={!nextStep}
@@ -737,6 +1134,13 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ plan, initialStepInde
               <button
                 type="button"
                 onClick={() => {
+                  if (!selectedStepId) {
+                    if (nextStep) setSelectedStepIndex((prev) => Math.min(prev + 1, totalSteps - 1));
+                    return;
+                  }
+                  const nextCompletedStepIds = Array.from(new Set([...completedStepIds, selectedStepId]));
+                  setCompletedStepIds(nextCompletedStepIds);
+                  void persistRuntimeProgress(nextCompletedStepIds, nextStep?.id ? String(nextStep.id) : null);
                   if (nextStep) setSelectedStepIndex((prev) => Math.min(prev + 1, totalSteps - 1));
                 }}
                 disabled={!nextStep}

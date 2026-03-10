@@ -631,41 +631,16 @@ const mapAssessmentQuestionFromApi = (
   };
 };
 
-const buildAssessmentResourceContent = (
-  topicTitle: string,
-  assessmentName: string,
-  assessmentDescription: string,
-  questions: AssessmentQuestion[]
-) => {
+const buildAssessmentResourceContent = (questions: AssessmentQuestion[]) => {
   const questionLines = questions.length
     ? questions
         .map((question, index) => {
-          const compactOptions = question.options.map((option) => option.trim()).filter(Boolean).join(', ');
-          const options = question.type === 'multiple-choice' && compactOptions
-            ? ` Options: ${compactOptions}`
-            : '';
-          const mcqAnswers = question.correctAnswers.map((answer) => answer.trim()).filter(Boolean).join(', ');
-          const answer = question.type === 'multiple-choice'
-            ? (mcqAnswers ? ` Answer(s): ${mcqAnswers}` : '')
-            : question.correctAnswer.trim()
-              ? ` Answer: ${question.correctAnswer.trim()}`
-              : '';
-          const guide = question.type !== 'multiple-choice' && question.markingGuide.trim()
-            ? ` Marking guide: ${question.markingGuide.trim()}`
-            : '';
-          return `${index + 1}. ${question.prompt || 'Untitled question'} (${question.marks} marks)${options}${answer}${guide}`;
+          return `${index + 1}. ${question.prompt || 'Untitled question'} (${question.marks} marks)`;
         })
         .join('\n')
     : 'No questions yet.';
 
-  return `${assessmentName}
-
-Topic: ${topicTitle}
-
-${assessmentDescription || 'Practice description pending.'}
-
-Questions:
-${questionLines}`;
+  return questionLines;
 };
 
 const ClassroomSubjectsPage: React.FC = () => {
@@ -1407,7 +1382,7 @@ const ClassroomSubjectsPage: React.FC = () => {
         assessmentStatus === 'published' ? 'published' : 'draft',
         {
           title: assessmentName.trim(),
-          body: buildAssessmentResourceContent(selectedTopic.title, assessmentName.trim(), assessmentDescription, assessmentQuestions),
+          body: buildAssessmentResourceContent(assessmentQuestions),
           type: 'assessment',
           existingId: existingResourceId,
           skipRefresh: true,
@@ -1584,7 +1559,7 @@ const ClassroomSubjectsPage: React.FC = () => {
           const sourceResource = await resourceService.get(sourceResourceId);
           duplicatedResourceId = await createOrUpdateWorkspaceResource('draft', {
             title: duplicateName,
-            body: sourceResource.contentBody || buildAssessmentResourceContent(selectedTopic.title, duplicateName, assessmentDetail.description || '', []),
+            body: sourceResource.contentBody || buildAssessmentResourceContent([]),
             type: 'assessment',
           });
         }
@@ -3958,10 +3933,7 @@ const ClassroomSubjectsPage: React.FC = () => {
 
                               {isAiCollaboratorExpanded ? (
                                 <div className="flex h-full min-h-0 flex-col rounded-md border border-slate-200 bg-white p-2">
-                                  <div className="mb-2 flex items-center justify-between gap-2">
-                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                      Assistant chat
-                                    </p>
+                                  <div className="mb-2 flex items-center justify-end gap-1">
                                     <div className="flex items-center gap-1">
                                       <button
                                         type="button"
@@ -4264,12 +4236,6 @@ const ClassroomSubjectsPage: React.FC = () => {
                                     >
                                       <PanelRightClose className="h-4 w-4" />
                                     </button>
-                                  </div>
-
-                                  <div className="mb-2 flex items-center justify-between gap-2">
-                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                      Assistant chat
-                                    </p>
                                   </div>
 
                                   <div className="mt-2 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
@@ -4697,10 +4663,7 @@ const ClassroomSubjectsPage: React.FC = () => {
 
                   {isAiCollaboratorExpanded ? (
                     <div className="flex h-full min-h-0 flex-col rounded-md border border-slate-200 bg-white p-2">
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Assistant chat
-                        </p>
+                      <div className="mb-2 flex items-center justify-end gap-1">
                         <button
                           type="button"
                           onClick={() => setIsAiConfigOpen(true)}

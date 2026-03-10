@@ -179,6 +179,7 @@ const ResourcesDashboard: React.FC = () => {
     const configMenuRef = useRef<HTMLDivElement | null>(null);
     const workspaceConfigButtonRef = useRef<HTMLButtonElement | null>(null);
     const workspaceConfigMenuRef = useRef<HTMLDivElement | null>(null);
+    const scheduleInputRef = useRef<HTMLInputElement | null>(null);
 
     const fetchDashboardData = useCallback(async () => {
         setLoading(true);
@@ -837,7 +838,11 @@ const ResourcesDashboard: React.FC = () => {
             sizeBytes: new Blob([noteForm.content || '']).size,
             contentType,
             contentBody: noteForm.content || '',
-            publishAt: mode === 'schedule' ? new Date(noteForm.scheduledFor).toISOString() : null,
+            publishAt: mode === 'schedule'
+                ? new Date(noteForm.scheduledFor).toISOString()
+                : mode === 'publish'
+                    ? new Date().toISOString()
+                    : null,
             status: mode === 'draft' ? 'draft' : 'published',
             topicIds: noteForm.topicId ? [noteForm.topicId] : [],
             tags: [noteForm.grade, contentType].filter(Boolean),
@@ -884,6 +889,19 @@ const ResourcesDashboard: React.FC = () => {
     };
 
     const handleSchedule = async () => {
+        if (!noteForm.scheduledFor) {
+            setIsWorkspaceConfigOpen(true);
+            setNoteForm((prev) => ({
+                ...prev,
+                status: 'schedule',
+            }));
+            window.requestAnimationFrame(() => {
+                scheduleInputRef.current?.focus();
+            });
+            toast.info('Choose a date/time before scheduling.');
+            return;
+        }
+
         const saved = await persistResource('schedule');
         if (!saved) return;
         toast.success('Content scheduled.');
@@ -949,9 +967,20 @@ const ResourcesDashboard: React.FC = () => {
         if (!resourceId) return;
         setActiveDraftResourceId(resourceId);
         try {
+            const listedDraft = draftResources.find((draft) => draft.id === resourceId);
+            const existingTopicIds = Array.isArray(listedDraft?.topicIds) ? listedDraft?.topicIds.filter(Boolean) : [];
+            const resolvedTopicIds = existingTopicIds.length > 0
+                ? existingTopicIds
+                : ((await resourceService.get(resourceId)).topicIds || []).filter(Boolean);
+
+            if (resolvedTopicIds.length === 0) {
+                toast.error('Assign a curriculum topic before publishing so students can see it under the right syllabus topic.');
+                return;
+            }
+
             await resourceService.update(resourceId, {
                 status: 'published',
-                publishAt: null,
+                publishAt: new Date().toISOString(),
             });
             await Promise.all([fetchDraftResources(), fetchDashboardData()]);
             if (persistedResourceId === resourceId) {
@@ -1249,11 +1278,15 @@ const ResourcesDashboard: React.FC = () => {
                                                             <div>
                                                                 <label className="text-xs text-slate-500">Schedule For</label>
                                                                 <input
+                                                                    ref={scheduleInputRef}
                                                                     type="datetime-local"
                                                                     className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
                                                                     value={noteForm.scheduledFor}
-                                                                    onChange={(e) => setNoteForm((prev) => ({ ...prev, scheduledFor: e.target.value }))}
-                                                                    disabled={noteForm.status !== 'schedule'}
+                                                                    onChange={(e) => setNoteForm((prev) => ({
+                                                                        ...prev,
+                                                                        scheduledFor: e.target.value,
+                                                                        status: e.target.value ? 'schedule' : prev.status,
+                                                                    }))}
                                                                 />
                                                             </div>
                                                         </div>
@@ -1457,9 +1490,6 @@ const ResourcesDashboard: React.FC = () => {
                                                     </button>
                                                 </div>
                                                 <div className="flex h-full min-h-0 flex-col rounded-md border border-slate-200 bg-white p-2">
-                                                    <div className="mb-2 flex items-center justify-between gap-2">
-                                                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Assistant chat</p>
-                                                    </div>
                                                     <div className="mt-2 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
                                                         {aiThread.length === 0 && !isContentGenerating && (
                                                             <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">

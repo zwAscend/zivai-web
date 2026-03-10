@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { Home, LayoutGrid, Mail, Calendar, LogOut, ChevronDown, Bell, Shield, Users, BookOpen, GraduationCap, Cpu, TrendingUp, Target, FileText } from 'lucide-react';
 import { PieChart, Pie, Cell } from 'recharts';
 import { authService, notificationService, studentService, subjectService } from '../../services/api';
+import { ApiError } from '../../services/http';
 import { useAuth } from '../../context/AuthContext';
 import NotificationCenter from '../teacher/NotificationCenter';
 import { Student } from '../../types';
@@ -67,6 +68,11 @@ const Header: React.FC<HeaderProps> = ({ activeTab: _activeTab, setActiveTab, po
   const [unreadCount, setUnreadCount] = useState(0);
   const [classSummary, setClassSummary] = useState<ClassSummary>({ totalStudents: 0, categories: [] });
   const subjectMenuRef = useRef<HTMLDivElement | null>(null);
+  const headerNetworkWarnedRef = useRef<{ unread: boolean; subjects: boolean; students: boolean }>({
+    unread: false,
+    subjects: false,
+    students: false,
+  });
 
   const isTeacherPortal = portalType === 'teacher';
   const pieData: GradeCategory[] =
@@ -74,13 +80,26 @@ const Header: React.FC<HeaderProps> = ({ activeTab: _activeTab, setActiveTab, po
       ? classSummary.categories
       : [{ name: 'No data', count: 1, minScore: 0, color: '#1d4ed8' }];
 
+  const logFetchError = (bucket: 'unread' | 'subjects' | 'students', label: string, error: unknown) => {
+    if (error instanceof ApiError && error.status === 0) {
+      if (!headerNetworkWarnedRef.current[bucket]) {
+        console.warn(`${label}: API unreachable. Retrying in background.`, error);
+        headerNetworkWarnedRef.current[bucket] = true;
+      }
+      return;
+    }
+    console.error(label, error);
+  };
+
   useEffect(() => {
     const fetchUnreadCount = async () => {
       try {
         const count = await notificationService.getUnreadCount();
         setUnreadCount(typeof count === 'number' ? count : 0);
+        headerNetworkWarnedRef.current.unread = false;
       } catch (error) {
-        console.error('Error fetching unread count:', error);
+        setUnreadCount(0);
+        logFetchError('unread', 'Error fetching unread count:', error);
       }
     };
 
@@ -97,6 +116,7 @@ const Header: React.FC<HeaderProps> = ({ activeTab: _activeTab, setActiveTab, po
         const data = await subjectService.getTeachingSubjects();
         const items = Array.isArray(data) ? data as Subject[] : [];
         setSubjects(items);
+        headerNetworkWarnedRef.current.subjects = false;
         if (!selectedSubject && items.length > 0) {
           const computerScience = items.find((subject) => {
             const code = (subject.code || '').toLowerCase();
@@ -106,7 +126,7 @@ const Header: React.FC<HeaderProps> = ({ activeTab: _activeTab, setActiveTab, po
           setSelectedSubject(computerScience || items[0]);
         }
       } catch (error) {
-        console.error('Error fetching subjects:', error);
+        logFetchError('subjects', 'Error fetching subjects:', error);
       }
     };
 
@@ -122,8 +142,10 @@ const Header: React.FC<HeaderProps> = ({ activeTab: _activeTab, setActiveTab, po
         const studentsData = await studentService.getStudents(subjectId);
         const summary = calculateGradeDistribution(studentsData || []);
         setClassSummary(summary);
+        headerNetworkWarnedRef.current.students = false;
       } catch (error) {
-        console.error('Error fetching students:', error);
+        setClassSummary({ totalStudents: 0, categories: [] });
+        logFetchError('students', 'Error fetching students:', error);
       }
     };
 

@@ -1,31 +1,36 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
   BookOpen,
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
-  ExternalLink,
   FileText,
   GripHorizontal,
   MessageCircle,
   PlayCircle,
   Send,
-  Sparkles,
   Target,
   X,
 } from 'lucide-react';
-import { Question, Subject } from '../../types';
-import { aiService } from '../../services/aiService';
+import { Subject } from '../../types';
 import {
   curriculumService,
   CurriculumTopicWithResources as CurriculumTopicApi,
   CurriculumTopicResource,
 } from '../../services/curriculumService';
-import { studentService, StudentSubjectOverview } from '../../services/studentService';
-import StudentPracticeRunner, { buildMockPracticeQuestions, PracticeQuestion, PracticeRunSummary } from './StudentPracticeRunner';
+import {
+  studentService,
+  StudentPracticeSession,
+  StudentPracticeSessionQuestion,
+  StudentSubjectOverview,
+} from '../../services/studentService';
+import { assessmentService } from '../../services/assessmentService';
+import { resourceService, ResourceItem } from '../../services/resourceService';
+import { externalAssessmentService } from '../../services/externalAssessmentService';
+import { normalizeResourceContentType } from '../../constants/resourceContentTypes';
+import StudentPracticeRunner, { PracticeQuestion, PracticeRunSummary } from './StudentPracticeRunner';
 
 type PracticeStatus = 'not-started' | 'in-progress' | 'mastered';
 type ResourceType = 'video' | 'notes' | 'article';
@@ -41,18 +46,21 @@ interface CurriculumPractice {
   title: string;
   status: PracticeStatus;
   target: string;
+  questionCount: number;
 }
 
 interface CurriculumAssessment {
   id: string;
   title: string;
   status: string;
+  resourceId?: string | null;
 }
 
 interface CurriculumTopic {
   id: string;
   title: string;
   masteryPercent: number;
+  questionCount: number;
   learn: CurriculumResource[];
   practice: CurriculumPractice[];
   practiceMaterials: CurriculumResource[];
@@ -91,10 +99,9 @@ type ChallengeDifficulty = 'easy' | 'medium' | 'hard';
 interface ChallengeGenerationConfig {
   questionCount: number;
   difficulty: ChallengeDifficulty;
-  prompt: string;
   questions: PracticeQuestion[];
+  sessionId?: string | null;
   isGenerating: boolean;
-  generatedWithAi: boolean;
   error: string | null;
 }
 
@@ -111,6 +118,21 @@ interface SubjectsChatDragState {
   originY: number;
 }
 
+interface SubjectAssessmentRow {
+  id: string;
+  name?: string;
+  status?: string;
+  resourceId?: string | null;
+  resource?: string | { id?: string | null } | null;
+}
+
+interface LinkedTopicAssessment {
+  id: string;
+  title: string;
+  status: string;
+  resourceId: string | null;
+}
+
 const DEFAULT_UNIT_CHALLENGE_COUNT = 10;
 const DEFAULT_SUBJECT_CHALLENGE_COUNT = 12;
 const CRITICAL_TOPIC_MASTERY_THRESHOLD = 50;
@@ -118,10 +140,9 @@ const CRITICAL_TOPIC_MASTERY_THRESHOLD = 50;
 const createChallengeGenerationConfig = (questionCount: number): ChallengeGenerationConfig => ({
   questionCount,
   difficulty: 'medium',
-  prompt: '',
   questions: [],
+  sessionId: null,
   isGenerating: false,
-  generatedWithAi: false,
   error: null,
 });
 
@@ -166,7 +187,7 @@ const getTopicContentItems = (topic: CurriculumTopic): TopicContentItem[] => [
 
 const getUpNextLabelForContentItem = (item: TopicContentItem) => {
   if (item.kind === 'practice') return 'quiz';
-  if (item.kind === 'assessment') return 'assessment';
+  if (item.kind === 'assessment') return 'practice';
   if (!item.resource) return 'lesson';
   if (item.resource.type === 'video') return 'video';
   if (item.resource.type === 'notes') return 'notes';
@@ -174,19 +195,269 @@ const getUpNextLabelForContentItem = (item: TopicContentItem) => {
 };
 
 const normalizeText = (value: string | null | undefined) => String(value || '').trim().toLowerCase();
+const isStudentVisibleStatus = (value: string | null | undefined) => {
+  const normalized = normalizeText(value);
+  if (!normalized) return true; // Preserve legacy rows that never stored status.
+  return normalized === 'published' || normalized === 'active';
+};
+const isStudentVisiblePublishAt = (value: string | null | undefined) => {
+  if (!value) return true;
+  const publishAtMs = Date.parse(value);
+  if (Number.isNaN(publishAtMs)) return true;
+  return publishAtMs <= Date.now();
+};
+const isStudentVisibleResource = (resource: { status?: string | null; publishAt?: string | null }) =>
+  isStudentVisibleStatus(resource.status) && isStudentVisiblePublishAt(resource.publishAt);
+const normalizeAssessmentStatus = (value: string | null | undefined) => {
+  const normalized = normalizeText(value);
+  return normalized === 'active' ? 'published' : (normalized || 'published');
+};
+const extractAssessmentResourceId = (assessment: SubjectAssessmentRow): string | null => {
+  const raw = assessment?.resourceId ?? assessment?.resource;
+  if (!raw) return null;
+  if (typeof raw === 'string') return raw;
+  return raw?.id || null;
+};
+const decodeHtmlEntities = (value: string) =>
+  value
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+const looksLikeHtml = (value: string) => /<([a-z][\w-]*)(\s[^>]*)?>/i.test(value);
 
-const getQuestionOptionText = (option: unknown): string => {
-  if (typeof option === 'string') return option.trim();
-  if (option && typeof option === 'object' && 'text' in option) {
-    const text = (option as { text?: unknown }).text;
-    return typeof text === 'string' ? text.trim() : '';
+type DetailAssessmentQuestionKind = 'open-response' | 'single-choice' | 'multiple-choice';
+
+interface DetailAssessmentQuestion {
+  id: string;
+  prompt: string;
+  options: string[];
+  expectedAnswers: string[];
+  marks: number | null;
+  kind: DetailAssessmentQuestionKind;
+}
+
+interface AssessmentQuestionRubricPayload {
+  options?: unknown;
+  correctAnswers?: unknown;
+  correctAnswer?: unknown;
+  expectedAnswer?: unknown;
+  answer?: unknown;
+}
+
+interface AssessmentQuestionApiPayload {
+  id?: string | number | null;
+  questionTypeCode?: string | null;
+  questionType?: string | null;
+  rubricJson?: AssessmentQuestionRubricPayload | null;
+  maxMark?: number | string | null;
+  points?: number | string | null;
+  stem?: string | null;
+}
+
+interface AssessmentWithQuestionsResponsePayload {
+  questions?: AssessmentQuestionApiPayload[] | null;
+}
+
+const getErrorMessage = (error: unknown, fallback: string): string => {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === 'string' && message.trim()) return message;
   }
-  return '';
+  return fallback;
 };
 
-const isQuestionOptionCorrect = (option: unknown): boolean => {
-  if (!option || typeof option !== 'object' || !('isCorrect' in option)) return false;
-  return Boolean((option as { isCorrect?: unknown }).isCorrect);
+const normalizeAssessmentQuestionOptions = (raw: unknown): string[] => {
+  if (Array.isArray(raw)) {
+    return raw.map((option) => String(option ?? '').trim()).filter(Boolean);
+  }
+  if (typeof raw === 'string') {
+    return raw
+      .split(/[|,;]+/)
+      .map((option) => option.trim())
+      .filter(Boolean);
+  }
+  return [];
+};
+
+const normalizeAssessmentExpectedAnswers = (raw: unknown): string[] => {
+  if (Array.isArray(raw)) {
+    return raw.map((answer) => String(answer ?? '').trim()).filter(Boolean);
+  }
+  if (typeof raw === 'string') {
+    return raw
+      .split(/[|,;]+/)
+      .map((answer) => answer.trim())
+      .filter(Boolean);
+  }
+  return [];
+};
+
+const parseMarksFromQuestionText = (value: string): number | null => {
+  const markMatch = value.match(/\((\d+)\s*marks?\)/i);
+  if (!markMatch) return null;
+  const marks = Number(markMatch[1]);
+  return Number.isFinite(marks) ? marks : null;
+};
+
+const inferQuestionKind = (options: string[], expectedAnswers: string[]): DetailAssessmentQuestionKind => {
+  if (options.length === 0) return 'open-response';
+  return expectedAnswers.length > 1 ? 'multiple-choice' : 'single-choice';
+};
+
+const parseAssessmentQuestionFromLine = (
+  rawLine: string,
+  index: number
+): DetailAssessmentQuestion | null => {
+  const trimmedLine = String(rawLine || '').trim();
+  if (!trimmedLine) return null;
+
+  const marks = parseMarksFromQuestionText(trimmedLine);
+  const withoutNumbering = trimmedLine.replace(/^\s*\d+[).\-\s]*/, '').trim();
+  const optionsMatch = withoutNumbering.match(/(?:^|\s)Options:\s*([\s\S]*?)(?=\s+Answer\(s\):|\s+Answer:|\s+Marking guide:|$)/i);
+  const answersMatch = withoutNumbering.match(/(?:^|\s)Answer\(s\):\s*([\s\S]*?)(?=\s+Marking guide:|$)/i)
+    || withoutNumbering.match(/(?:^|\s)Answer:\s*([\s\S]*?)(?=\s+Marking guide:|$)/i);
+  const options = normalizeAssessmentQuestionOptions(optionsMatch?.[1] || '');
+  const expectedAnswers = normalizeAssessmentExpectedAnswers(answersMatch?.[1] || '');
+  const prompt = withoutNumbering
+    .replace(/\s+Options:\s*[\s\S]*$/i, '')
+    .replace(/\s+Answer\(s\):\s*[\s\S]*$/i, '')
+    .replace(/\s+Answer:\s*[\s\S]*$/i, '')
+    .replace(/\s+Marking guide:\s*[\s\S]*$/i, '')
+    .replace(/\((\d+)\s*marks?\)/i, '')
+    .trim();
+
+  if (!prompt) return null;
+
+  return {
+    id: `parsed-assessment-${index + 1}`,
+    prompt,
+    options,
+    expectedAnswers,
+    marks,
+    kind: inferQuestionKind(options, expectedAnswers),
+  };
+};
+
+const parseAssessmentQuestionsFromContentBody = (contentBody: string): DetailAssessmentQuestion[] => {
+  const decoded = decodeHtmlEntities(String(contentBody || '').trim());
+  if (!decoded) return [];
+
+  if (typeof document !== 'undefined' && looksLikeHtml(decoded)) {
+    const parsed = new DOMParser().parseFromString(decoded, 'text/html');
+    const articleQuestions = Array.from(parsed.querySelectorAll('article.question'))
+      .map((article: Element, index: number) => {
+        const headingText = article.querySelector('h3')?.textContent || '';
+        const marks = parseMarksFromQuestionText(headingText);
+        const prompt = (article.querySelector('p')?.textContent || '').trim();
+        const options = Array.from(article.querySelectorAll('ol li, ul li'))
+          .map((option) => (option.textContent || '').trim())
+          .filter(Boolean);
+        const answerLine = Array.from(article.querySelectorAll('p'))
+          .map((paragraph) => (paragraph.textContent || '').trim())
+          .find((line) => /^correct answer\(s\):|^expected answer:/i.test(line));
+        const expectedAnswers = normalizeAssessmentExpectedAnswers(
+          (answerLine || '').replace(/^correct answer\(s\):|^expected answer:/i, '').trim()
+        );
+        if (!prompt) return null;
+        return {
+          id: `article-assessment-${index + 1}`,
+          prompt,
+          options,
+          expectedAnswers,
+          marks,
+          kind: inferQuestionKind(options, expectedAnswers),
+        } as DetailAssessmentQuestion;
+      })
+      .filter((question: DetailAssessmentQuestion | null): question is DetailAssessmentQuestion => Boolean(question));
+
+    if (articleQuestions.length > 0) return articleQuestions;
+
+    const htmlListQuestions = Array.from(parsed.querySelectorAll('li'))
+      .map((item: Element, index: number) => parseAssessmentQuestionFromLine(item.textContent || '', index))
+      .filter((question: DetailAssessmentQuestion | null): question is DetailAssessmentQuestion => Boolean(question));
+    if (htmlListQuestions.length > 0) return htmlListQuestions;
+  }
+
+  const plainText =
+    typeof document !== 'undefined' && looksLikeHtml(decoded)
+      ? new DOMParser().parseFromString(decoded, 'text/html').body.textContent || ''
+      : decoded;
+  const lines: string[] = plainText
+    .replace(/\r\n/g, '\n')
+    .split('\n')
+    .map((line: string) => line.trim())
+    .filter((line: string) => Boolean(line));
+  const numberedLines: string[] = lines.filter((line: string) => /^\d+[).\-\s]/.test(line));
+  const candidateLines: string[] = numberedLines.length > 0 ? numberedLines : lines;
+
+  return candidateLines
+    .map((line: string, index: number) => parseAssessmentQuestionFromLine(line, index))
+    .filter((question: DetailAssessmentQuestion | null): question is DetailAssessmentQuestion => Boolean(question))
+    .filter(
+      (question: DetailAssessmentQuestion) =>
+        !/^topic\s*:/i.test(question.prompt) &&
+        !/^practice description/i.test(question.prompt) &&
+        !/^questions?\s*:?\s*$/i.test(question.prompt)
+    );
+};
+
+const mapDetailAssessmentQuestionFromApi = (
+  question: AssessmentQuestionApiPayload,
+  index: number
+): DetailAssessmentQuestion => {
+  const normalizedType = String(question?.questionTypeCode || question?.questionType || '')
+    .trim()
+    .toLowerCase()
+    .replace('-', '_');
+  const rubric = question?.rubricJson || {};
+  const options = normalizeAssessmentQuestionOptions(rubric.options);
+  const expectedAnswers = normalizeAssessmentExpectedAnswers(
+    (Array.isArray(rubric.correctAnswers) && rubric.correctAnswers.length > 0)
+      ? rubric.correctAnswers
+      : (rubric.correctAnswer || rubric.expectedAnswer || rubric.answer || '')
+  );
+  const marksRaw = question?.maxMark ?? question?.points ?? null;
+  const marks = Number.isFinite(Number(marksRaw)) ? Number(marksRaw) : null;
+  const prompt = String(question?.stem || '').trim();
+
+  let kind: DetailAssessmentQuestionKind = 'open-response';
+  if (normalizedType === 'true_false' || normalizedType === 'truefalse') {
+    kind = 'single-choice';
+    return {
+      id: String(question?.id || `assessment-question-${index + 1}`),
+      prompt,
+      options: options.length > 0 ? options : ['True', 'False'],
+      expectedAnswers,
+      marks,
+      kind,
+    };
+  }
+  if (normalizedType === 'mcq' || normalizedType.includes('multiple')) {
+    kind = expectedAnswers.length > 1 ? 'multiple-choice' : 'single-choice';
+    return {
+      id: String(question?.id || `assessment-question-${index + 1}`),
+      prompt,
+      options,
+      expectedAnswers,
+      marks,
+      kind,
+    };
+  }
+  if (options.length > 0) {
+    kind = inferQuestionKind(options, expectedAnswers);
+  }
+
+  return {
+    id: String(question?.id || `assessment-question-${index + 1}`),
+    prompt,
+    options,
+    expectedAnswers,
+    marks,
+    kind,
+  };
 };
 
 const getResourceTypeFromItem = (
@@ -222,233 +493,193 @@ const getResourceTypeFromItem = (
   return 'article';
 };
 
+const mapPracticeQuestionFromSession = (question: StudentPracticeSessionQuestion): PracticeQuestion => {
+  const normalizedType = String(question.questionType || '').toLowerCase();
+  if (normalizedType.includes('multiple') || normalizedType === 'true_false') {
+    return {
+      id: question.assessmentQuestionId,
+      type: question.multipleSelection ? 'multiple' : 'single',
+      prompt: question.prompt,
+      options: question.options || [],
+      correctOptionIndexes: [],
+    };
+  }
+  return {
+    id: question.assessmentQuestionId,
+    type: 'input',
+    prompt: question.prompt,
+    placeholder: 'Type your answer',
+    acceptedAnswers: [],
+  };
+};
+
 const mapSubjectOverviewToUnits = (
   subjectName: string,
   overview: StudentSubjectOverview,
-  topicsWithResources: CurriculumTopicApi[]
+  topicsWithResources: CurriculumTopicApi[],
+  linkedAssessmentsByTopicId: Map<string, LinkedTopicAssessment[]> = new Map()
 ): CurriculumUnit[] => {
-  const resourcesByTopicId = new Map<string, CurriculumTopicResource[]>();
-  topicsWithResources.forEach((topic) => {
-    resourcesByTopicId.set(topic.id, topic.resources || []);
+  const overviewTopicMetrics = new Map<string, { masteryPercent: number; questionCount: number; sequenceIndex?: number | null }>();
+  (overview.units || []).forEach((unit) => {
+    (unit.topics || []).forEach((topic) => {
+      overviewTopicMetrics.set(topic.topicId, {
+        masteryPercent: Number(topic.masteryPercent || 0),
+        questionCount: Number(topic.questionCount || 0),
+        sequenceIndex: topic.sequenceIndex ?? null,
+      });
+    });
   });
 
-  return (overview.units || []).map((unit) => {
-    const mappedTopics: CurriculumTopic[] = (unit.topics || []).map((topic) => {
-      const topicResources = resourcesByTopicId.get(topic.topicId) || [];
-      const practiceResources = topicResources.filter((resource) => normalizeText(resource.contentType) === 'practice');
-      const assessmentResources = topicResources.filter((resource) => normalizeText(resource.contentType) === 'assessment_material');
-      const learnTopicResources = topicResources.filter((resource) => {
-        const normalized = normalizeText(resource.contentType);
-        return normalized !== 'practice' && normalized !== 'assessment_material';
-      });
+  const fallbackTopicRows: CurriculumTopicApi[] = (overview.units || []).flatMap((unit) =>
+    (unit.topics || []).map((topic) => ({
+      id: topic.topicId,
+      subjectId: overview.subjectId,
+      code: topic.code || '',
+      name: topic.name || '',
+      sequenceIndex: topic.sequenceIndex ?? null,
+      resources: [],
+    }))
+  );
 
-      const learnResources: CurriculumResource[] = learnTopicResources.slice(0, 4).map((resource) => ({
-        id: resource.id,
-        title: resource.name || resource.originalName || 'Learning resource',
-        type: getResourceTypeFromItem(resource),
-      }));
-
-      const practiceMaterials: CurriculumResource[] = practiceResources.slice(0, 4).map((resource) => ({
-        id: resource.id,
-        title: resource.name || resource.originalName || 'Practice material',
-        type: 'notes',
-      }));
-
-      const assessments: CurriculumAssessment[] = assessmentResources.slice(0, 4).map((resource) => ({
-        id: resource.id,
-        title: resource.name || resource.originalName || 'Assessment',
-        status: normalizeText(resource.status) || 'published',
-      }));
-
-      const practiceCount = Math.max(1, Math.min(12, Number(topic.questionCount || 0)));
-      const practiceItems: CurriculumPractice[] = [
-        {
-          id: `practice-${topic.topicId}`,
-          title: `AI guided practice: ${topic.name}`,
-          status: 'not-started',
-          target: `Complete ${practiceCount} question${practiceCount === 1 ? '' : 's'}`,
-        },
-      ];
-
-      return {
-        id: topic.topicId,
-        title: topic.name,
-        masteryPercent: Math.max(0, Math.min(100, Math.round(topic.masteryPercent || 0))),
-        learn: learnResources,
-        practice: practiceItems,
-        practiceMaterials,
-        assessments,
-      };
+  const canonicalTopicRows = (topicsWithResources.length > 0 ? topicsWithResources : fallbackTopicRows)
+    .slice()
+    .sort((left, right) => {
+      const leftSequence = Number.isFinite(Number(left.sequenceIndex)) ? Number(left.sequenceIndex) : Number.MAX_SAFE_INTEGER;
+      const rightSequence = Number.isFinite(Number(right.sequenceIndex)) ? Number(right.sequenceIndex) : Number.MAX_SAFE_INTEGER;
+      if (leftSequence !== rightSequence) return leftSequence - rightSequence;
+      return String(left.name || '').localeCompare(String(right.name || ''));
     });
 
-    const topicCount = Number(unit.topicCount || mappedTopics.length || 0);
-    const questionCount = Number(unit.questionCount || 0);
-    const summary = `Covers ${topicCount} topic${topicCount === 1 ? '' : 's'} with ${questionCount} published question${questionCount === 1 ? '' : 's'}.`;
+  return canonicalTopicRows.map((topicRow, index) => {
+    const topicResources = (topicRow.resources || []).filter((resource) => isStudentVisibleResource(resource));
+    const practiceResources = topicResources.filter(
+      (resource) => normalizeResourceContentType(resource.contentType) === 'practice'
+    );
+    const assessmentResources = topicResources.filter(
+      (resource) => normalizeResourceContentType(resource.contentType) === 'assessment_material'
+    );
+    const learnTopicResources = topicResources.filter((resource) => {
+      const normalized = normalizeResourceContentType(resource.contentType);
+      return normalized !== 'practice' && normalized !== 'assessment_material';
+    });
+
+    const learnResources: CurriculumResource[] = learnTopicResources.map((resource) => ({
+      id: resource.id,
+      title: resource.name || resource.originalName || 'Learning resource',
+      type: getResourceTypeFromItem(resource),
+    }));
+
+    const practiceMaterials: CurriculumResource[] = practiceResources.map((resource) => ({
+      id: resource.id,
+      title: resource.name || resource.originalName || 'Practice material',
+      type: getResourceTypeFromItem(resource),
+    }));
+
+    const resourceBackedAssessments: CurriculumAssessment[] = assessmentResources.map((resource) => ({
+      id: resource.id,
+      title: resource.name || resource.originalName || 'Assessment',
+      status: normalizeAssessmentStatus(resource.status),
+      resourceId: resource.id,
+    }));
+    const linkedAssessments = linkedAssessmentsByTopicId.get(topicRow.id) || [];
+    const assessmentsByKey = new Map<string, CurriculumAssessment>();
+    [...linkedAssessments, ...resourceBackedAssessments].forEach((assessment) => {
+      const key = assessment.resourceId || assessment.id;
+      if (assessmentsByKey.has(key)) return;
+      assessmentsByKey.set(key, assessment);
+    });
+    const assessments = Array.from(assessmentsByKey.values());
+
+    const metrics = overviewTopicMetrics.get(topicRow.id);
+    const availableQuestionCount = Math.max(0, Number(metrics?.questionCount || 0));
+    const practiceCount = Math.max(0, Math.min(12, availableQuestionCount));
+    const mappedTopic: CurriculumTopic = {
+      id: topicRow.id,
+      title: topicRow.name || `Topic ${index + 1}`,
+      masteryPercent: Math.max(0, Math.min(100, Math.round(Number(metrics?.masteryPercent || 0)))),
+      questionCount: availableQuestionCount,
+      learn: learnResources,
+      practice: practiceCount > 0
+        ? [
+            {
+              id: `practice-${topicRow.id}`,
+              title: topicRow.name || `Topic ${index + 1}`,
+              status: 'not-started',
+              target: `Complete ${practiceCount} question${practiceCount === 1 ? '' : 's'}`,
+              questionCount: practiceCount,
+            },
+          ]
+        : [],
+      practiceMaterials,
+      assessments,
+    };
+
+    const unitOrder = index + 1;
+    const summary = `Covers 1 topic with ${availableQuestionCount} published question${availableQuestionCount === 1 ? '' : 's'}.`;
 
     return {
-      id: unit.unitId,
-      code: unit.code || `Unit ${unit.unitNumber}`,
-      title: unit.title || `${subjectName} unit ${unit.unitNumber}`,
+      id: `topic-unit-${topicRow.id}`,
+      code: `Topic ${unitOrder}`,
+      title: mappedTopic.title || `${subjectName} topic ${unitOrder}`,
       summary,
-      masteryPercent: Math.max(0, Math.min(100, Math.round(unit.masteryPercent || 0))),
-      topics: mappedTopics,
+      masteryPercent: mappedTopic.masteryPercent,
+      topics: [mappedTopic],
     };
   });
 };
 
-const buildUnitChallengeQuestions = (unit: CurriculumUnit, targetCount = DEFAULT_UNIT_CHALLENGE_COUNT): PracticeQuestion[] => {
-  const topicSeedPool = unit.topics.flatMap((topic, topicIndex) =>
-    buildMockPracticeQuestions(`${unit.title} ${topic.title}`, 'quiz').map((question, questionIndex) => ({
-      ...question,
-      id: `${unit.id}-topic-${topicIndex + 1}-q-${questionIndex + 1}`,
-    }))
-  );
-
-  const fallbackPool = buildMockPracticeQuestions(`${unit.title} unit challenge`, 'mixed').map((question, index) => ({
-    ...question,
-    id: `${unit.id}-fallback-q-${index + 1}`,
-  }));
-
-  const dedupedByPrompt: PracticeQuestion[] = [];
-  const seenPrompts = new Set<string>();
-
-  [...topicSeedPool, ...fallbackPool].forEach((question) => {
-    const key = `${question.type}:${question.prompt.toLowerCase()}`;
-    if (seenPrompts.has(key)) return;
-    seenPrompts.add(key);
-    dedupedByPrompt.push(question);
-  });
-
-  const finalizedQuestions = [...dedupedByPrompt];
-  let fallbackIndex = 0;
-
-  while (finalizedQuestions.length < targetCount) {
-    const fallbackQuestion = fallbackPool[fallbackIndex % fallbackPool.length];
-    finalizedQuestions.push({
-      ...fallbackQuestion,
-      id: `${unit.id}-extra-q-${fallbackIndex + 1}`,
-    });
-    fallbackIndex += 1;
-  }
-
-  return finalizedQuestions.slice(0, targetCount).map((question, index) => ({
-    ...question,
-    id: `${unit.id}-challenge-q-${index + 1}`,
-  }));
-};
-
-const buildSubjectChallengeQuestions = (units: CurriculumUnit[], targetCount = DEFAULT_SUBJECT_CHALLENGE_COUNT): PracticeQuestion[] => {
-  const pooledQuestions = units.flatMap((unit, unitIndex) =>
-    buildUnitChallengeQuestions(unit).map((question, questionIndex) => ({
-      ...question,
-      id: `subject-${unitIndex + 1}-q-${questionIndex + 1}`,
-    }))
-  );
-
-  const dedupedByPrompt: PracticeQuestion[] = [];
-  const seenPrompts = new Set<string>();
-
-  pooledQuestions.forEach((question) => {
-    const key = `${question.type}:${question.prompt.toLowerCase()}`;
-    if (seenPrompts.has(key)) return;
-    seenPrompts.add(key);
-    dedupedByPrompt.push(question);
-  });
-
-  const fallbackPool = dedupedByPrompt.length > 0 ? dedupedByPrompt : buildMockPracticeQuestions('subject challenge', 'mixed');
-  const finalizedQuestions = [...dedupedByPrompt];
-  let fallbackIndex = 0;
-
-  while (finalizedQuestions.length < targetCount) {
-    const fallbackQuestion = fallbackPool[fallbackIndex % fallbackPool.length];
-    finalizedQuestions.push({
-      ...fallbackQuestion,
-      id: `subject-extra-q-${fallbackIndex + 1}`,
-    });
-    fallbackIndex += 1;
-  }
-
-  return finalizedQuestions.slice(0, targetCount).map((question, index) => ({
-    ...question,
-    id: `subject-challenge-q-${index + 1}`,
-  }));
-};
-
-const mapAiQuestionsToPractice = (
-  aiQuestions: Question[],
-  fallbackSeed: string,
-  targetCount: number
-): PracticeQuestion[] => {
-  const mappedQuestions: PracticeQuestion[] = aiQuestions.map((question, index) => {
-    const prompt = (question.text || `Question ${index + 1}`).trim();
-    const questionOptions = Array.isArray(question.options) ? (question.options as unknown[]) : [];
-
-    const optionTexts = questionOptions.map((option) => getQuestionOptionText(option)).filter((option): option is string => option.length > 0);
-
-    if ((question.type === 'multiple_choice' || question.type === 'true_false') && optionTexts.length >= 2) {
-      const correctIndexesFromFlags = questionOptions
-        .map((option, optionIndex) => {
-          return isQuestionOptionCorrect(option) ? optionIndex : null;
-        })
-        .filter((value): value is number => typeof value === 'number');
-
-      let correctOptionIndexes = correctIndexesFromFlags;
-      if (correctOptionIndexes.length === 0 && question.correctAnswer) {
-        const correctAnswers = Array.isArray(question.correctAnswer)
-          ? question.correctAnswer.map((answer) => String(answer).trim().toLowerCase())
-          : [String(question.correctAnswer).trim().toLowerCase()];
-        correctOptionIndexes = optionTexts
-          .map((option, optionIndex) => (correctAnswers.includes(option.trim().toLowerCase()) ? optionIndex : -1))
-          .filter((value) => value >= 0);
+const mapAssessmentsByTopic = (
+  topicsWithResources: CurriculumTopicApi[],
+  subjectAssessments: SubjectAssessmentRow[],
+  subjectResources: ResourceItem[] = []
+): Map<string, LinkedTopicAssessment[]> => {
+  const topicIdsByResourceId = new Map<string, Set<string>>();
+  topicsWithResources.forEach((topic) => {
+    (topic.resources || [])
+      .filter((resource) => isStudentVisibleResource(resource))
+      .forEach((resource) => {
+      if (!topicIdsByResourceId.has(resource.id)) {
+        topicIdsByResourceId.set(resource.id, new Set());
       }
-
-      if (correctOptionIndexes.length === 0) {
-        correctOptionIndexes = [0];
-      }
-
-      return {
-        id: `ai-choice-${index + 1}`,
-        type: correctOptionIndexes.length > 1 ? 'multiple' : 'single',
-        prompt,
-        options: optionTexts,
-        correctOptionIndexes,
-      } as PracticeQuestion;
+      const topicIds = topicIdsByResourceId.get(resource.id)!;
+      topicIds.add(topic.id);
+      (resource.topicIds || []).forEach((resourceTopicId) => topicIds.add(resourceTopicId));
+      });
+  });
+  subjectResources.forEach((resource) => {
+    if (!isStudentVisibleResource(resource)) return;
+    if (!resource?.id) return;
+    if (!topicIdsByResourceId.has(resource.id)) {
+      topicIdsByResourceId.set(resource.id, new Set());
     }
-
-    const acceptedAnswers = Array.isArray(question.correctAnswer)
-      ? question.correctAnswer.map((answer) => String(answer))
-      : question.correctAnswer
-        ? [String(question.correctAnswer)]
-        : ['sample answer'];
-
-    return {
-      id: `ai-input-${index + 1}`,
-      type: 'input',
-      prompt,
-      placeholder: 'Type your answer',
-      acceptedAnswers,
-    } as PracticeQuestion;
+    const topicIds = topicIdsByResourceId.get(resource.id)!;
+    (resource.topicIds || []).forEach((resourceTopicId) => topicIds.add(resourceTopicId));
   });
 
-  const fallbackQuestions = buildMockPracticeQuestions(fallbackSeed, 'quiz');
-  const finalizedQuestions = [...mappedQuestions];
+  const mapped = new Map<string, LinkedTopicAssessment[]>();
+  subjectAssessments.forEach((assessment) => {
+    if (!isStudentVisibleStatus(assessment.status)) return;
+    const resourceId = extractAssessmentResourceId(assessment);
+    if (!resourceId) return;
+    const topicIds = topicIdsByResourceId.get(resourceId);
+    if (!topicIds || topicIds.size === 0) return;
 
-  while (finalizedQuestions.length < targetCount) {
-    const fallbackQuestion = fallbackQuestions[finalizedQuestions.length % fallbackQuestions.length];
-    finalizedQuestions.push({
-      ...fallbackQuestion,
-      id: `fallback-${finalizedQuestions.length + 1}`,
+    topicIds.forEach((topicId) => {
+      const existing = mapped.get(topicId) || [];
+      existing.push({
+        id: assessment.id,
+        title: assessment.name || 'Assessment',
+        status: normalizeAssessmentStatus(assessment.status),
+        resourceId,
+      });
+      mapped.set(topicId, existing);
     });
-  }
+  });
 
-  return finalizedQuestions.slice(0, targetCount).map((question, index) => ({
-    ...question,
-    id: `generated-${index + 1}`,
-  }));
+  return mapped;
 };
 
 const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, selectedSubjectId, subjects }) => {
-  const navigate = useNavigate();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isSubjectOverviewActive, setIsSubjectOverviewActive] = useState(false);
   const [selectedUnitIndex, setSelectedUnitIndex] = useState(0);
@@ -459,6 +690,21 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
   const [practiceStatusOverrides, setPracticeStatusOverrides] = useState<Record<string, PracticeStatus>>({});
   const [collapsedTopicIds, setCollapsedTopicIds] = useState<Record<string, boolean>>({});
   const [detailState, setDetailState] = useState<{ unitId: string; topicId: string; contentItemId: string } | null>(null);
+  const [detailPracticeSession, setDetailPracticeSession] = useState<StudentPracticeSession | null>(null);
+  const [detailPracticeLoading, setDetailPracticeLoading] = useState(false);
+  const [detailPracticeError, setDetailPracticeError] = useState<string | null>(null);
+  const [detailAssessmentQuestionsFromApi, setDetailAssessmentQuestionsFromApi] = useState<DetailAssessmentQuestion[]>([]);
+  const [detailAssessmentQuestionsLoading, setDetailAssessmentQuestionsLoading] = useState(false);
+  const [detailAssessmentCombinedResponse, setDetailAssessmentCombinedResponse] = useState('');
+  const [detailAssessmentSelectedOptions, setDetailAssessmentSelectedOptions] = useState<Record<string, string[]>>({});
+  const [detailAssessmentImageFile, setDetailAssessmentImageFile] = useState<File | null>(null);
+  const [detailAssessmentFeedback, setDetailAssessmentFeedback] = useState<string | null>(null);
+  const [detailAssessmentError, setDetailAssessmentError] = useState<string | null>(null);
+  const [isDetailAssessmentAssessing, setIsDetailAssessmentAssessing] = useState(false);
+  const [isDetailCardTransitionLoading, setIsDetailCardTransitionLoading] = useState(false);
+  const [resourceBodyById, setResourceBodyById] = useState<Record<string, string>>({});
+  const [resourceBodyLoadingById, setResourceBodyLoadingById] = useState<Record<string, boolean>>({});
+  const [resourceBodyErrorById, setResourceBodyErrorById] = useState<Record<string, string>>({});
   const [unitChallengeState, setUnitChallengeState] = useState<{
     unitId: string;
     stage: UnitChallengeStage;
@@ -485,6 +731,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
   const subjectsChatFloatingRef = useRef<HTMLDivElement | null>(null);
   const subjectsChatDragStateRef = useRef<SubjectsChatDragState | null>(null);
   const subjectsChatDragCleanupRef = useRef<(() => void) | null>(null);
+  const detailCardLoadingTimeoutRef = useRef<number | null>(null);
 
   const activeSubject = useMemo(() => {
     if (subjects.length === 0) return null;
@@ -541,9 +788,13 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
       setCurriculumError(null);
 
       try {
-        const [overview, topics] = await Promise.all([
+        const [overview, topics, subjectAssessments, subjectResources] = await Promise.all([
           studentService.getSubjectOverview(studentId, activeSubject.id).catch(() => null),
           curriculumService.listTopicsWithResources(activeSubject.id).catch(() => []),
+          assessmentService.getAssessmentsBySubjectId(activeSubject.id)
+            .then((rows) => (Array.isArray(rows) ? (rows as unknown as SubjectAssessmentRow[]) : []))
+            .catch(() => []),
+          resourceService.listBySubject(activeSubject.id).catch(() => []),
         ]);
 
         if (!overview) {
@@ -553,7 +804,8 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
           return;
         }
 
-        const mappedUnits = mapSubjectOverviewToUnits(activeSubject.name, overview, topics);
+        const linkedAssessmentsByTopicId = mapAssessmentsByTopic(topics, subjectAssessments, subjectResources);
+        const mappedUnits = mapSubjectOverviewToUnits(activeSubject.name, overview, topics, linkedAssessmentsByTopicId);
         setSubjectOverview(overview);
         setBackendUnits(mappedUnits);
 
@@ -564,10 +816,10 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
         } else {
           setCurriculumError(null);
         }
-      } catch (loadError: any) {
+      } catch (loadError: unknown) {
         setBackendUnits([]);
         setSubjectOverview(null);
-        setCurriculumError(loadError?.message || 'Unable to load curriculum from backend right now.');
+        setCurriculumError(getErrorMessage(loadError, 'Unable to load curriculum from backend right now.'));
       } finally {
         setIsCurriculumLoading(false);
       }
@@ -579,6 +831,22 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
   useEffect(() => {
     setSelectedUnitIndex(0);
     setDetailState(null);
+    setDetailPracticeSession(null);
+    setDetailPracticeLoading(false);
+    setDetailPracticeError(null);
+    setDetailAssessmentQuestionsFromApi([]);
+    setDetailAssessmentQuestionsLoading(false);
+    setDetailAssessmentCombinedResponse('');
+    setDetailAssessmentSelectedOptions({});
+    setDetailAssessmentImageFile(null);
+    setDetailAssessmentFeedback(null);
+    setDetailAssessmentError(null);
+    setIsDetailAssessmentAssessing(false);
+    setIsDetailCardTransitionLoading(false);
+    if (detailCardLoadingTimeoutRef.current) {
+      window.clearTimeout(detailCardLoadingTimeoutRef.current);
+      detailCardLoadingTimeoutRef.current = null;
+    }
     setPracticeStatusOverrides({});
     setCollapsedTopicIds({});
     setSubjectOverview(null);
@@ -602,6 +870,10 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
   }, [activeSubject?.id]);
 
   useEffect(() => () => {
+    if (detailCardLoadingTimeoutRef.current) {
+      window.clearTimeout(detailCardLoadingTimeoutRef.current);
+      detailCardLoadingTimeoutRef.current = null;
+    }
     if (subjectsChatDragCleanupRef.current) {
       subjectsChatDragCleanupRef.current();
     }
@@ -612,7 +884,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
     if (detailState.unitId !== selectedUnit?.id) {
       setDetailState(null);
     }
-  }, [selectedUnit?.id]);
+  }, [detailState, selectedUnit?.id]);
 
   useEffect(() => {
     if (!unitChallengeState || !selectedUnit?.id) return;
@@ -670,46 +942,28 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
     updateUnitChallengeConfig((current) => ({ ...current, isGenerating: true, error: null }));
 
     try {
-      const subjectAttributes = await aiService.getSubjectAttributes(activeSubject.id).catch(() => []);
-      const selectedAttributes = subjectAttributes.slice(0, 4).map((attribute) => ({
-        id: attribute.id,
-        name: attribute.name,
-        description: attribute.description,
-      }));
-
-      const generatedQuestions = await aiService.generateQuestions({
-        subjectId: activeSubject.id,
-        attributes: selectedAttributes.length > 0
-          ? selectedAttributes
-          : [{ id: selectedUnit.id, name: selectedUnit.title, description: selectedUnit.summary }],
+      const session = await studentService.startPracticeSession(studentId, activeSubject.id, {
+        topicId: selectedUnit.topics[0]?.id,
         questionCount: currentConfig.questionCount,
-        questionTypes: ['multiple_choice'],
-        difficulty: currentConfig.difficulty,
-        context: `Generate a unit challenge for ${activeSubject.name}. Unit: ${selectedUnit.code}: ${selectedUnit.title}. ${currentConfig.prompt}`.trim(),
-        tags: [activeSubject.name, selectedUnit.title, 'unit challenge'],
+        mode: 'topic_challenge',
+        title: `${selectedUnit.code}: ${selectedUnit.title} topic challenge`,
       });
-
-      const practiceQuestions = mapAiQuestionsToPractice(
-        generatedQuestions,
-        `${selectedUnit.title} unit challenge`,
-        currentConfig.questionCount
-      );
+      const practiceQuestions = (session.questions || []).map(mapPracticeQuestionFromSession);
 
       updateUnitChallengeConfig((current) => ({
         ...current,
         questions: practiceQuestions,
+        sessionId: session.sessionId,
         isGenerating: false,
-        generatedWithAi: true,
         error: null,
       }));
-    } catch (error) {
-      const fallbackQuestions = buildUnitChallengeQuestions(selectedUnit, currentConfig.questionCount);
+    } catch {
       updateUnitChallengeConfig((current) => ({
         ...current,
-        questions: fallbackQuestions,
+        questions: [],
+        sessionId: null,
         isGenerating: false,
-        generatedWithAi: false,
-        error: 'AI generation is unavailable right now. A local draft challenge has been prepared.',
+        error: 'Unable to prepare challenge questions right now. Please retry.',
       }));
     }
   };
@@ -728,46 +982,27 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
     updateSubjectChallengeConfig((current) => ({ ...current, isGenerating: true, error: null }));
 
     try {
-      const subjectAttributes = await aiService.getSubjectAttributes(activeSubject.id).catch(() => []);
-      const selectedAttributes = subjectAttributes.slice(0, 6).map((attribute) => ({
-        id: attribute.id,
-        name: attribute.name,
-        description: attribute.description,
-      }));
-
-      const generatedQuestions = await aiService.generateQuestions({
-        subjectId: activeSubject.id,
-        attributes: selectedAttributes.length > 0
-          ? selectedAttributes
-          : [{ id: activeSubject.id, name: activeSubject.name, description: `${activeSubject.name} challenge` }],
+      const session = await studentService.startPracticeSession(studentId, activeSubject.id, {
         questionCount: currentConfig.questionCount,
-        questionTypes: ['multiple_choice'],
-        difficulty: currentConfig.difficulty,
-        context: `Generate a subject challenge for ${activeSubject.name}. Include all major units and topic coverage. ${currentConfig.prompt}`.trim(),
-        tags: [activeSubject.name, 'subject challenge'],
+        mode: 'subject_challenge',
+        title: `${activeSubject.name} subject challenge`,
       });
-
-      const practiceQuestions = mapAiQuestionsToPractice(
-        generatedQuestions,
-        `${activeSubject.name} subject challenge`,
-        currentConfig.questionCount
-      );
+      const practiceQuestions = (session.questions || []).map(mapPracticeQuestionFromSession);
 
       updateSubjectChallengeConfig((current) => ({
         ...current,
         questions: practiceQuestions,
+        sessionId: session.sessionId,
         isGenerating: false,
-        generatedWithAi: true,
         error: null,
       }));
-    } catch (error) {
-      const fallbackQuestions = buildSubjectChallengeQuestions(units, currentConfig.questionCount);
+    } catch {
       updateSubjectChallengeConfig((current) => ({
         ...current,
-        questions: fallbackQuestions,
+        questions: [],
+        sessionId: null,
         isGenerating: false,
-        generatedWithAi: false,
-        error: 'AI generation is unavailable right now. A local draft challenge has been prepared.',
+        error: 'Unable to prepare challenge questions right now. Please retry.',
       }));
     }
   };
@@ -966,7 +1201,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
       window.cancelAnimationFrame(frameId);
       window.removeEventListener('resize', handleResize);
     };
-  }, [isSubjectsChatOpen, subjectsChatPosition?.x, subjectsChatPosition?.y]);
+  }, [isSubjectsChatOpen, subjectsChatPosition]);
 
   const openUnitChallenge = () => {
     setIsSidebarCollapsed(false);
@@ -982,10 +1217,10 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
   };
 
   const startUnitChallenge = () => {
-    if (!selectedUnitChallengeConfig.questions.length) {
+    if (!selectedUnitChallengeConfig.questions.length || !selectedUnitChallengeConfig.sessionId) {
       updateUnitChallengeConfig((current) => ({
         ...current,
-        error: 'Generate questions with AI before you start this challenge.',
+        error: 'Prepare challenge questions before you start.',
       }));
       return;
     }
@@ -1038,10 +1273,10 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
       }));
       return;
     }
-    if (!selectedSubjectChallengeConfig.questions.length) {
+    if (!selectedSubjectChallengeConfig.questions.length || !selectedSubjectChallengeConfig.sessionId) {
       updateSubjectChallengeConfig((current) => ({
         ...current,
-        error: 'Generate questions with AI before you start this challenge.',
+        error: 'Prepare challenge questions before you start.',
       }));
       return;
     }
@@ -1066,10 +1301,10 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
 
   const openUnitChallengeStep = (step: 1 | 2) => {
     if (isUnitChallengeRunning) return;
-    if (step === 2 && selectedUnitChallengeConfig.questions.length === 0) {
+    if (step === 2 && (selectedUnitChallengeConfig.questions.length === 0 || !selectedUnitChallengeConfig.sessionId)) {
       updateUnitChallengeConfig((current) => ({
         ...current,
-        error: 'Generate questions with AI in Step 1 before attempting Step 2.',
+        error: 'Prepare challenge questions in Step 1 before attempting Step 2.',
       }));
       return;
     }
@@ -1078,10 +1313,10 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
 
   const openSubjectChallengeStep = (step: 1 | 2) => {
     if (isSubjectChallengeRunning) return;
-    if (step === 2 && selectedSubjectChallengeConfig.questions.length === 0) {
+    if (step === 2 && (selectedSubjectChallengeConfig.questions.length === 0 || !selectedSubjectChallengeConfig.sessionId)) {
       updateSubjectChallengeConfig((current) => ({
         ...current,
-        error: 'Generate questions with AI in Step 1 before attempting Step 2.',
+        error: 'Prepare challenge questions in Step 1 before attempting Step 2.',
       }));
       return;
     }
@@ -1095,10 +1330,20 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
   const detailItems = detailTopic ? getTopicContentItems(detailTopic) : [];
   const selectedDetailItem =
     detailItems.find((item) => item.id === detailState?.contentItemId) || detailItems[0] || null;
+  const selectedDetailResourceId =
+    selectedDetailItem?.kind === 'learn'
+      ? selectedDetailItem.resource?.id || null
+      : selectedDetailItem?.kind === 'assessment'
+        ? selectedDetailItem.assessment?.resourceId || selectedDetailItem.assessment?.id || null
+        : null;
   const isDetailPracticeView = Boolean(
     selectedDetailItem &&
     selectedDetailItem.kind === 'practice' &&
     selectedDetailItem.practice
+  );
+  const detailPracticeQuestions = useMemo(
+    () => (detailPracticeSession?.questions || []).map(mapPracticeQuestionFromSession),
+    [detailPracticeSession?.questions]
   );
   const selectedDetailItemIndex = selectedDetailItem
     ? detailItems.findIndex((item) => item.id === selectedDetailItem.id)
@@ -1107,6 +1352,267 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
     selectedDetailItemIndex >= 0 && selectedDetailItemIndex < detailItems.length - 1
       ? detailItems[selectedDetailItemIndex + 1]
       : null;
+  const selectedResourceBody = selectedDetailResourceId ? resourceBodyById[selectedDetailResourceId] : null;
+  const selectedResourceBodyLoading = selectedDetailResourceId ? Boolean(resourceBodyLoadingById[selectedDetailResourceId]) : false;
+  const selectedResourceBodyError = selectedDetailResourceId ? resourceBodyErrorById[selectedDetailResourceId] || null : null;
+  const normalizedSelectedResourceBody = selectedResourceBody ? decodeHtmlEntities(selectedResourceBody).trim() : '';
+  const selectedResourceBodyHasHtml = looksLikeHtml(normalizedSelectedResourceBody);
+  const parsedAssessmentQuestionsFromContent = useMemo(
+    () => parseAssessmentQuestionsFromContentBody(selectedResourceBody || ''),
+    [selectedResourceBody]
+  );
+  const effectiveDetailAssessmentQuestions = detailAssessmentQuestionsFromApi.length > 0
+    ? detailAssessmentQuestionsFromApi
+    : parsedAssessmentQuestionsFromContent;
+  const openResponseDetailAssessmentQuestions = useMemo(
+    () => effectiveDetailAssessmentQuestions.filter((question) => question.kind === 'open-response'),
+    [effectiveDetailAssessmentQuestions]
+  );
+  const objectiveDetailAssessmentQuestions = useMemo(
+    () => effectiveDetailAssessmentQuestions.filter((question) => question.kind !== 'open-response'),
+    [effectiveDetailAssessmentQuestions]
+  );
+  const hasDetailAssessmentSelection = Boolean(detailState && selectedDetailItem);
+  const selectedPracticeItem = selectedDetailItem?.kind === 'practice' ? selectedDetailItem.practice : null;
+  const selectedAssessmentId =
+    selectedDetailItem?.kind === 'assessment' ? selectedDetailItem.assessment?.id || null : null;
+  const detailAssessmentQuestionContext = useMemo(
+    () => openResponseDetailAssessmentQuestions
+      .map((question, index) => `${index + 1}. ${question.prompt}`)
+      .join('\n'),
+    [openResponseDetailAssessmentQuestions]
+  );
+  const detailAssessmentOpenResponseText = useMemo(
+    () => {
+      const response = detailAssessmentCombinedResponse.trim();
+      if (!response) return '';
+      if (!detailAssessmentQuestionContext) return response;
+      return `Questions:\n${detailAssessmentQuestionContext}\n\nStudent response:\n${response}`;
+    },
+    [detailAssessmentCombinedResponse, detailAssessmentQuestionContext]
+  );
+  const detailAssessmentOpenResponseCharCount = detailAssessmentCombinedResponse.trim().length;
+  const canAssessDetailAssessment =
+    detailAssessmentOpenResponseText.trim().length > 0 || Boolean(detailAssessmentImageFile);
+
+  useEffect(() => {
+    setDetailAssessmentQuestionsFromApi([]);
+    setDetailAssessmentQuestionsLoading(false);
+    setDetailAssessmentCombinedResponse('');
+    setDetailAssessmentSelectedOptions({});
+    setDetailAssessmentImageFile(null);
+    setDetailAssessmentFeedback(null);
+    setDetailAssessmentError(null);
+    setIsDetailAssessmentAssessing(false);
+  }, [selectedDetailItem?.id]);
+
+  useEffect(() => {
+    if (!hasDetailAssessmentSelection) {
+      setIsDetailCardTransitionLoading(false);
+      return;
+    }
+    setIsDetailCardTransitionLoading(true);
+    if (detailCardLoadingTimeoutRef.current) {
+      window.clearTimeout(detailCardLoadingTimeoutRef.current);
+    }
+    detailCardLoadingTimeoutRef.current = window.setTimeout(() => {
+      setIsDetailCardTransitionLoading(false);
+      detailCardLoadingTimeoutRef.current = null;
+    }, 180);
+  }, [hasDetailAssessmentSelection, detailState?.contentItemId, selectedDetailItem?.id]);
+
+  useEffect(() => {
+    const loadSelectedResourceBody = async () => {
+      if (!selectedDetailResourceId) return;
+      if (resourceBodyById[selectedDetailResourceId] !== undefined) return;
+      if (resourceBodyLoadingById[selectedDetailResourceId]) return;
+
+      try {
+        setResourceBodyLoadingById((previous) => ({ ...previous, [selectedDetailResourceId]: true }));
+        setResourceBodyErrorById((previous) => {
+          if (!previous[selectedDetailResourceId]) return previous;
+          const next = { ...previous };
+          delete next[selectedDetailResourceId];
+          return next;
+        });
+        const resource = await resourceService.get(selectedDetailResourceId);
+        setResourceBodyById((previous) => ({
+          ...previous,
+          [selectedDetailResourceId]: typeof resource.contentBody === 'string' ? resource.contentBody : '',
+        }));
+      } catch (error: unknown) {
+        setResourceBodyErrorById((previous) => ({
+          ...previous,
+          [selectedDetailResourceId]: getErrorMessage(error, 'Failed to load content.'),
+        }));
+      } finally {
+        setResourceBodyLoadingById((previous) => ({ ...previous, [selectedDetailResourceId]: false }));
+      }
+    };
+
+    void loadSelectedResourceBody();
+  }, [selectedDetailResourceId, resourceBodyById, resourceBodyLoadingById]);
+
+  useEffect(() => {
+    const loadDetailPracticeSession = async () => {
+      if (!activeSubject || !detailTopic || !selectedPracticeItem) {
+        setDetailPracticeSession(null);
+        setDetailPracticeLoading(false);
+        setDetailPracticeError(null);
+        return;
+      }
+
+      const requestedQuestionCount = Math.max(
+        0,
+        Math.min(40, Number(selectedPracticeItem.questionCount || detailTopic.questionCount || 0))
+      );
+      if (requestedQuestionCount <= 0) {
+        setDetailPracticeSession(null);
+        setDetailPracticeLoading(false);
+        setDetailPracticeError('No published questions are available for this practice session.');
+        return;
+      }
+
+      try {
+        setDetailPracticeLoading(true);
+        setDetailPracticeError(null);
+        const session = await studentService.startPracticeSession(studentId, activeSubject.id, {
+          topicId: detailTopic.id,
+          questionCount: requestedQuestionCount,
+          mode: 'topic_practice',
+          title: selectedPracticeItem.title,
+        });
+        setDetailPracticeSession(session);
+      } catch (error: unknown) {
+        setDetailPracticeSession(null);
+        setDetailPracticeError(getErrorMessage(error, 'Failed to start practice session.'));
+      } finally {
+        setDetailPracticeLoading(false);
+      }
+    };
+
+    void loadDetailPracticeSession();
+  }, [
+    studentId,
+    activeSubject,
+    detailTopic,
+    selectedPracticeItem,
+  ]);
+
+  useEffect(() => {
+    const loadAssessmentQuestions = async () => {
+      if (!selectedAssessmentId) {
+        setDetailAssessmentQuestionsFromApi([]);
+        setDetailAssessmentQuestionsLoading(false);
+        return;
+      }
+
+      try {
+        setDetailAssessmentQuestionsLoading(true);
+        const response = await assessmentService.getAssessmentWithQuestions(selectedAssessmentId) as unknown;
+        const responseWithQuestions = response as AssessmentWithQuestionsResponsePayload;
+        const rawQuestions: AssessmentQuestionApiPayload[] = Array.isArray(responseWithQuestions?.questions)
+          ? responseWithQuestions.questions
+          : Array.isArray(response)
+            ? response as AssessmentQuestionApiPayload[]
+            : [];
+        const mappedQuestions = rawQuestions
+          .map((question, index) => mapDetailAssessmentQuestionFromApi(question, index))
+          .filter((question: DetailAssessmentQuestion) => question.prompt.trim().length > 0);
+        setDetailAssessmentQuestionsFromApi(mappedQuestions);
+      } catch {
+        setDetailAssessmentQuestionsFromApi([]);
+      } finally {
+        setDetailAssessmentQuestionsLoading(false);
+      }
+    };
+
+    void loadAssessmentQuestions();
+  }, [selectedAssessmentId]);
+
+  const toggleDetailAssessmentOption = (question: DetailAssessmentQuestion, option: string) => {
+    if (question.kind === 'open-response') return;
+
+    setDetailAssessmentSelectedOptions((previous) => {
+      const current = previous[question.id] || [];
+      if (question.kind === 'single-choice') {
+        return { ...previous, [question.id]: [option] };
+      }
+      const alreadySelected = current.includes(option);
+      const nextSelection = alreadySelected
+        ? current.filter((selected) => selected !== option)
+        : [...current, option];
+      return { ...previous, [question.id]: nextSelection };
+    });
+  };
+
+  const assessDetailAssessmentAttemptWithAi = async (
+    responseText?: string,
+    imageFile?: File | null
+  ): Promise<string> => {
+    const normalizedText = (responseText || '').trim();
+    const candidateImage = imageFile || null;
+    if (!normalizedText && !candidateImage) {
+      throw new Error('Enter a response or upload an image before requesting AI feedback.');
+    }
+
+    const moduleName = selectedDetailItem?.title?.trim()
+      || detailTopic?.title?.trim()
+      || activeSubject?.name?.trim()
+      || 'Practice task';
+    const assessmentResult = candidateImage
+      ? await externalAssessmentService.assessDocument(candidateImage, moduleName)
+      : await externalAssessmentService.assessText(normalizedText, moduleName);
+
+    if (!assessmentResult.success || !assessmentResult.data?.assessment) {
+      throw new Error(assessmentResult.error || assessmentResult.message || 'AI assessment is unavailable right now.');
+    }
+
+    const assessment = assessmentResult.data.assessment;
+    const safePercentage = Number.isFinite(Number(assessment.marks_percentage))
+      ? Math.max(0, Math.min(100, Number(assessment.marks_percentage)))
+      : null;
+    const marksAchieved = Number.isFinite(Number(assessment.marks_achieved))
+      ? Number(assessment.marks_achieved)
+      : null;
+    const totalPossibleMarks = Number.isFinite(Number(assessment.total_possible_marks))
+      ? Number(assessment.total_possible_marks)
+      : null;
+
+    const summaryParts: string[] = [];
+    if (safePercentage !== null) {
+      if (marksAchieved !== null && totalPossibleMarks !== null) {
+        summaryParts.push(`AI score: ${Math.round(safePercentage)}% (${marksAchieved}/${totalPossibleMarks}).`);
+      } else {
+        summaryParts.push(`AI score: ${Math.round(safePercentage)}%.`);
+      }
+    }
+    if (assessment.overall_feedback) {
+      summaryParts.push(assessment.overall_feedback);
+    }
+    if (assessment.strengths?.length) {
+      summaryParts.push(`Strengths: ${assessment.strengths.slice(0, 2).join('; ')}.`);
+    }
+    if (assessment.improvements?.length) {
+      summaryParts.push(`Next steps: ${assessment.improvements.slice(0, 2).join('; ')}.`);
+    }
+    return summaryParts.join(' ').trim() || 'AI feedback generated.';
+  };
+
+  const handleDetailAssessmentAssess = async () => {
+    if (isDetailAssessmentAssessing || !canAssessDetailAssessment) return;
+    try {
+      setIsDetailAssessmentAssessing(true);
+      setDetailAssessmentError(null);
+      const feedback = await assessDetailAssessmentAttemptWithAi(detailAssessmentOpenResponseText, detailAssessmentImageFile);
+      setDetailAssessmentFeedback(feedback);
+    } catch (error: unknown) {
+      setDetailAssessmentFeedback(null);
+      setDetailAssessmentError(getErrorMessage(error, 'Unable to assess your response right now.'));
+    } finally {
+      setIsDetailAssessmentAssessing(false);
+    }
+  };
 
   if (!activeSubject) {
     return (
@@ -1116,7 +1622,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
     );
   }
 
-  if (isCurriculumLoading && units.length === 0) {
+  if (isCurriculumLoading) {
     return (
       <div className="bg-white rounded-xl overflow-hidden">
         <div className="grid grid-cols-1 xl:grid-cols-[320px_minmax(0,1fr)]">
@@ -1271,7 +1777,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                             {item.kind === 'practice'
                               ? `${practiceStatus || 'not-started'} • quiz`
                               : item.kind === 'assessment'
-                                ? `${item.assessment?.status || 'published'} • assessment`
+                                ? `${item.assessment?.status || 'published'} • practice`
                                 : `${item.resource?.type || 'notes'} • learn`}
                           </p>
                         </div>
@@ -1282,56 +1788,248 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
               </div>
             </aside>
 
-            <section className={`min-w-0 rounded-none border border-slate-200 bg-white overflow-hidden xl:will-change-[margin] xl:transition-[margin] xl:duration-300 xl:ease-in-out ${contentDesktopOffset} ${
-              isUnitChallengeActive || isDetailPracticeView ? 'min-h-[calc(100vh-var(--student-header-offset)-1.5rem)]' : ''
-            }`}>
+            <section className={`min-w-0 rounded-none border border-slate-200 bg-white overflow-hidden xl:will-change-[margin] xl:transition-[margin] xl:duration-300 xl:ease-in-out ${contentDesktopOffset} flex flex-col min-h-[calc(100vh-var(--student-header-offset)-1.5rem)]`}>
               <header className="px-6 py-5 border-b border-slate-200">
                 <h1 className="text-3xl font-bold text-slate-900">{selectedDetailItem.title}</h1>
                 <p className="text-sm text-slate-500 mt-1">{detailUnit.code}: {detailTopic.title}</p>
               </header>
 
-              <div className={isDetailPracticeView ? 'p-0' : 'p-6 pb-28 space-y-6'}>
-                {selectedDetailItem.kind === 'practice' && selectedDetailItem.practice ? (
-                  <StudentPracticeRunner
-                    key={`${detailTopic.id}-${selectedDetailItem.practice.id}`}
-                    title={selectedDetailItem.practice.title}
-                    subtitle="Practice questions run on a dedicated screen and are answered one by one."
-                    questions={buildMockPracticeQuestions(`${activeSubject.name} ${selectedDetailItem.practice.title}`, 'quiz')}
-                    contentWrapperClassName="px-6 py-6 pb-8 space-y-6 md:pb-12"
-                    fixedFooterStyle={{
-                      left: 'var(--subjects-footer-left)',
-                      right: 'var(--subjects-footer-right)',
-                      bottom: '0.75rem',
-                    }}
-                    onComplete={() =>
-                      setPracticeStatusOverrides((previous) => ({
-                        ...previous,
-                        [selectedDetailItem.practice!.id]: 'mastered',
-                      }))
-                    }
-                  />
+              <div className={isDetailPracticeView ? 'p-0' : 'flex-1 min-h-0 overflow-y-auto p-6 pb-32 xl:pb-36 space-y-6'}>
+                {isDetailCardTransitionLoading ? (
+                  <div className={isDetailPracticeView ? 'px-6 py-6 pb-8 space-y-4 animate-pulse' : 'space-y-6 animate-pulse'}>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="h-6 w-24 rounded-md bg-slate-200" />
+                      <div className="h-4 w-28 rounded-md bg-slate-200" />
+                    </div>
+                    <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-3">
+                      <div className="h-5 w-2/3 rounded-md bg-slate-200" />
+                      <div className="h-4 w-full rounded-md bg-slate-200" />
+                      <div className="h-4 w-5/6 rounded-md bg-slate-200" />
+                      <div className="h-32 w-full rounded-md bg-slate-200" />
+                    </div>
+                  </div>
+                ) : selectedDetailItem.kind === 'practice' && selectedDetailItem.practice ? (
+                  detailPracticeLoading ? (
+                    <div className="px-6 py-6 pb-8">
+                      <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-3 animate-pulse">
+                        <div className="h-5 w-44 rounded-md bg-slate-200" />
+                        <div className="h-4 w-3/4 rounded-md bg-slate-200" />
+                        <div className="h-24 w-full rounded-md bg-slate-200" />
+                        <div className="h-10 w-36 rounded-md bg-slate-200" />
+                      </div>
+                    </div>
+                  ) : detailPracticeError ? (
+                    <div className="px-6 py-6 pb-8">
+                      <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+                        {detailPracticeError}
+                      </div>
+                    </div>
+                  ) : detailPracticeSession && detailPracticeQuestions.length > 0 ? (
+                    <StudentPracticeRunner
+                      key={detailPracticeSession.sessionId}
+                      title={selectedDetailItem.practice.title}
+                      subtitle="Practice questions run on a dedicated screen and are answered one by one."
+                      questions={detailPracticeQuestions}
+                      contentWrapperClassName="px-6 py-6 pb-8 space-y-6 md:pb-12"
+                      fixedFooterStyle={{
+                        left: 'var(--subjects-footer-left)',
+                        right: 'var(--subjects-footer-right)',
+                        bottom: '0.75rem',
+                      }}
+                      onSubmitAnswer={async ({ question, studentAnswerText, selectedOptions, skipped }) => {
+                        const result = await studentService.submitPracticeAnswer(studentId, detailPracticeSession.sessionId, {
+                          assessmentQuestionId: question.id,
+                          studentAnswerText,
+                          selectedOptions,
+                          skipped,
+                        });
+                        return {
+                          correct: result.correct,
+                          skipped: result.skipped,
+                          completed: result.completed,
+                          feedback: result.feedback || null,
+                        };
+                      }}
+                      onCompleteSession={async () => {
+                        await studentService.completePracticeSession(studentId, detailPracticeSession.sessionId);
+                      }}
+                      onComplete={async () => {
+                        setPracticeStatusOverrides((previous) => ({
+                          ...previous,
+                          [selectedDetailItem.practice!.id]: 'mastered',
+                        }));
+                      }}
+                    />
+                  ) : (
+                    <div className="px-6 py-6 pb-8">
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
+                        No practice questions are available for this topic yet.
+                      </div>
+                    </div>
+                  )
                 ) : selectedDetailItem.kind === 'assessment' && selectedDetailItem.assessment ? (
                   <section className="space-y-6 max-w-4xl">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-md bg-amber-100 text-amber-700">
                         <FileText className="w-4 h-4" />
-                        Assessment
+                        Practice
                       </span>
                       <span className="text-xs text-slate-500 capitalize">
                         Status: {selectedDetailItem.assessment.status || 'published'}
                       </span>
                     </div>
-                    <p className="text-lg text-slate-800">
-                      This assessment was published by your teacher for this topic.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => navigate('/student/assessments')}
-                      className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
-                    >
-                      <ExternalLink className="w-4 h-4" />
-                      Open Assessments
-                    </button>
+
+                    {(selectedResourceBodyLoading && effectiveDetailAssessmentQuestions.length === 0)
+                    || (detailAssessmentQuestionsLoading && effectiveDetailAssessmentQuestions.length === 0) ? (
+                      <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-3 animate-pulse">
+                        <div className="h-5 w-2/5 rounded-md bg-slate-200" />
+                        <div className="h-4 w-full rounded-md bg-slate-200" />
+                        <div className="h-4 w-11/12 rounded-md bg-slate-200" />
+                        <div className="h-4 w-4/5 rounded-md bg-slate-200" />
+                        <div className="h-4 w-10/12 rounded-md bg-slate-200" />
+                      </div>
+                    ) : selectedResourceBodyError ? (
+                      <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+                        {selectedResourceBodyError}
+                      </div>
+                    ) : effectiveDetailAssessmentQuestions.length > 0 ? (
+                      <div className="space-y-3">
+                        {openResponseDetailAssessmentQuestions.length > 0 && (
+                          <article className="rounded-lg bg-white p-4 space-y-3">
+                            {openResponseDetailAssessmentQuestions.map((question, index) => (
+                              <div key={question.id} className="space-y-1">
+                                <p className="text-sm font-semibold text-slate-800">
+                                  Question {index + 1}
+                                  {question.marks ? ` (${question.marks} marks)` : ''}
+                                </p>
+                                <p className="text-sm text-slate-800 leading-relaxed">{question.prompt}</p>
+                              </div>
+                            ))}
+                          </article>
+                        )}
+
+                        {objectiveDetailAssessmentQuestions.map((question, index) => {
+                          const selectedOptions = detailAssessmentSelectedOptions[question.id] || [];
+                          return (
+                            <article
+                              key={`${selectedDetailItem.assessment?.id || 'assessment'}-${question.id}-${index}`}
+                              className="rounded-lg border border-slate-200 bg-white p-4 space-y-3"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-sm font-semibold text-slate-800">
+                                  Question {index + 1}
+                                  {question.marks ? ` (${question.marks} marks)` : ''}
+                                </p>
+                                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                                  {question.kind === 'multiple-choice'
+                                      ? 'Multiple choice'
+                                      : 'Choose one'}
+                                </span>
+                              </div>
+                              <p className="text-sm text-slate-800 leading-relaxed">{question.prompt}</p>
+                              <div className="space-y-2">
+                                {question.options.map((option) => {
+                                  const isSelected = selectedOptions.includes(option);
+                                  return (
+                                    <button
+                                      key={`${question.id}-${option}`}
+                                      type="button"
+                                      onClick={() => toggleDetailAssessmentOption(question, option)}
+                                      className={`w-full rounded-md border px-3 py-2 text-left text-sm transition ${
+                                        isSelected
+                                          ? 'border-blue-300 bg-blue-50 text-blue-700'
+                                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                                      }`}
+                                    >
+                                      {option}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </article>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
+                        No published questions are available for this practice yet.
+                      </div>
+                    )}
+
+                    {openResponseDetailAssessmentQuestions.length > 0 && (
+                      <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-4">
+                        <div>
+                          <textarea
+                            id={`detail-assessment-answer-${selectedDetailItem.assessment.id}`}
+                            rows={8}
+                            value={detailAssessmentCombinedResponse}
+                            onChange={(event) => {
+                              setDetailAssessmentCombinedResponse(event.target.value);
+                              if (detailAssessmentError) setDetailAssessmentError(null);
+                              if (detailAssessmentFeedback) setDetailAssessmentFeedback(null);
+                            }}
+                            placeholder="Write your full response covering the questions above..."
+                            className="w-full resize-y rounded-lg border border-slate-300 bg-white px-4 py-3 text-base text-slate-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                          <label className="inline-flex cursor-pointer items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(event) => {
+                                const file = event.target.files?.[0] || null;
+                                setDetailAssessmentImageFile(file);
+                                if (detailAssessmentError) setDetailAssessmentError(null);
+                                if (detailAssessmentFeedback) setDetailAssessmentFeedback(null);
+                                event.currentTarget.value = '';
+                              }}
+                            />
+                            {detailAssessmentImageFile
+                              ? `Image attached: ${detailAssessmentImageFile.name}`
+                              : 'Upload answer image (optional)'}
+                          </label>
+                          {detailAssessmentImageFile && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDetailAssessmentImageFile(null);
+                                if (detailAssessmentFeedback) setDetailAssessmentFeedback(null);
+                              }}
+                              className="inline-flex items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                            >
+                              Remove image
+                            </button>
+                          )}
+                        </div>
+
+                        {detailAssessmentError && (
+                          <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                            {detailAssessmentError}
+                          </div>
+                        )}
+
+                        {detailAssessmentFeedback && (
+                          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                            {detailAssessmentFeedback}
+                          </div>
+                        )}
+
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-xs text-slate-500">{detailAssessmentOpenResponseCharCount} chars</span>
+                          <button
+                            type="button"
+                            onClick={() => void handleDetailAssessmentAssess()}
+                            disabled={isDetailAssessmentAssessing || !canAssessDetailAssessment}
+                            className="inline-flex items-center rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {isDetailAssessmentAssessing ? 'Assessing...' : 'Get AI feedback'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </section>
                 ) : (
                   <section className="space-y-6">
@@ -1352,32 +2050,34 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                       </div>
                     )}
 
-                    <div className="space-y-4 max-w-4xl">
-                      <h3 className="text-2xl font-semibold text-slate-900">What you will learn</h3>
-                      <p className="text-lg text-slate-800">
-                        This section explains <span className="font-semibold">{detailTopic.title.toLowerCase()}</span> and how it connects to unit mastery.
-                      </p>
-                      <p className="text-lg text-slate-800">
-                        Work through the explanations first, then move to practice for one-by-one question attempts.
-                      </p>
-                    </div>
-
-                    <div className="border-t border-slate-200 pt-4">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Related content</p>
-                      <div className="mt-2 space-y-2">
-                        {[...detailTopic.learn, ...detailTopic.practiceMaterials].map((resource) => (
-                          <button
-                            key={resource.id}
-                            type="button"
-                            onClick={() => setDetailState((previous) => (previous ? { ...previous, contentItemId: `learn-${resource.id}` } : previous))}
-                            className="w-full text-left rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50 flex items-center justify-between gap-2"
-                          >
-                            <span className="truncate">{resource.title}</span>
-                            <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
-                          </button>
-                        ))}
+                    {selectedResourceBodyLoading ? (
+                      <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-3 animate-pulse">
+                        <div className="h-5 w-1/3 rounded-md bg-slate-200" />
+                        <div className="h-4 w-full rounded-md bg-slate-200" />
+                        <div className="h-4 w-11/12 rounded-md bg-slate-200" />
+                        <div className="h-4 w-4/5 rounded-md bg-slate-200" />
+                        <div className="h-4 w-10/12 rounded-md bg-slate-200" />
                       </div>
-                    </div>
+                    ) : selectedResourceBodyError ? (
+                      <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
+                        {selectedResourceBodyError}
+                      </div>
+                    ) : normalizedSelectedResourceBody ? (
+                      selectedResourceBodyHasHtml ? (
+                        <article
+                          className="rounded-lg bg-white p-5 text-slate-800 leading-relaxed space-y-3 [&_h1]:text-2xl [&_h1]:font-semibold [&_h2]:text-xl [&_h2]:font-semibold [&_h3]:text-lg [&_h3]:font-semibold [&_p]:mb-3 [&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6"
+                          dangerouslySetInnerHTML={{ __html: normalizedSelectedResourceBody }}
+                        />
+                      ) : (
+                        <article className="rounded-lg bg-white p-5 text-slate-800 leading-relaxed whitespace-pre-wrap">
+                          {normalizedSelectedResourceBody}
+                        </article>
+                      )
+                    ) : (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
+                        No published content body is available for this resource yet.
+                      </div>
+                    )}
                   </section>
                 )}
               </div>
@@ -1387,13 +2087,13 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
           {selectedDetailItem.kind !== 'practice' && (
             <>
               <div
-                className="hidden xl:block fixed bottom-3 z-30"
+                className="hidden xl:block fixed bottom-0 z-30"
                 style={{
-                  left: 'var(--subjects-footer-left)',
-                  right: 'var(--subjects-footer-right)',
+                  left: 'calc(var(--subjects-footer-left) - 1px)',
+                  right: 'calc(var(--subjects-footer-right) - 1px)',
                 }}
               >
-                <footer className="box-border border-t border-l border-r border-slate-200 bg-white px-6 py-4">
+                <footer className="box-border border border-b-0 border-slate-200 bg-white px-6 py-4 shadow-[0_-8px_16px_-12px_rgba(15,23,42,0.35)]">
                   <div className="flex justify-end">
                     <button
                       type="button"
@@ -1456,15 +2156,12 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                       className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-blue-700"
                     >
                       <ArrowLeft className="w-3.5 h-3.5" />
-                      Back to unit page
+                      Back to topic page
                     </button>
 
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
-                        <Sparkles className="w-5 h-5" />
-                      </div>
                       <div className="min-w-0">
-                        <h2 className="text-xl font-bold text-slate-900 truncate">Unit test</h2>
+                        <h2 className="text-xl font-bold text-slate-900 truncate">Topic test</h2>
                         <p className="text-xs text-slate-500 mt-0.5 truncate">{selectedUnit.code}: {selectedUnit.title}</p>
                       </div>
                     </div>
@@ -1481,7 +2178,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                       >
                         <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">Step 1</p>
                         <p className="text-sm font-semibold text-slate-800">Generate challenge</p>
-                        <p className="text-xs text-slate-500">Set question count and prompt AI.</p>
+                        <p className="text-xs text-slate-500">Choose question count and prepare challenge.</p>
                       </button>
                       <button
                         type="button"
@@ -1518,9 +2215,6 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                     </button>
 
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
-                        <Sparkles className="w-5 h-5" />
-                      </div>
                       <div className="min-w-0">
                         <h2 className="text-xl font-bold text-slate-900 truncate">Subject challenge</h2>
                         <p className="text-xs text-slate-500 mt-0.5 truncate">{activeSubject.name}</p>
@@ -1539,7 +2233,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                       >
                         <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">Step 1</p>
                         <p className="text-sm font-semibold text-slate-800">Generate challenge</p>
-                        <p className="text-xs text-slate-500">Set question count and prompt AI.</p>
+                        <p className="text-xs text-slate-500">Choose question count and prepare challenge.</p>
                       </button>
                       <button
                         type="button"
@@ -1626,8 +2320,10 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
 
             </aside>
 
-            <section className={`min-w-0 rounded-none border border-slate-200 bg-white overflow-hidden xl:will-change-[margin] xl:transition-[margin] xl:duration-300 xl:ease-in-out ${contentDesktopOffset} ${
-              isUnitChallengeActive || isSubjectChallengeActive ? 'min-h-[calc(100vh-var(--student-header-offset)-1.5rem)]' : ''
+            <section className={`min-w-0 rounded-none border border-slate-200 bg-white overflow-hidden xl:will-change-[margin] xl:transition-[margin] xl:duration-300 xl:ease-in-out ${contentDesktopOffset} flex flex-col ${
+              isUnitChallengeActive || isSubjectChallengeActive || !isSubjectOverviewActive
+                ? 'min-h-[calc(100vh-var(--student-header-offset)-1.5rem)]'
+                : ''
             }`}>
               {!isUnitChallengeActive && !isSubjectChallengeActive && !isSubjectOverviewActive && (
                 <header className="px-6 py-5 border-b border-slate-200">
@@ -1650,7 +2346,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                 activeSubjectChallengeStep === 1 && !isSubjectChallengeRunning ? (
                   <div className="p-6 pb-24 space-y-4">
                     <div className="rounded-md border border-slate-200 bg-white p-3 space-y-3">
-                      <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">AI challenge builder</p>
+                      <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">Challenge builder</p>
                       <div>
                         <label className="text-xs font-semibold text-slate-600">Questions</label>
                         <input
@@ -1672,7 +2368,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                         disabled={selectedSubjectChallengeConfig.isGenerating || !isSubjectChallengeEligible}
                         className="w-full rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-400"
                       >
-                        {selectedSubjectChallengeConfig.isGenerating ? 'Generating...' : 'Generate with AI'}
+                        {selectedSubjectChallengeConfig.isGenerating ? 'Preparing...' : 'Prepare challenge'}
                       </button>
                       {!isSubjectChallengeEligible && (
                         <p className="text-xs text-amber-700">
@@ -1682,7 +2378,6 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                       {selectedSubjectChallengeConfig.questions.length > 0 && (
                         <p className="text-xs text-emerald-700">
                           {selectedSubjectChallengeConfig.questions.length} questions ready.
-                          {selectedSubjectChallengeConfig.generatedWithAi ? ' Generated by AI.' : ' Generated locally.'}
                         </p>
                       )}
                       {selectedSubjectChallengeConfig.error && (
@@ -1703,6 +2398,29 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                           right: 'var(--subjects-footer-right)',
                           bottom: '0.75rem',
                         }}
+                        onSubmitAnswer={async ({ question, studentAnswerText, selectedOptions, skipped }) => {
+                          const sessionId = selectedSubjectChallengeConfig.sessionId;
+                          if (!sessionId) {
+                            throw new Error('Challenge session is unavailable.');
+                          }
+                          const result = await studentService.submitPracticeAnswer(studentId, sessionId, {
+                            assessmentQuestionId: question.id,
+                            studentAnswerText,
+                            selectedOptions,
+                            skipped,
+                          });
+                          return {
+                            correct: result.correct,
+                            skipped: result.skipped,
+                            completed: result.completed,
+                            feedback: result.feedback || null,
+                          };
+                        }}
+                        onCompleteSession={async () => {
+                          const sessionId = selectedSubjectChallengeConfig.sessionId;
+                          if (!sessionId) return;
+                          await studentService.completePracticeSession(studentId, sessionId);
+                        }}
                         onComplete={completeSubjectChallenge}
                       />
                     ) : (
@@ -1714,8 +2432,8 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                             {!isSubjectChallengeEligible
                               ? `${subjectChallengeBlockedReason}`
                               : selectedSubjectChallengeConfig.questions.length > 0
-                              ? `Your AI challenge is ready. Test your skills across all units and topics in ${activeSubject.name}.`
-                              : `Return to Step 1 and generate questions first.`}
+                              ? `Your challenge is ready. Test your skills across all topics in ${activeSubject.name}.`
+                              : `Return to Step 1 and prepare questions first.`}
                           </p>
                           <p className="mt-4 text-xl font-semibold">
                             {subjectChallengeQuestionTotal} questions • {subjectChallengeEstimatedMinutes}-{subjectChallengeEstimatedMinutes + 5} minutes
@@ -1731,7 +2449,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                     <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Subject overview</p>
                     <h1 className="mt-2 text-3xl font-bold text-slate-900">{activeSubject.name}</h1>
                     <p className="mt-2 text-sm text-slate-600">
-                      Browse all units and topics. Click a unit for the in-depth unit page or click a topic to jump directly into it.
+                      Browse all topics. Click a topic for the in-depth topic page and jump directly into activities.
                     </p>
                   </section>
 
@@ -1754,7 +2472,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                           </button>
                           <span className="inline-flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-700">
                             <Target className="h-3.5 w-3.5" />
-                            Unit mastery: {unit.masteryPercent}%
+                            Topic mastery: {unit.masteryPercent}%
                           </span>
                         </div>
 
@@ -1776,8 +2494,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                   })}
 
                   <section className="rounded-lg border border-slate-200 bg-slate-50 p-5">
-                    <div className="flex items-center gap-2 text-slate-700 font-semibold">
-                      <Sparkles className="w-4 h-4" />
+                    <div className="flex items-center text-slate-700 font-semibold">
                       Subject challenge
                     </div>
                     <p className="text-sm text-slate-600 mt-2">Take one challenge that spans all units in this subject.</p>
@@ -1796,12 +2513,12 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                   </section>
                 </div>
               ) : (
-                <div className={isUnitChallengeActive ? (isUnitChallengeRunning ? '' : 'p-6 pb-24') : 'p-6 pb-28 space-y-4'}>
+                <div className={isUnitChallengeActive ? (isUnitChallengeRunning ? '' : 'flex-1 p-6 pb-24') : 'flex-1 p-6 pb-28 flex flex-col gap-4'}>
                   {isUnitChallengeActive ? (
                     activeUnitChallengeStep === 1 && !isUnitChallengeRunning ? (
                       <div className="space-y-4">
                         <div className="rounded-md border border-slate-200 bg-white p-3 space-y-3">
-                          <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">AI challenge builder</p>
+                          <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">Challenge builder</p>
                           <div>
                             <label className="text-xs font-semibold text-slate-600">Questions</label>
                             <input
@@ -1823,12 +2540,11 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                             disabled={selectedUnitChallengeConfig.isGenerating}
                             className="w-full rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-400"
                           >
-                            {selectedUnitChallengeConfig.isGenerating ? 'Generating...' : 'Generate with AI'}
+                            {selectedUnitChallengeConfig.isGenerating ? 'Preparing...' : 'Prepare challenge'}
                           </button>
                           {selectedUnitChallengeConfig.questions.length > 0 && (
                             <p className="text-xs text-emerald-700">
                               {selectedUnitChallengeConfig.questions.length} questions ready.
-                              {selectedUnitChallengeConfig.generatedWithAi ? ' Generated by AI.' : ' Generated locally.'}
                             </p>
                           )}
                           {selectedUnitChallengeConfig.error && (
@@ -1839,7 +2555,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                     ) : activeUnitChallenge?.stage === 'running' ? (
                       <StudentPracticeRunner
                         title={`${selectedUnit.code}: ${selectedUnit.title}`}
-                        subtitle="Unit challenge"
+                        subtitle="Topic challenge"
                         questions={selectedUnitChallengeConfig.questions}
                         contentWrapperClassName="px-6 py-6 pb-8 space-y-6 md:pb-12"
                         fixedFooterStyle={{
@@ -1847,17 +2563,40 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                           right: 'var(--subjects-footer-right)',
                           bottom: '0.75rem',
                         }}
+                        onSubmitAnswer={async ({ question, studentAnswerText, selectedOptions, skipped }) => {
+                          const sessionId = selectedUnitChallengeConfig.sessionId;
+                          if (!sessionId) {
+                            throw new Error('Challenge session is unavailable.');
+                          }
+                          const result = await studentService.submitPracticeAnswer(studentId, sessionId, {
+                            assessmentQuestionId: question.id,
+                            studentAnswerText,
+                            selectedOptions,
+                            skipped,
+                          });
+                          return {
+                            correct: result.correct,
+                            skipped: result.skipped,
+                            completed: result.completed,
+                            feedback: result.feedback || null,
+                          };
+                        }}
+                        onCompleteSession={async () => {
+                          const sessionId = selectedUnitChallengeConfig.sessionId;
+                          if (!sessionId) return;
+                          await studentService.completePracticeSession(studentId, sessionId);
+                        }}
                         onComplete={completeUnitChallenge}
                       />
                     ) : (
                       <section className="overflow-hidden rounded-lg border border-slate-200">
                         <div className="bg-slate-900 px-6 py-10 text-center text-white">
                           <p className="text-xs uppercase tracking-[0.2em] text-blue-200">Step 2 of 2</p>
-                          <h3 className="mt-3 text-4xl font-bold">Attempt unit challenge</h3>
+                          <h3 className="mt-3 text-4xl font-bold">Attempt topic challenge</h3>
                           <p className="mt-3 text-lg text-blue-100">
                             {selectedUnitChallengeConfig.questions.length > 0
-                              ? 'Your AI challenge is ready. Test your skills across all topics in this unit.'
-                              : 'Return to Step 1 and generate questions first.'}
+                              ? 'Your challenge is ready. Test your skills across this topic area.'
+                              : 'Return to Step 1 and prepare questions first.'}
                           </p>
                           <p className="mt-4 text-xl font-semibold">
                             {unitChallengeQuestionTotal} questions • {unitChallengeEstimatedMinutes}-{unitChallengeEstimatedMinutes + 5} minutes
@@ -1867,7 +2606,8 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                     )
                   ) : (
                     <>
-                      {selectedUnit.topics.map((topic) => {
+                      <div className="space-y-4">
+                        {selectedUnit.topics.map((topic) => {
                         const isTopicCollapsed = Boolean(collapsedTopicIds[topic.id]);
                         const isCriticalTopic =
                           hasTopicBeenAttempted(topic) && topic.masteryPercent < CRITICAL_TOPIC_MASTERY_THRESHOLD;
@@ -1891,7 +2631,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                             <div className="flex items-center gap-2">
                               {isCriticalTopic && (
                                 <span className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-md border border-red-200 bg-red-100 text-red-700">
-                                  Critical unit
+                                  Critical topic
                                 </span>
                               )}
                               <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-md bg-slate-100 text-slate-700">
@@ -1910,7 +2650,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                           </div>
 
                           {!isTopicCollapsed && (
-                          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                             <div>
                               <p className="text-sm font-semibold text-slate-700 mb-2">Learn</p>
                               <div className="space-y-2">
@@ -1952,13 +2692,19 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                                     <span className="text-xs text-slate-400 shrink-0">teacher material</span>
                                   </button>
                                 ))}
-                                {topic.practice.map((practice) => (
+                                {topic.practice.map((practice) => {
+                                  const practiceStatus = getPracticeStatus(practice);
+                                  const isPracticeAvailable = practice.questionCount > 0;
+                                  return (
                                   <div key={practice.id} className="rounded-md border border-slate-200 bg-slate-50 p-3 flex items-start justify-between gap-3">
                                     <div>
                                       <button
                                         type="button"
                                         onClick={() => openPractice(selectedUnit, topic, practice)}
-                                        className="text-left text-sm font-semibold text-slate-800 hover:text-blue-700"
+                                        className={`text-left text-sm font-semibold ${
+                                          isPracticeAvailable ? 'text-slate-800 hover:text-blue-700' : 'text-slate-500 cursor-not-allowed'
+                                        }`}
+                                        disabled={!isPracticeAvailable}
                                       >
                                         {practice.title}
                                       </button>
@@ -1967,19 +2713,43 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                                     <button
                                       type="button"
                                       onClick={() => openPractice(selectedUnit, topic, practice)}
+                                      disabled={!isPracticeAvailable}
                                       className={`text-xs font-semibold px-3 py-1.5 rounded-md ${
-                                        getPracticeStatus(practice) === 'mastered'
+                                        !isPracticeAvailable
+                                          ? 'border border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed'
+                                          : practiceStatus === 'mastered'
                                           ? 'bg-emerald-100 text-emerald-700'
-                                          : getPracticeStatus(practice) === 'in-progress'
+                                          : practiceStatus === 'in-progress'
                                             ? 'bg-blue-600 text-white hover:bg-blue-700'
                                             : 'border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
                                       }`}
                                     >
-                                      {getPracticeActionLabel(getPracticeStatus(practice))}
+                                      {isPracticeAvailable ? getPracticeActionLabel(practiceStatus) : 'Unavailable'}
+                                    </button>
+                                  </div>
+                                  );
+                                })}
+                                {topic.assessments.map((assessment) => (
+                                  <div key={assessment.id} className="rounded-md border border-slate-200 bg-slate-50 p-3 flex items-start justify-between gap-3">
+                                    <div>
+                                      <button
+                                        type="button"
+                                        onClick={() => openTopicDetail(selectedUnit, topic, `assessment-${assessment.id}`)}
+                                        className="text-left text-sm font-semibold text-slate-800 hover:text-blue-700"
+                                      >
+                                        {assessment.title}
+                                      </button>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => openTopicDetail(selectedUnit, topic, `assessment-${assessment.id}`)}
+                                      className="text-xs font-semibold px-3 py-1.5 rounded-md border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                                    >
+                                      Open
                                     </button>
                                   </div>
                                 ))}
-                                {topic.practiceMaterials.length === 0 && topic.practice.length === 0 && (
+                                {topic.practiceMaterials.length === 0 && topic.practice.length === 0 && topic.assessments.length === 0 && (
                                   <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-500">
                                     No published practice items yet.
                                   </p>
@@ -1987,50 +2757,24 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                               </div>
                             </div>
 
-                            <div>
-                              <p className="text-sm font-semibold text-slate-700 mb-2">Assessments</p>
-                              <div className="space-y-2">
-                                {topic.assessments.map((assessment) => (
-                                  <button
-                                    key={assessment.id}
-                                    type="button"
-                                    onClick={() => openTopicDetail(selectedUnit, topic, `assessment-${assessment.id}`)}
-                                    className="w-full flex items-center justify-between gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
-                                  >
-                                    <span className="flex items-center gap-2 min-w-0">
-                                      <FileText className="w-4 h-4 text-slate-500 shrink-0" />
-                                      <span className="truncate">{assessment.title}</span>
-                                    </span>
-                                    <span className="text-xs text-slate-400 capitalize shrink-0">
-                                      {assessment.status || 'published'}
-                                    </span>
-                                  </button>
-                                ))}
-                                {topic.assessments.length === 0 && (
-                                  <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                                    No published assessments yet.
-                                  </p>
-                                )}
-                              </div>
-                            </div>
                           </div>
                           )}
                         </section>
                       )})}
+                      </div>
 
-                      <div className="border border-slate-200 rounded-lg p-5 bg-slate-50">
-                        <div className="flex items-center gap-2 text-slate-700 font-semibold">
-                          <Sparkles className="w-4 h-4" />
+                      <div className="xl:mt-auto border border-slate-200 rounded-lg p-5 bg-slate-50">
+                        <div className="flex items-center text-slate-700 font-semibold">
                           Topic challenge
                         </div>
-                        <p className="text-sm text-slate-600 mt-2">Test your understanding across all topics in this unit.</p>
+                        <p className="text-sm text-slate-600 mt-2">Test your understanding across this topic area.</p>
                         <button
                           type="button"
                           onClick={openUnitChallenge}
                           className="mt-3 inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white text-slate-700 px-4 py-2 text-sm font-semibold hover:bg-slate-100"
                         >
                           <ChevronRight className="w-4 h-4" />
-                          Start unit challenge
+                          Start topic challenge
                         </button>
                       </div>
                     </>
@@ -2043,13 +2787,13 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
           {!isUnitChallengeActive && !isSubjectChallengeActive && !isSubjectOverviewActive && (
             <>
               <div
-                className="hidden xl:block fixed bottom-3 z-30"
+                className="hidden xl:block fixed bottom-0 z-30"
                 style={{
-                  left: 'var(--subjects-footer-left)',
-                  right: 'var(--subjects-footer-right)',
+                  left: 'calc(var(--subjects-footer-left) - 1px)',
+                  right: 'calc(var(--subjects-footer-right) - 1px)',
                 }}
               >
-                <footer className="box-border border-t border-l border-r border-slate-200 bg-white px-6 py-4">
+                <footer className="box-border border border-b-0 border-slate-200 bg-white px-6 py-4 shadow-[0_-8px_16px_-12px_rgba(15,23,42,0.35)]">
                   <div className="flex justify-end">
                     <button
                       type="button"
@@ -2059,7 +2803,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                       disabled={!nextUnit}
                       className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
                     >
-                      {nextUnit ? `Up next: ${nextUnit.title.toLowerCase()}` : 'Unit complete'}
+                      {nextUnit ? `Up next: ${nextUnit.title.toLowerCase()}` : 'Topic complete'}
                     </button>
                   </div>
                 </footer>
@@ -2075,7 +2819,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                     disabled={!nextUnit}
                     className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
                   >
-                    {nextUnit ? `Up next: ${nextUnit.title.toLowerCase()}` : 'Unit complete'}
+                    {nextUnit ? `Up next: ${nextUnit.title.toLowerCase()}` : 'Topic complete'}
                   </button>
                 </div>
               </div>
@@ -2085,17 +2829,17 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
           {isUnitChallengeActive && !isUnitChallengeRunning && (
             <>
               <div
-                className="hidden xl:block fixed bottom-3 z-30"
+                className="hidden xl:block fixed bottom-0 z-30"
                 style={{
-                  left: 'var(--subjects-footer-left)',
-                  right: 'var(--subjects-footer-right)',
+                  left: 'calc(var(--subjects-footer-left) - 1px)',
+                  right: 'calc(var(--subjects-footer-right) - 1px)',
                 }}
               >
-                <footer className="box-border border-t border-l border-r border-slate-200 bg-white px-6 py-4">
+                <footer className="box-border border border-b-0 border-slate-200 bg-white px-6 py-4 shadow-[0_-8px_16px_-12px_rgba(15,23,42,0.35)]">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     {activeUnitChallenge?.stage === 'completed' && activeUnitChallenge.summary ? (
                       <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
-                        Unit challenge complete: {activeUnitChallenge.summary.correct}/{activeUnitChallenge.summary.total} correct.
+                        Topic challenge complete: {activeUnitChallenge.summary.correct}/{activeUnitChallenge.summary.total} correct.
                       </div>
                     ) : (
                       <div />
@@ -2107,12 +2851,12 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                         onClick={exitUnitChallenge}
                         className="inline-flex items-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                       >
-                        Back to unit
+                        Back to topic
                       </button>
                       <button
                         type="button"
                         onClick={startUnitChallenge}
-                        disabled={selectedUnitChallengeConfig.questions.length === 0 || selectedUnitChallengeConfig.isGenerating}
+                        disabled={selectedUnitChallengeConfig.questions.length === 0 || !selectedUnitChallengeConfig.sessionId || selectedUnitChallengeConfig.isGenerating}
                         className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
                       >
                         {activeUnitChallenge?.stage === 'completed' ? 'Retake challenge' : "Let's go"}
@@ -2125,7 +2869,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
               <div className="xl:hidden border-t border-slate-200 bg-white px-6 py-4">
                 {activeUnitChallenge?.stage === 'completed' && activeUnitChallenge.summary ? (
                   <div className="mb-3 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
-                    Unit challenge complete: {activeUnitChallenge.summary.correct}/{activeUnitChallenge.summary.total} correct.
+                    Topic challenge complete: {activeUnitChallenge.summary.correct}/{activeUnitChallenge.summary.total} correct.
                   </div>
                 ) : null}
 
@@ -2135,12 +2879,12 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                     onClick={exitUnitChallenge}
                     className="inline-flex items-center rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                   >
-                    Back to unit
+                    Back to topic
                   </button>
                   <button
                     type="button"
                     onClick={startUnitChallenge}
-                    disabled={selectedUnitChallengeConfig.questions.length === 0 || selectedUnitChallengeConfig.isGenerating}
+                    disabled={selectedUnitChallengeConfig.questions.length === 0 || !selectedUnitChallengeConfig.sessionId || selectedUnitChallengeConfig.isGenerating}
                     className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
                   >
                     {activeUnitChallenge?.stage === 'completed' ? 'Retake challenge' : "Let's go"}
@@ -2153,13 +2897,13 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
           {isSubjectChallengeActive && !isSubjectChallengeRunning && (
             <>
               <div
-                className="hidden xl:block fixed bottom-3 z-30"
+                className="hidden xl:block fixed bottom-0 z-30"
                 style={{
-                  left: 'var(--subjects-footer-left)',
-                  right: 'var(--subjects-footer-right)',
+                  left: 'calc(var(--subjects-footer-left) - 1px)',
+                  right: 'calc(var(--subjects-footer-right) - 1px)',
                 }}
               >
-                <footer className="box-border border-t border-l border-r border-slate-200 bg-white px-6 py-4">
+                <footer className="box-border border border-b-0 border-slate-200 bg-white px-6 py-4 shadow-[0_-8px_16px_-12px_rgba(15,23,42,0.35)]">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     {subjectChallengeState?.stage === 'completed' && subjectChallengeState.summary ? (
                       <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
@@ -2180,7 +2924,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                       <button
                         type="button"
                         onClick={startSubjectChallenge}
-                        disabled={selectedSubjectChallengeConfig.questions.length === 0 || selectedSubjectChallengeConfig.isGenerating}
+                        disabled={selectedSubjectChallengeConfig.questions.length === 0 || !selectedSubjectChallengeConfig.sessionId || selectedSubjectChallengeConfig.isGenerating}
                         className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
                       >
                         {subjectChallengeState?.stage === 'completed' ? 'Retake challenge' : "Let's go"}
@@ -2208,7 +2952,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                   <button
                     type="button"
                     onClick={startSubjectChallenge}
-                    disabled={selectedSubjectChallengeConfig.questions.length === 0 || selectedSubjectChallengeConfig.isGenerating}
+                    disabled={selectedSubjectChallengeConfig.questions.length === 0 || !selectedSubjectChallengeConfig.sessionId || selectedSubjectChallengeConfig.isGenerating}
                     className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
                   >
                     {subjectChallengeState?.stage === 'completed' ? 'Retake challenge' : "Let's go"}

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
+import { Eye, EyeOff } from 'lucide-react';
 import { authService } from '../../services/api';
 import { clearAuthSessionStorage } from '../../services/authSession';
 
@@ -19,6 +20,7 @@ interface LoginProps {
 const Login: React.FC<LoginProps> = ({ onLogin }) => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [selectedPortal, setSelectedPortal] = useState<'staff' | 'student'>('student');
   const navigate = useNavigate();
 
@@ -152,12 +154,23 @@ const Login: React.FC<LoginProps> = ({ onLogin }) => {
 
                   <div>
                     <label className="block text-sm font-semibold text-slate-700">Password</label>
-                    <input
-                      type="password"
-                      {...register('password')}
-                      placeholder="Enter your password"
-                      className="mt-2 block w-full rounded-xl border border-slate-200 px-4 py-3.5 text-base text-slate-700 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                    />
+                    <div className="relative mt-2">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        {...register('password')}
+                        placeholder="Enter your password"
+                        className="block w-full rounded-xl border border-slate-200 px-4 py-3.5 pr-12 text-base text-slate-700 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((prev) => !prev)}
+                        className="absolute inset-y-0 right-0 inline-flex items-center justify-center px-3 text-slate-500 hover:text-slate-700"
+                        aria-label={showPassword ? 'Hide password' : 'Show password'}
+                        title={showPassword ? 'Hide password' : 'Show password'}
+                      >
+                        {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                      </button>
+                    </div>
                     {errors.password && <p className="mt-1 text-sm text-red-600">{errors.password.message}</p>}
                   </div>
 
