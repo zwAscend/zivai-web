@@ -1188,9 +1188,6 @@ const CreateAssessmentPage: React.FC = () => {
                       </div>
 
                       <div className="flex h-full min-h-0 flex-col rounded-md border border-slate-200 bg-white p-2">
-                        <div className="mb-2 flex items-center justify-between gap-2">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Assistant chat</p>
-                        </div>
                         <div className="mt-2 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
                           {aiThread.length === 0 && !isGenerating && (
                             <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">

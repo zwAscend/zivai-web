@@ -124,9 +124,10 @@ export const assessmentEnrollmentService = {
     }
 
     const publishedAssignment = await assessmentEnrollmentService.publishAssignment(assignment.id);
+    const enrollmentSummary = await assessmentEnrollmentService.getSummary({ assignmentId: assignment.id });
     return {
       assignment: publishedAssignment,
-      enrolledCount: studentIds.length,
+      enrolledCount: Array.isArray(enrollmentSummary) ? enrollmentSummary.length : studentIds.length,
     };
   },
 };

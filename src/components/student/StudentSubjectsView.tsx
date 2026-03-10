@@ -28,6 +28,7 @@ import {
 } from '../../services/studentService';
 import { assessmentService } from '../../services/assessmentService';
 import { resourceService, ResourceItem } from '../../services/resourceService';
+import { externalAssessmentService } from '../../services/externalAssessmentService';
 import { normalizeResourceContentType } from '../../constants/resourceContentTypes';
 import StudentPracticeRunner, { PracticeQuestion, PracticeRunSummary } from './StudentPracticeRunner';
 
@@ -194,6 +195,19 @@ const getUpNextLabelForContentItem = (item: TopicContentItem) => {
 };
 
 const normalizeText = (value: string | null | undefined) => String(value || '').trim().toLowerCase();
+const isStudentVisibleStatus = (value: string | null | undefined) => {
+  const normalized = normalizeText(value);
+  if (!normalized) return true; // Preserve legacy rows that never stored status.
+  return normalized === 'published' || normalized === 'active';
+};
+const isStudentVisiblePublishAt = (value: string | null | undefined) => {
+  if (!value) return true;
+  const publishAtMs = Date.parse(value);
+  if (Number.isNaN(publishAtMs)) return true;
+  return publishAtMs <= Date.now();
+};
+const isStudentVisibleResource = (resource: { status?: string | null; publishAt?: string | null }) =>
+  isStudentVisibleStatus(resource.status) && isStudentVisiblePublishAt(resource.publishAt);
 const normalizeAssessmentStatus = (value: string | null | undefined) => {
   const normalized = normalizeText(value);
   return normalized === 'active' ? 'published' : (normalized || 'published');
@@ -206,64 +220,244 @@ const extractAssessmentResourceId = (assessment: SubjectAssessmentRow): string |
 };
 const decodeHtmlEntities = (value: string) =>
   value
-    .replaceAll('&lt;', '<')
-    .replaceAll('&gt;', '>')
-    .replaceAll('&amp;', '&')
-    .replaceAll('&quot;', '"')
-    .replaceAll('&#39;', "'");
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
 const looksLikeHtml = (value: string) => /<([a-z][\w-]*)(\s[^>]*)?>/i.test(value);
 
-const extractPracticeQuestionsFromContentBody = (contentBody: string): string[] => {
+type DetailAssessmentQuestionKind = 'open-response' | 'single-choice' | 'multiple-choice';
+
+interface DetailAssessmentQuestion {
+  id: string;
+  prompt: string;
+  options: string[];
+  expectedAnswers: string[];
+  marks: number | null;
+  kind: DetailAssessmentQuestionKind;
+}
+
+interface AssessmentQuestionRubricPayload {
+  options?: unknown;
+  correctAnswers?: unknown;
+  correctAnswer?: unknown;
+  expectedAnswer?: unknown;
+  answer?: unknown;
+}
+
+interface AssessmentQuestionApiPayload {
+  id?: string | number | null;
+  questionTypeCode?: string | null;
+  questionType?: string | null;
+  rubricJson?: AssessmentQuestionRubricPayload | null;
+  maxMark?: number | string | null;
+  points?: number | string | null;
+  stem?: string | null;
+}
+
+interface AssessmentWithQuestionsResponsePayload {
+  questions?: AssessmentQuestionApiPayload[] | null;
+}
+
+const getErrorMessage = (error: unknown, fallback: string): string => {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === 'string' && message.trim()) return message;
+  }
+  return fallback;
+};
+
+const normalizeAssessmentQuestionOptions = (raw: unknown): string[] => {
+  if (Array.isArray(raw)) {
+    return raw.map((option) => String(option ?? '').trim()).filter(Boolean);
+  }
+  if (typeof raw === 'string') {
+    return raw
+      .split(/[|,;]+/)
+      .map((option) => option.trim())
+      .filter(Boolean);
+  }
+  return [];
+};
+
+const normalizeAssessmentExpectedAnswers = (raw: unknown): string[] => {
+  if (Array.isArray(raw)) {
+    return raw.map((answer) => String(answer ?? '').trim()).filter(Boolean);
+  }
+  if (typeof raw === 'string') {
+    return raw
+      .split(/[|,;]+/)
+      .map((answer) => answer.trim())
+      .filter(Boolean);
+  }
+  return [];
+};
+
+const parseMarksFromQuestionText = (value: string): number | null => {
+  const markMatch = value.match(/\((\d+)\s*marks?\)/i);
+  if (!markMatch) return null;
+  const marks = Number(markMatch[1]);
+  return Number.isFinite(marks) ? marks : null;
+};
+
+const inferQuestionKind = (options: string[], expectedAnswers: string[]): DetailAssessmentQuestionKind => {
+  if (options.length === 0) return 'open-response';
+  return expectedAnswers.length > 1 ? 'multiple-choice' : 'single-choice';
+};
+
+const parseAssessmentQuestionFromLine = (
+  rawLine: string,
+  index: number
+): DetailAssessmentQuestion | null => {
+  const trimmedLine = String(rawLine || '').trim();
+  if (!trimmedLine) return null;
+
+  const marks = parseMarksFromQuestionText(trimmedLine);
+  const withoutNumbering = trimmedLine.replace(/^\s*\d+[).\-\s]*/, '').trim();
+  const optionsMatch = withoutNumbering.match(/(?:^|\s)Options:\s*([\s\S]*?)(?=\s+Answer\(s\):|\s+Answer:|\s+Marking guide:|$)/i);
+  const answersMatch = withoutNumbering.match(/(?:^|\s)Answer\(s\):\s*([\s\S]*?)(?=\s+Marking guide:|$)/i)
+    || withoutNumbering.match(/(?:^|\s)Answer:\s*([\s\S]*?)(?=\s+Marking guide:|$)/i);
+  const options = normalizeAssessmentQuestionOptions(optionsMatch?.[1] || '');
+  const expectedAnswers = normalizeAssessmentExpectedAnswers(answersMatch?.[1] || '');
+  const prompt = withoutNumbering
+    .replace(/\s+Options:\s*[\s\S]*$/i, '')
+    .replace(/\s+Answer\(s\):\s*[\s\S]*$/i, '')
+    .replace(/\s+Answer:\s*[\s\S]*$/i, '')
+    .replace(/\s+Marking guide:\s*[\s\S]*$/i, '')
+    .replace(/\((\d+)\s*marks?\)/i, '')
+    .trim();
+
+  if (!prompt) return null;
+
+  return {
+    id: `parsed-assessment-${index + 1}`,
+    prompt,
+    options,
+    expectedAnswers,
+    marks,
+    kind: inferQuestionKind(options, expectedAnswers),
+  };
+};
+
+const parseAssessmentQuestionsFromContentBody = (contentBody: string): DetailAssessmentQuestion[] => {
   const decoded = decodeHtmlEntities(String(contentBody || '').trim());
   if (!decoded) return [];
 
-  const stripMetadata = (value: string) =>
-    value
-      .replace(/\s+Options:\s*.*$/i, '')
-      .replace(/\s+Answer\(s\):\s*.*$/i, '')
-      .replace(/\s+Answer:\s*.*$/i, '')
-      .replace(/\s+Marking guide:\s*.*$/i, '')
-      .trim();
-
-  const normalizeQuestionLine = (line: string) =>
-    stripMetadata(line.replace(/^\s*\d+[).\-\s]*/, '').trim());
-
-  const htmlQuestionLines = (() => {
-    if (typeof document === 'undefined' || !looksLikeHtml(decoded)) return [] as string[];
+  if (typeof document !== 'undefined' && looksLikeHtml(decoded)) {
     const parsed = new DOMParser().parseFromString(decoded, 'text/html');
-    return Array.from(parsed.querySelectorAll('li'))
-      .map((item) => normalizeQuestionLine(item.textContent || ''))
-      .filter(Boolean);
-  })();
+    const articleQuestions = Array.from(parsed.querySelectorAll('article.question'))
+      .map((article: Element, index: number) => {
+        const headingText = article.querySelector('h3')?.textContent || '';
+        const marks = parseMarksFromQuestionText(headingText);
+        const prompt = (article.querySelector('p')?.textContent || '').trim();
+        const options = Array.from(article.querySelectorAll('ol li, ul li'))
+          .map((option) => (option.textContent || '').trim())
+          .filter(Boolean);
+        const answerLine = Array.from(article.querySelectorAll('p'))
+          .map((paragraph) => (paragraph.textContent || '').trim())
+          .find((line) => /^correct answer\(s\):|^expected answer:/i.test(line));
+        const expectedAnswers = normalizeAssessmentExpectedAnswers(
+          (answerLine || '').replace(/^correct answer\(s\):|^expected answer:/i, '').trim()
+        );
+        if (!prompt) return null;
+        return {
+          id: `article-assessment-${index + 1}`,
+          prompt,
+          options,
+          expectedAnswers,
+          marks,
+          kind: inferQuestionKind(options, expectedAnswers),
+        } as DetailAssessmentQuestion;
+      })
+      .filter((question: DetailAssessmentQuestion | null): question is DetailAssessmentQuestion => Boolean(question));
 
-  if (htmlQuestionLines.length > 0) {
-    return htmlQuestionLines;
+    if (articleQuestions.length > 0) return articleQuestions;
+
+    const htmlListQuestions = Array.from(parsed.querySelectorAll('li'))
+      .map((item: Element, index: number) => parseAssessmentQuestionFromLine(item.textContent || '', index))
+      .filter((question: DetailAssessmentQuestion | null): question is DetailAssessmentQuestion => Boolean(question));
+    if (htmlListQuestions.length > 0) return htmlListQuestions;
   }
 
   const plainText =
     typeof document !== 'undefined' && looksLikeHtml(decoded)
       ? new DOMParser().parseFromString(decoded, 'text/html').body.textContent || ''
       : decoded;
-
-  const normalizedText = plainText.replace(/\r\n/g, '\n').trim();
-  const questionsSectionMatch = normalizedText.match(/questions?\s*:\s*([\s\S]*)/i);
-  const scopedText = (questionsSectionMatch?.[1] || normalizedText).trim();
-  const lines = scopedText
+  const lines: string[] = plainText
+    .replace(/\r\n/g, '\n')
     .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const numberedLines = lines.filter((line) => /^\d+[).\-\s]/.test(line));
-  const candidateLines = numberedLines.length > 0 ? numberedLines : lines;
+    .map((line: string) => line.trim())
+    .filter((line: string) => Boolean(line));
+  const numberedLines: string[] = lines.filter((line: string) => /^\d+[).\-\s]/.test(line));
+  const candidateLines: string[] = numberedLines.length > 0 ? numberedLines : lines;
 
   return candidateLines
-    .map(normalizeQuestionLine)
-    .filter(Boolean)
+    .map((line: string, index: number) => parseAssessmentQuestionFromLine(line, index))
+    .filter((question: DetailAssessmentQuestion | null): question is DetailAssessmentQuestion => Boolean(question))
     .filter(
-      (line) =>
-        !/^topic\s*:/i.test(line) &&
-        !/^practice description/i.test(line) &&
-        !/^questions?\s*:?\s*$/i.test(line)
+      (question: DetailAssessmentQuestion) =>
+        !/^topic\s*:/i.test(question.prompt) &&
+        !/^practice description/i.test(question.prompt) &&
+        !/^questions?\s*:?\s*$/i.test(question.prompt)
     );
+};
+
+const mapDetailAssessmentQuestionFromApi = (
+  question: AssessmentQuestionApiPayload,
+  index: number
+): DetailAssessmentQuestion => {
+  const normalizedType = String(question?.questionTypeCode || question?.questionType || '')
+    .trim()
+    .toLowerCase()
+    .replace('-', '_');
+  const rubric = question?.rubricJson || {};
+  const options = normalizeAssessmentQuestionOptions(rubric.options);
+  const expectedAnswers = normalizeAssessmentExpectedAnswers(
+    (Array.isArray(rubric.correctAnswers) && rubric.correctAnswers.length > 0)
+      ? rubric.correctAnswers
+      : (rubric.correctAnswer || rubric.expectedAnswer || rubric.answer || '')
+  );
+  const marksRaw = question?.maxMark ?? question?.points ?? null;
+  const marks = Number.isFinite(Number(marksRaw)) ? Number(marksRaw) : null;
+  const prompt = String(question?.stem || '').trim();
+
+  let kind: DetailAssessmentQuestionKind = 'open-response';
+  if (normalizedType === 'true_false' || normalizedType === 'truefalse') {
+    kind = 'single-choice';
+    return {
+      id: String(question?.id || `assessment-question-${index + 1}`),
+      prompt,
+      options: options.length > 0 ? options : ['True', 'False'],
+      expectedAnswers,
+      marks,
+      kind,
+    };
+  }
+  if (normalizedType === 'mcq' || normalizedType.includes('multiple')) {
+    kind = expectedAnswers.length > 1 ? 'multiple-choice' : 'single-choice';
+    return {
+      id: String(question?.id || `assessment-question-${index + 1}`),
+      prompt,
+      options,
+      expectedAnswers,
+      marks,
+      kind,
+    };
+  }
+  if (options.length > 0) {
+    kind = inferQuestionKind(options, expectedAnswers);
+  }
+
+  return {
+    id: String(question?.id || `assessment-question-${index + 1}`),
+    prompt,
+    options,
+    expectedAnswers,
+    marks,
+    kind,
+  };
 };
 
 const getResourceTypeFromItem = (
@@ -357,7 +551,7 @@ const mapSubjectOverviewToUnits = (
     });
 
   return canonicalTopicRows.map((topicRow, index) => {
-    const topicResources = topicRow.resources || [];
+    const topicResources = (topicRow.resources || []).filter((resource) => isStudentVisibleResource(resource));
     const practiceResources = topicResources.filter(
       (resource) => normalizeResourceContentType(resource.contentType) === 'practice'
     );
@@ -441,16 +635,19 @@ const mapAssessmentsByTopic = (
 ): Map<string, LinkedTopicAssessment[]> => {
   const topicIdsByResourceId = new Map<string, Set<string>>();
   topicsWithResources.forEach((topic) => {
-    (topic.resources || []).forEach((resource) => {
+    (topic.resources || [])
+      .filter((resource) => isStudentVisibleResource(resource))
+      .forEach((resource) => {
       if (!topicIdsByResourceId.has(resource.id)) {
         topicIdsByResourceId.set(resource.id, new Set());
       }
       const topicIds = topicIdsByResourceId.get(resource.id)!;
       topicIds.add(topic.id);
       (resource.topicIds || []).forEach((resourceTopicId) => topicIds.add(resourceTopicId));
-    });
+      });
   });
   subjectResources.forEach((resource) => {
+    if (!isStudentVisibleResource(resource)) return;
     if (!resource?.id) return;
     if (!topicIdsByResourceId.has(resource.id)) {
       topicIdsByResourceId.set(resource.id, new Set());
@@ -461,6 +658,7 @@ const mapAssessmentsByTopic = (
 
   const mapped = new Map<string, LinkedTopicAssessment[]>();
   subjectAssessments.forEach((assessment) => {
+    if (!isStudentVisibleStatus(assessment.status)) return;
     const resourceId = extractAssessmentResourceId(assessment);
     if (!resourceId) return;
     const topicIds = topicIdsByResourceId.get(resourceId);
@@ -495,6 +693,15 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
   const [detailPracticeSession, setDetailPracticeSession] = useState<StudentPracticeSession | null>(null);
   const [detailPracticeLoading, setDetailPracticeLoading] = useState(false);
   const [detailPracticeError, setDetailPracticeError] = useState<string | null>(null);
+  const [detailAssessmentQuestionsFromApi, setDetailAssessmentQuestionsFromApi] = useState<DetailAssessmentQuestion[]>([]);
+  const [detailAssessmentQuestionsLoading, setDetailAssessmentQuestionsLoading] = useState(false);
+  const [detailAssessmentCombinedResponse, setDetailAssessmentCombinedResponse] = useState('');
+  const [detailAssessmentSelectedOptions, setDetailAssessmentSelectedOptions] = useState<Record<string, string[]>>({});
+  const [detailAssessmentImageFile, setDetailAssessmentImageFile] = useState<File | null>(null);
+  const [detailAssessmentFeedback, setDetailAssessmentFeedback] = useState<string | null>(null);
+  const [detailAssessmentError, setDetailAssessmentError] = useState<string | null>(null);
+  const [isDetailAssessmentAssessing, setIsDetailAssessmentAssessing] = useState(false);
+  const [isDetailCardTransitionLoading, setIsDetailCardTransitionLoading] = useState(false);
   const [resourceBodyById, setResourceBodyById] = useState<Record<string, string>>({});
   const [resourceBodyLoadingById, setResourceBodyLoadingById] = useState<Record<string, boolean>>({});
   const [resourceBodyErrorById, setResourceBodyErrorById] = useState<Record<string, string>>({});
@@ -524,6 +731,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
   const subjectsChatFloatingRef = useRef<HTMLDivElement | null>(null);
   const subjectsChatDragStateRef = useRef<SubjectsChatDragState | null>(null);
   const subjectsChatDragCleanupRef = useRef<(() => void) | null>(null);
+  const detailCardLoadingTimeoutRef = useRef<number | null>(null);
 
   const activeSubject = useMemo(() => {
     if (subjects.length === 0) return null;
@@ -608,10 +816,10 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
         } else {
           setCurriculumError(null);
         }
-      } catch (loadError: any) {
+      } catch (loadError: unknown) {
         setBackendUnits([]);
         setSubjectOverview(null);
-        setCurriculumError(loadError?.message || 'Unable to load curriculum from backend right now.');
+        setCurriculumError(getErrorMessage(loadError, 'Unable to load curriculum from backend right now.'));
       } finally {
         setIsCurriculumLoading(false);
       }
@@ -626,6 +834,19 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
     setDetailPracticeSession(null);
     setDetailPracticeLoading(false);
     setDetailPracticeError(null);
+    setDetailAssessmentQuestionsFromApi([]);
+    setDetailAssessmentQuestionsLoading(false);
+    setDetailAssessmentCombinedResponse('');
+    setDetailAssessmentSelectedOptions({});
+    setDetailAssessmentImageFile(null);
+    setDetailAssessmentFeedback(null);
+    setDetailAssessmentError(null);
+    setIsDetailAssessmentAssessing(false);
+    setIsDetailCardTransitionLoading(false);
+    if (detailCardLoadingTimeoutRef.current) {
+      window.clearTimeout(detailCardLoadingTimeoutRef.current);
+      detailCardLoadingTimeoutRef.current = null;
+    }
     setPracticeStatusOverrides({});
     setCollapsedTopicIds({});
     setSubjectOverview(null);
@@ -649,6 +870,10 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
   }, [activeSubject?.id]);
 
   useEffect(() => () => {
+    if (detailCardLoadingTimeoutRef.current) {
+      window.clearTimeout(detailCardLoadingTimeoutRef.current);
+      detailCardLoadingTimeoutRef.current = null;
+    }
     if (subjectsChatDragCleanupRef.current) {
       subjectsChatDragCleanupRef.current();
     }
@@ -659,7 +884,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
     if (detailState.unitId !== selectedUnit?.id) {
       setDetailState(null);
     }
-  }, [selectedUnit?.id]);
+  }, [detailState, selectedUnit?.id]);
 
   useEffect(() => {
     if (!unitChallengeState || !selectedUnit?.id) return;
@@ -732,7 +957,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
         isGenerating: false,
         error: null,
       }));
-    } catch (error) {
+    } catch {
       updateUnitChallengeConfig((current) => ({
         ...current,
         questions: [],
@@ -771,7 +996,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
         isGenerating: false,
         error: null,
       }));
-    } catch (error) {
+    } catch {
       updateSubjectChallengeConfig((current) => ({
         ...current,
         questions: [],
@@ -976,7 +1201,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
       window.cancelAnimationFrame(frameId);
       window.removeEventListener('resize', handleResize);
     };
-  }, [isSubjectsChatOpen, subjectsChatPosition?.x, subjectsChatPosition?.y]);
+  }, [isSubjectsChatOpen, subjectsChatPosition]);
 
   const openUnitChallenge = () => {
     setIsSidebarCollapsed(false);
@@ -1132,10 +1357,69 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
   const selectedResourceBodyError = selectedDetailResourceId ? resourceBodyErrorById[selectedDetailResourceId] || null : null;
   const normalizedSelectedResourceBody = selectedResourceBody ? decodeHtmlEntities(selectedResourceBody).trim() : '';
   const selectedResourceBodyHasHtml = looksLikeHtml(normalizedSelectedResourceBody);
-  const selectedAssessmentQuestions = useMemo(
-    () => extractPracticeQuestionsFromContentBody(selectedResourceBody || ''),
+  const parsedAssessmentQuestionsFromContent = useMemo(
+    () => parseAssessmentQuestionsFromContentBody(selectedResourceBody || ''),
     [selectedResourceBody]
   );
+  const effectiveDetailAssessmentQuestions = detailAssessmentQuestionsFromApi.length > 0
+    ? detailAssessmentQuestionsFromApi
+    : parsedAssessmentQuestionsFromContent;
+  const openResponseDetailAssessmentQuestions = useMemo(
+    () => effectiveDetailAssessmentQuestions.filter((question) => question.kind === 'open-response'),
+    [effectiveDetailAssessmentQuestions]
+  );
+  const objectiveDetailAssessmentQuestions = useMemo(
+    () => effectiveDetailAssessmentQuestions.filter((question) => question.kind !== 'open-response'),
+    [effectiveDetailAssessmentQuestions]
+  );
+  const hasDetailAssessmentSelection = Boolean(detailState && selectedDetailItem);
+  const selectedPracticeItem = selectedDetailItem?.kind === 'practice' ? selectedDetailItem.practice : null;
+  const selectedAssessmentId =
+    selectedDetailItem?.kind === 'assessment' ? selectedDetailItem.assessment?.id || null : null;
+  const detailAssessmentQuestionContext = useMemo(
+    () => openResponseDetailAssessmentQuestions
+      .map((question, index) => `${index + 1}. ${question.prompt}`)
+      .join('\n'),
+    [openResponseDetailAssessmentQuestions]
+  );
+  const detailAssessmentOpenResponseText = useMemo(
+    () => {
+      const response = detailAssessmentCombinedResponse.trim();
+      if (!response) return '';
+      if (!detailAssessmentQuestionContext) return response;
+      return `Questions:\n${detailAssessmentQuestionContext}\n\nStudent response:\n${response}`;
+    },
+    [detailAssessmentCombinedResponse, detailAssessmentQuestionContext]
+  );
+  const detailAssessmentOpenResponseCharCount = detailAssessmentCombinedResponse.trim().length;
+  const canAssessDetailAssessment =
+    detailAssessmentOpenResponseText.trim().length > 0 || Boolean(detailAssessmentImageFile);
+
+  useEffect(() => {
+    setDetailAssessmentQuestionsFromApi([]);
+    setDetailAssessmentQuestionsLoading(false);
+    setDetailAssessmentCombinedResponse('');
+    setDetailAssessmentSelectedOptions({});
+    setDetailAssessmentImageFile(null);
+    setDetailAssessmentFeedback(null);
+    setDetailAssessmentError(null);
+    setIsDetailAssessmentAssessing(false);
+  }, [selectedDetailItem?.id]);
+
+  useEffect(() => {
+    if (!hasDetailAssessmentSelection) {
+      setIsDetailCardTransitionLoading(false);
+      return;
+    }
+    setIsDetailCardTransitionLoading(true);
+    if (detailCardLoadingTimeoutRef.current) {
+      window.clearTimeout(detailCardLoadingTimeoutRef.current);
+    }
+    detailCardLoadingTimeoutRef.current = window.setTimeout(() => {
+      setIsDetailCardTransitionLoading(false);
+      detailCardLoadingTimeoutRef.current = null;
+    }, 180);
+  }, [hasDetailAssessmentSelection, detailState?.contentItemId, selectedDetailItem?.id]);
 
   useEffect(() => {
     const loadSelectedResourceBody = async () => {
@@ -1156,10 +1440,10 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
           ...previous,
           [selectedDetailResourceId]: typeof resource.contentBody === 'string' ? resource.contentBody : '',
         }));
-      } catch (error: any) {
+      } catch (error: unknown) {
         setResourceBodyErrorById((previous) => ({
           ...previous,
-          [selectedDetailResourceId]: error?.message || 'Failed to load content.',
+          [selectedDetailResourceId]: getErrorMessage(error, 'Failed to load content.'),
         }));
       } finally {
         setResourceBodyLoadingById((previous) => ({ ...previous, [selectedDetailResourceId]: false }));
@@ -1171,7 +1455,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
 
   useEffect(() => {
     const loadDetailPracticeSession = async () => {
-      if (!activeSubject || !detailTopic || !selectedDetailItem || selectedDetailItem.kind !== 'practice' || !selectedDetailItem.practice) {
+      if (!activeSubject || !detailTopic || !selectedPracticeItem) {
         setDetailPracticeSession(null);
         setDetailPracticeLoading(false);
         setDetailPracticeError(null);
@@ -1180,7 +1464,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
 
       const requestedQuestionCount = Math.max(
         0,
-        Math.min(40, Number(selectedDetailItem.practice.questionCount || detailTopic.questionCount || 0))
+        Math.min(40, Number(selectedPracticeItem.questionCount || detailTopic.questionCount || 0))
       );
       if (requestedQuestionCount <= 0) {
         setDetailPracticeSession(null);
@@ -1196,12 +1480,12 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
           topicId: detailTopic.id,
           questionCount: requestedQuestionCount,
           mode: 'topic_practice',
-          title: selectedDetailItem.practice.title,
+          title: selectedPracticeItem.title,
         });
         setDetailPracticeSession(session);
-      } catch (error: any) {
+      } catch (error: unknown) {
         setDetailPracticeSession(null);
-        setDetailPracticeError(error?.message || 'Failed to start practice session.');
+        setDetailPracticeError(getErrorMessage(error, 'Failed to start practice session.'));
       } finally {
         setDetailPracticeLoading(false);
       }
@@ -1212,9 +1496,123 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
     studentId,
     activeSubject,
     detailTopic,
-    selectedDetailItem?.id,
-    selectedDetailItem?.kind,
+    selectedPracticeItem,
   ]);
+
+  useEffect(() => {
+    const loadAssessmentQuestions = async () => {
+      if (!selectedAssessmentId) {
+        setDetailAssessmentQuestionsFromApi([]);
+        setDetailAssessmentQuestionsLoading(false);
+        return;
+      }
+
+      try {
+        setDetailAssessmentQuestionsLoading(true);
+        const response = await assessmentService.getAssessmentWithQuestions(selectedAssessmentId) as unknown;
+        const responseWithQuestions = response as AssessmentWithQuestionsResponsePayload;
+        const rawQuestions: AssessmentQuestionApiPayload[] = Array.isArray(responseWithQuestions?.questions)
+          ? responseWithQuestions.questions
+          : Array.isArray(response)
+            ? response as AssessmentQuestionApiPayload[]
+            : [];
+        const mappedQuestions = rawQuestions
+          .map((question, index) => mapDetailAssessmentQuestionFromApi(question, index))
+          .filter((question: DetailAssessmentQuestion) => question.prompt.trim().length > 0);
+        setDetailAssessmentQuestionsFromApi(mappedQuestions);
+      } catch {
+        setDetailAssessmentQuestionsFromApi([]);
+      } finally {
+        setDetailAssessmentQuestionsLoading(false);
+      }
+    };
+
+    void loadAssessmentQuestions();
+  }, [selectedAssessmentId]);
+
+  const toggleDetailAssessmentOption = (question: DetailAssessmentQuestion, option: string) => {
+    if (question.kind === 'open-response') return;
+
+    setDetailAssessmentSelectedOptions((previous) => {
+      const current = previous[question.id] || [];
+      if (question.kind === 'single-choice') {
+        return { ...previous, [question.id]: [option] };
+      }
+      const alreadySelected = current.includes(option);
+      const nextSelection = alreadySelected
+        ? current.filter((selected) => selected !== option)
+        : [...current, option];
+      return { ...previous, [question.id]: nextSelection };
+    });
+  };
+
+  const assessDetailAssessmentAttemptWithAi = async (
+    responseText?: string,
+    imageFile?: File | null
+  ): Promise<string> => {
+    const normalizedText = (responseText || '').trim();
+    const candidateImage = imageFile || null;
+    if (!normalizedText && !candidateImage) {
+      throw new Error('Enter a response or upload an image before requesting AI feedback.');
+    }
+
+    const moduleName = selectedDetailItem?.title?.trim()
+      || detailTopic?.title?.trim()
+      || activeSubject?.name?.trim()
+      || 'Practice task';
+    const assessmentResult = candidateImage
+      ? await externalAssessmentService.assessDocument(candidateImage, moduleName)
+      : await externalAssessmentService.assessText(normalizedText, moduleName);
+
+    if (!assessmentResult.success || !assessmentResult.data?.assessment) {
+      throw new Error(assessmentResult.error || assessmentResult.message || 'AI assessment is unavailable right now.');
+    }
+
+    const assessment = assessmentResult.data.assessment;
+    const safePercentage = Number.isFinite(Number(assessment.marks_percentage))
+      ? Math.max(0, Math.min(100, Number(assessment.marks_percentage)))
+      : null;
+    const marksAchieved = Number.isFinite(Number(assessment.marks_achieved))
+      ? Number(assessment.marks_achieved)
+      : null;
+    const totalPossibleMarks = Number.isFinite(Number(assessment.total_possible_marks))
+      ? Number(assessment.total_possible_marks)
+      : null;
+
+    const summaryParts: string[] = [];
+    if (safePercentage !== null) {
+      if (marksAchieved !== null && totalPossibleMarks !== null) {
+        summaryParts.push(`AI score: ${Math.round(safePercentage)}% (${marksAchieved}/${totalPossibleMarks}).`);
+      } else {
+        summaryParts.push(`AI score: ${Math.round(safePercentage)}%.`);
+      }
+    }
+    if (assessment.overall_feedback) {
+      summaryParts.push(assessment.overall_feedback);
+    }
+    if (assessment.strengths?.length) {
+      summaryParts.push(`Strengths: ${assessment.strengths.slice(0, 2).join('; ')}.`);
+    }
+    if (assessment.improvements?.length) {
+      summaryParts.push(`Next steps: ${assessment.improvements.slice(0, 2).join('; ')}.`);
+    }
+    return summaryParts.join(' ').trim() || 'AI feedback generated.';
+  };
+
+  const handleDetailAssessmentAssess = async () => {
+    if (isDetailAssessmentAssessing || !canAssessDetailAssessment) return;
+    try {
+      setIsDetailAssessmentAssessing(true);
+      setDetailAssessmentError(null);
+      const feedback = await assessDetailAssessmentAttemptWithAi(detailAssessmentOpenResponseText, detailAssessmentImageFile);
+      setDetailAssessmentFeedback(feedback);
+    } catch (error: unknown) {
+      setDetailAssessmentFeedback(null);
+      setDetailAssessmentError(getErrorMessage(error, 'Unable to assess your response right now.'));
+    } finally {
+      setIsDetailAssessmentAssessing(false);
+    }
+  };
 
   if (!activeSubject) {
     return (
@@ -1396,12 +1794,28 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                 <p className="text-sm text-slate-500 mt-1">{detailUnit.code}: {detailTopic.title}</p>
               </header>
 
-              <div className={isDetailPracticeView ? 'p-0' : 'flex-1 p-6 pb-6 space-y-6'}>
-                {selectedDetailItem.kind === 'practice' && selectedDetailItem.practice ? (
+              <div className={isDetailPracticeView ? 'p-0' : 'flex-1 min-h-0 overflow-y-auto p-6 pb-32 xl:pb-36 space-y-6'}>
+                {isDetailCardTransitionLoading ? (
+                  <div className={isDetailPracticeView ? 'px-6 py-6 pb-8 space-y-4 animate-pulse' : 'space-y-6 animate-pulse'}>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="h-6 w-24 rounded-md bg-slate-200" />
+                      <div className="h-4 w-28 rounded-md bg-slate-200" />
+                    </div>
+                    <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-3">
+                      <div className="h-5 w-2/3 rounded-md bg-slate-200" />
+                      <div className="h-4 w-full rounded-md bg-slate-200" />
+                      <div className="h-4 w-5/6 rounded-md bg-slate-200" />
+                      <div className="h-32 w-full rounded-md bg-slate-200" />
+                    </div>
+                  </div>
+                ) : selectedDetailItem.kind === 'practice' && selectedDetailItem.practice ? (
                   detailPracticeLoading ? (
                     <div className="px-6 py-6 pb-8">
-                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                        Loading practice session...
+                      <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-3 animate-pulse">
+                        <div className="h-5 w-44 rounded-md bg-slate-200" />
+                        <div className="h-4 w-3/4 rounded-md bg-slate-200" />
+                        <div className="h-24 w-full rounded-md bg-slate-200" />
+                        <div className="h-10 w-36 rounded-md bg-slate-200" />
                       </div>
                     </div>
                   ) : detailPracticeError ? (
@@ -1465,25 +1879,155 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                       </span>
                     </div>
 
-                    {selectedResourceBodyLoading ? (
-                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                        Loading content...
+                    {(selectedResourceBodyLoading && effectiveDetailAssessmentQuestions.length === 0)
+                    || (detailAssessmentQuestionsLoading && effectiveDetailAssessmentQuestions.length === 0) ? (
+                      <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-3 animate-pulse">
+                        <div className="h-5 w-2/5 rounded-md bg-slate-200" />
+                        <div className="h-4 w-full rounded-md bg-slate-200" />
+                        <div className="h-4 w-11/12 rounded-md bg-slate-200" />
+                        <div className="h-4 w-4/5 rounded-md bg-slate-200" />
+                        <div className="h-4 w-10/12 rounded-md bg-slate-200" />
                       </div>
                     ) : selectedResourceBodyError ? (
                       <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
                         {selectedResourceBodyError}
                       </div>
-                    ) : selectedAssessmentQuestions.length > 0 ? (
-                      <ol className="rounded-lg bg-white p-5 list-decimal pl-6 space-y-3 text-slate-800 leading-relaxed">
-                        {selectedAssessmentQuestions.map((question, index) => (
-                          <li key={`${selectedDetailItem.assessment?.id || 'assessment'}-${index}`}>
-                            {question}
-                          </li>
-                        ))}
-                      </ol>
+                    ) : effectiveDetailAssessmentQuestions.length > 0 ? (
+                      <div className="space-y-3">
+                        {openResponseDetailAssessmentQuestions.length > 0 && (
+                          <article className="rounded-lg bg-white p-4 space-y-3">
+                            {openResponseDetailAssessmentQuestions.map((question, index) => (
+                              <div key={question.id} className="space-y-1">
+                                <p className="text-sm font-semibold text-slate-800">
+                                  Question {index + 1}
+                                  {question.marks ? ` (${question.marks} marks)` : ''}
+                                </p>
+                                <p className="text-sm text-slate-800 leading-relaxed">{question.prompt}</p>
+                              </div>
+                            ))}
+                          </article>
+                        )}
+
+                        {objectiveDetailAssessmentQuestions.map((question, index) => {
+                          const selectedOptions = detailAssessmentSelectedOptions[question.id] || [];
+                          return (
+                            <article
+                              key={`${selectedDetailItem.assessment?.id || 'assessment'}-${question.id}-${index}`}
+                              className="rounded-lg border border-slate-200 bg-white p-4 space-y-3"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-sm font-semibold text-slate-800">
+                                  Question {index + 1}
+                                  {question.marks ? ` (${question.marks} marks)` : ''}
+                                </p>
+                                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">
+                                  {question.kind === 'multiple-choice'
+                                      ? 'Multiple choice'
+                                      : 'Choose one'}
+                                </span>
+                              </div>
+                              <p className="text-sm text-slate-800 leading-relaxed">{question.prompt}</p>
+                              <div className="space-y-2">
+                                {question.options.map((option) => {
+                                  const isSelected = selectedOptions.includes(option);
+                                  return (
+                                    <button
+                                      key={`${question.id}-${option}`}
+                                      type="button"
+                                      onClick={() => toggleDetailAssessmentOption(question, option)}
+                                      className={`w-full rounded-md border px-3 py-2 text-left text-sm transition ${
+                                        isSelected
+                                          ? 'border-blue-300 bg-blue-50 text-blue-700'
+                                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                                      }`}
+                                    >
+                                      {option}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </article>
+                          );
+                        })}
+                      </div>
                     ) : (
                       <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
                         No published questions are available for this practice yet.
+                      </div>
+                    )}
+
+                    {openResponseDetailAssessmentQuestions.length > 0 && (
+                      <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-4">
+                        <div>
+                          <textarea
+                            id={`detail-assessment-answer-${selectedDetailItem.assessment.id}`}
+                            rows={8}
+                            value={detailAssessmentCombinedResponse}
+                            onChange={(event) => {
+                              setDetailAssessmentCombinedResponse(event.target.value);
+                              if (detailAssessmentError) setDetailAssessmentError(null);
+                              if (detailAssessmentFeedback) setDetailAssessmentFeedback(null);
+                            }}
+                            placeholder="Write your full response covering the questions above..."
+                            className="w-full resize-y rounded-lg border border-slate-300 bg-white px-4 py-3 text-base text-slate-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                          <label className="inline-flex cursor-pointer items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(event) => {
+                                const file = event.target.files?.[0] || null;
+                                setDetailAssessmentImageFile(file);
+                                if (detailAssessmentError) setDetailAssessmentError(null);
+                                if (detailAssessmentFeedback) setDetailAssessmentFeedback(null);
+                                event.currentTarget.value = '';
+                              }}
+                            />
+                            {detailAssessmentImageFile
+                              ? `Image attached: ${detailAssessmentImageFile.name}`
+                              : 'Upload answer image (optional)'}
+                          </label>
+                          {detailAssessmentImageFile && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDetailAssessmentImageFile(null);
+                                if (detailAssessmentFeedback) setDetailAssessmentFeedback(null);
+                              }}
+                              className="inline-flex items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                            >
+                              Remove image
+                            </button>
+                          )}
+                        </div>
+
+                        {detailAssessmentError && (
+                          <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                            {detailAssessmentError}
+                          </div>
+                        )}
+
+                        {detailAssessmentFeedback && (
+                          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                            {detailAssessmentFeedback}
+                          </div>
+                        )}
+
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-xs text-slate-500">{detailAssessmentOpenResponseCharCount} chars</span>
+                          <button
+                            type="button"
+                            onClick={() => void handleDetailAssessmentAssess()}
+                            disabled={isDetailAssessmentAssessing || !canAssessDetailAssessment}
+                            className="inline-flex items-center rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {isDetailAssessmentAssessing ? 'Assessing...' : 'Get AI feedback'}
+                          </button>
+                        </div>
                       </div>
                     )}
                   </section>
@@ -1507,8 +2051,12 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                     )}
 
                     {selectedResourceBodyLoading ? (
-                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                        Loading content...
+                      <div className="rounded-lg border border-slate-200 bg-white p-5 space-y-3 animate-pulse">
+                        <div className="h-5 w-1/3 rounded-md bg-slate-200" />
+                        <div className="h-4 w-full rounded-md bg-slate-200" />
+                        <div className="h-4 w-11/12 rounded-md bg-slate-200" />
+                        <div className="h-4 w-4/5 rounded-md bg-slate-200" />
+                        <div className="h-4 w-10/12 rounded-md bg-slate-200" />
                       </div>
                     ) : selectedResourceBodyError ? (
                       <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
@@ -1965,7 +2513,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                   </section>
                 </div>
               ) : (
-                <div className={isUnitChallengeActive ? (isUnitChallengeRunning ? '' : 'flex-1 p-6 pb-24') : 'flex-1 p-6 pb-28 flex flex-col'}>
+                <div className={isUnitChallengeActive ? (isUnitChallengeRunning ? '' : 'flex-1 p-6 pb-24') : 'flex-1 p-6 pb-28 flex flex-col gap-4'}>
                   {isUnitChallengeActive ? (
                     activeUnitChallengeStep === 1 && !isUnitChallengeRunning ? (
                       <div className="space-y-4">
@@ -2191,9 +2739,6 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                                       >
                                         {assessment.title}
                                       </button>
-                                      <p className="text-xs text-slate-500 mt-0.5 capitalize">
-                                        Published teacher practice • {assessment.status || 'published'}
-                                      </p>
                                     </div>
                                     <button
                                       type="button"
@@ -2218,7 +2763,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                       )})}
                       </div>
 
-                      <div className="mt-4 xl:mt-auto border border-slate-200 rounded-lg p-5 bg-slate-50">
+                      <div className="xl:mt-auto border border-slate-200 rounded-lg p-5 bg-slate-50">
                         <div className="flex items-center text-slate-700 font-semibold">
                           Topic challenge
                         </div>

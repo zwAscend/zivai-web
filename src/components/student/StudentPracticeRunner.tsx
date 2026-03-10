@@ -42,6 +42,7 @@ interface PracticeSubmissionPayload {
   question: PracticeQuestion;
   studentAnswerText?: string;
   selectedOptions?: string[];
+  uploadFile?: File | null;
   skipped: boolean;
 }
 
@@ -52,12 +53,26 @@ interface PracticeSubmissionResult {
   feedback?: string | null;
 }
 
+interface PracticeOpenResponseAssessmentPayload {
+  question: InputPracticeQuestion;
+  studentAnswerText?: string;
+  uploadFile?: File | null;
+}
+
+interface PracticeOpenResponseAssessmentResult {
+  correct?: boolean;
+  feedback?: string | null;
+}
+
 interface StudentPracticeRunnerProps {
   title: string;
   subtitle?: string;
   questions: PracticeQuestion[];
   onComplete?: (summary: PracticeRunSummary) => void | Promise<void>;
   onSubmitAnswer?: (payload: PracticeSubmissionPayload) => Promise<PracticeSubmissionResult>;
+  onAssessOpenResponse?: (
+    payload: PracticeOpenResponseAssessmentPayload
+  ) => Promise<PracticeOpenResponseAssessmentResult>;
   onCompleteSession?: () => Promise<void>;
   fixedFooterStyle?: React.CSSProperties;
   contentWrapperClassName?: string;
@@ -78,12 +93,14 @@ const StudentPracticeRunner: React.FC<StudentPracticeRunnerProps> = ({
   questions,
   onComplete,
   onSubmitAnswer,
+  onAssessOpenResponse,
   onCompleteSession,
   fixedFooterStyle,
   contentWrapperClassName,
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [textAnswers, setTextAnswers] = useState<Record<string, string>>({});
+  const [uploadedFilesByQuestion, setUploadedFilesByQuestion] = useState<Record<string, File | null>>({});
   const [selectedOptionIndexes, setSelectedOptionIndexes] = useState<Record<string, number[]>>({});
   const [results, setResults] = useState<Record<string, QuestionResult>>({});
   const [feedback, setFeedback] = useState<'correct' | 'incorrect' | 'missing' | null>(null);
@@ -97,15 +114,16 @@ const StudentPracticeRunner: React.FC<StudentPracticeRunnerProps> = ({
   const progressSummary = useMemo(() => buildSummary(results, questions.length), [results, questions.length]);
 
   const currentTextAnswer = currentQuestion?.type === 'input' ? textAnswers[currentQuestion.id] || '' : '';
+  const currentUploadedFile = currentQuestion?.type === 'input' ? uploadedFilesByQuestion[currentQuestion.id] || null : null;
   const currentSelectedIndexes = currentQuestion?.type !== 'input' ? selectedOptionIndexes[currentQuestion.id] || [] : [];
 
   const canCheck = useMemo(() => {
     if (!currentQuestion) return false;
     if (currentQuestion.type === 'input') {
-      return currentTextAnswer.trim().length > 0;
+      return currentTextAnswer.trim().length > 0 || Boolean(currentUploadedFile);
     }
     return currentSelectedIndexes.length > 0;
-  }, [currentQuestion, currentSelectedIndexes.length, currentTextAnswer]);
+  }, [currentQuestion, currentSelectedIndexes.length, currentTextAnswer, currentUploadedFile]);
 
   const markComplete = async () => {
     if (!sessionCompleted) {
@@ -155,13 +173,35 @@ const StudentPracticeRunner: React.FC<StudentPracticeRunnerProps> = ({
       return;
     }
 
+    const trimmedInputAnswer = currentQuestion.type === 'input' ? currentTextAnswer.trim() : '';
+    let openResponseAssessment: PracticeOpenResponseAssessmentResult | null = null;
+    if (
+      currentQuestion.type === 'input' &&
+      onAssessOpenResponse &&
+      (trimmedInputAnswer.length > 0 || Boolean(currentUploadedFile))
+    ) {
+      try {
+        openResponseAssessment = await onAssessOpenResponse({
+          question: currentQuestion,
+          studentAnswerText: trimmedInputAnswer || undefined,
+          uploadFile: currentUploadedFile || undefined,
+        });
+      } catch {
+        openResponseAssessment = {
+          feedback: 'AI feedback is unavailable right now. Your answer was still submitted.',
+        };
+      }
+    }
+
     if (onSubmitAnswer) {
       const selectedOptions = currentQuestion.type === 'input'
         ? []
         : (currentSelectedIndexes || [])
           .map((optionIndex) => currentQuestion.options[optionIndex])
           .filter((option): option is string => Boolean(option));
-      const studentAnswerText = currentQuestion.type === 'input' ? currentTextAnswer : undefined;
+      const studentAnswerText = currentQuestion.type === 'input'
+        ? (trimmedInputAnswer || (currentUploadedFile ? `[Image submission] ${currentUploadedFile.name}` : undefined))
+        : undefined;
 
       try {
         setIsSubmitting(true);
@@ -169,15 +209,28 @@ const StudentPracticeRunner: React.FC<StudentPracticeRunnerProps> = ({
           question: currentQuestion,
           studentAnswerText,
           selectedOptions,
+          uploadFile: currentUploadedFile || undefined,
           skipped: false,
         });
 
+        const reviewOnlyFeedback = typeof result.feedback === 'string'
+          && result.feedback.toLowerCase().includes('submitted for review');
+        const effectiveCorrect = typeof openResponseAssessment?.correct === 'boolean'
+          ? openResponseAssessment.correct
+          : reviewOnlyFeedback
+            ? true
+            : result.correct;
+        const mergedFeedback = [openResponseAssessment?.feedback, result.feedback]
+          .map((item) => (typeof item === 'string' ? item.trim() : ''))
+          .filter((item, index, collection) => item.length > 0 && collection.indexOf(item) === index)
+          .join(' ');
+
         setResults((previous) => ({
           ...previous,
-          [currentQuestion.id]: result.skipped ? 'skipped' : result.correct ? 'correct' : 'incorrect',
+          [currentQuestion.id]: result.skipped ? 'skipped' : effectiveCorrect ? 'correct' : 'incorrect',
         }));
-        setFeedback(result.correct ? 'correct' : 'incorrect');
-        setFeedbackMessage(result.feedback || null);
+        setFeedback(effectiveCorrect ? 'correct' : 'incorrect');
+        setFeedbackMessage(mergedFeedback || null);
       } catch {
         setFeedback('incorrect');
         setFeedbackMessage('Answer submission failed. Please try again.');
@@ -187,10 +240,12 @@ const StudentPracticeRunner: React.FC<StudentPracticeRunnerProps> = ({
       return;
     }
 
-    const correct = isCurrentAnswerCorrect();
+    const correct = typeof openResponseAssessment?.correct === 'boolean'
+      ? openResponseAssessment.correct
+      : isCurrentAnswerCorrect();
     setResults((previous) => ({ ...previous, [currentQuestion.id]: correct ? 'correct' : 'incorrect' }));
     setFeedback(correct ? 'correct' : 'incorrect');
-    setFeedbackMessage(null);
+    setFeedbackMessage(openResponseAssessment?.feedback || null);
   };
 
   const handlePrimaryAction = async () => {
@@ -301,15 +356,40 @@ const StudentPracticeRunner: React.FC<StudentPracticeRunnerProps> = ({
                 <label className="block text-sm font-semibold text-slate-700" htmlFor={`practice-input-${currentQuestion.id}`}>
                   Your response
                 </label>
-                <input
+                <textarea
                   id={`practice-input-${currentQuestion.id}`}
+                  rows={5}
                   value={currentTextAnswer}
                   onChange={(event) => setTextAnswers((previous) => ({ ...previous, [currentQuestion.id]: event.target.value }))}
                   placeholder={currentQuestion.placeholder || 'Type your answer'}
-                  className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-4 py-3 text-base text-slate-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 md:text-lg"
+                  className="mt-2 w-full resize-y rounded-lg border border-slate-300 bg-white px-4 py-3 text-base text-slate-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 md:text-lg"
                 />
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <label className="inline-flex cursor-pointer items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0] || null;
+                        setUploadedFilesByQuestion((previous) => ({ ...previous, [currentQuestion.id]: file }));
+                        event.currentTarget.value = '';
+                      }}
+                    />
+                    {currentUploadedFile ? `Image attached: ${currentUploadedFile.name}` : 'Upload answer image (optional)'}
+                  </label>
+                  {currentUploadedFile && (
+                    <button
+                      type="button"
+                      onClick={() => setUploadedFilesByQuestion((previous) => ({ ...previous, [currentQuestion.id]: null }))}
+                      className="inline-flex items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                    >
+                      Remove image
+                    </button>
+                  )}
+                </div>
                 <div className="mt-2 flex items-center justify-between gap-2 text-xs text-slate-500">
-                  <span>Keep it short and clear.</span>
+                  <span>Type your answer and/or upload a photo of written work.</span>
                   <span>{currentTextAnswer.trim().length} chars</span>
                 </div>
               </div>

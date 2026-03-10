@@ -3933,10 +3933,7 @@ const ClassroomSubjectsPage: React.FC = () => {
 
                               {isAiCollaboratorExpanded ? (
                                 <div className="flex h-full min-h-0 flex-col rounded-md border border-slate-200 bg-white p-2">
-                                  <div className="mb-2 flex items-center justify-between gap-2">
-                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                      Assistant chat
-                                    </p>
+                                  <div className="mb-2 flex items-center justify-end gap-1">
                                     <div className="flex items-center gap-1">
                                       <button
                                         type="button"
@@ -4239,12 +4236,6 @@ const ClassroomSubjectsPage: React.FC = () => {
                                     >
                                       <PanelRightClose className="h-4 w-4" />
                                     </button>
-                                  </div>
-
-                                  <div className="mb-2 flex items-center justify-between gap-2">
-                                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                      Assistant chat
-                                    </p>
                                   </div>
 
                                   <div className="mt-2 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
@@ -4672,10 +4663,7 @@ const ClassroomSubjectsPage: React.FC = () => {
 
                   {isAiCollaboratorExpanded ? (
                     <div className="flex h-full min-h-0 flex-col rounded-md border border-slate-200 bg-white p-2">
-                      <div className="mb-2 flex items-center justify-between gap-2">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                          Assistant chat
-                        </p>
+                      <div className="mb-2 flex items-center justify-end gap-1">
                         <button
                           type="button"
                           onClick={() => setIsAiConfigOpen(true)}
