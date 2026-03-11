@@ -6,9 +6,11 @@ import { useToast } from '@/components/ui/use-toast';
 import {
   Bold,
   Bot,
+  ChevronDown,
   Code2,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   GripVertical,
   ImagePlus,
   Italic,
@@ -72,6 +74,20 @@ const formatStepType = (value?: string) => {
   if (!value) return 'Document';
   return value.charAt(0).toUpperCase() + value.slice(1);
 };
+
+const normalizePlanStatus = (value?: string | null) => String(value || '').trim().toLowerCase();
+
+const isPublishedPlan = (plan?: DevelopmentPlan | null): boolean => {
+  if (!plan) return false;
+  if (typeof plan.current === 'boolean') {
+    return plan.current;
+  }
+  const normalizedStatus = normalizePlanStatus(plan.status);
+  return normalizedStatus === 'active' || normalizedStatus === 'published';
+};
+
+const getPlanPublicationLabel = (plan?: DevelopmentPlan | null): 'Published' | 'Draft' =>
+  isPublishedPlan(plan) ? 'Published' : 'Draft';
 
 const normalizeSkillKey = (value?: string) =>
   (value || '')
@@ -466,9 +482,9 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
       ? plans.filter((plan) => plan.plan?.subjectId === subjectId)
       : plans;
     return (
-      scopedPlans.find((plan) => plan.status === 'Active') ||
+      scopedPlans.find((plan) => isPublishedPlan(plan)) ||
       scopedPlans[0] ||
-      plans.find((plan) => plan.status === 'Active') ||
+      plans.find((plan) => isPublishedPlan(plan)) ||
       plans[0] ||
       null
     );
@@ -494,6 +510,24 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
       .map((step, index) => ({ step, index, order: step.order || index + 1 }))
       .sort((a, b) => a.order - b.order);
   }, [currentDisplayPlan]);
+
+  const currentPlanPublished = useMemo(
+    () => isPublishedPlan(currentDisplayPlan),
+    [currentDisplayPlan]
+  );
+
+  const currentPlanStepProgress = useMemo(() => {
+    const totalSteps = sortedStepEntries.length;
+    const safeProgress = Math.max(0, Math.min(100, currentDisplayPlan?.currentProgress || 0));
+    const completedSteps = totalSteps === 0 ? 0 : Math.floor((safeProgress / 100) * totalSteps);
+    const activeStepIndex = totalSteps === 0 ? -1 : Math.min(completedSteps, totalSteps - 1);
+    return {
+      totalSteps,
+      safeProgress,
+      completedSteps,
+      activeStepIndex,
+    };
+  }, [currentDisplayPlan?.currentProgress, sortedStepEntries.length]);
 
   const skillCanvasInsights = useMemo(() => {
     const planSkills = currentDisplayPlan?.plan?.skills || [];
@@ -1115,6 +1149,53 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
     setAiPrompt('');
   };
 
+  const handleTogglePlanPublication = async () => {
+    if (!currentDisplayPlan) return;
+
+    try {
+      setIsPersistingPlan(true);
+      const updatedPlan = currentPlanPublished
+        ? await developmentService.unpublishStudentPlan(currentDisplayPlan.id)
+        : await developmentService.publishStudentPlan(currentDisplayPlan.id);
+      syncUpdatedPlanInState(updatedPlan);
+      toast.success(currentPlanPublished ? 'Plan moved to draft' : 'Plan published');
+    } catch (err) {
+      console.error('Failed to update plan publication state:', err);
+      toast.error('Failed to update plan publication state');
+    } finally {
+      setIsPersistingPlan(false);
+    }
+  };
+
+  const moveStepInWorkflow = async (sortedIndex: number, direction: 'up' | 'down') => {
+    if (!currentDisplayPlan) return;
+    const targetIndex = direction === 'up' ? sortedIndex - 1 : sortedIndex + 1;
+    if (targetIndex < 0 || targetIndex >= sortedStepEntries.length) {
+      return;
+    }
+
+    const orderedStepIds = sortedStepEntries.map(({ step }) => (step.id ? String(step.id) : null));
+    if (orderedStepIds.some((stepId) => stepId === null)) {
+      toast.error('Every step must be saved before reordering.');
+      return;
+    }
+
+    const nextStepIds = orderedStepIds.filter((stepId): stepId is string => stepId !== null);
+    [nextStepIds[sortedIndex], nextStepIds[targetIndex]] = [nextStepIds[targetIndex], nextStepIds[sortedIndex]];
+
+    try {
+      setIsPersistingPlan(true);
+      const updatedPlan = await developmentService.reorderStudentPlanSteps(currentDisplayPlan.id, nextStepIds);
+      syncUpdatedPlanInState(updatedPlan);
+      toast.success('Step order updated');
+    } catch (err) {
+      console.error('Failed to reorder plan steps:', err);
+      toast.error('Failed to reorder step sequence');
+    } finally {
+      setIsPersistingPlan(false);
+    }
+  };
+
   const deleteStep = async (index: number) => {
     if (!currentDisplayPlan) return;
     const stepId = currentDisplayPlan.plan.steps[index]?.id;
@@ -1319,8 +1400,14 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                 }`}
               >
                 <span className="truncate pr-2 text-left">{planItem.plan.name}</span>
-                <span className="text-xs bg-green-200 text-green-700 px-1.5 py-0.5 rounded-full whitespace-nowrap">
-                  {planItem.status}
+                <span
+                  className={`text-xs px-1.5 py-0.5 rounded-full whitespace-nowrap ${
+                    isPublishedPlan(planItem)
+                      ? 'bg-emerald-100 text-emerald-700'
+                      : 'bg-slate-200 text-slate-700'
+                  }`}
+                >
+                  {getPlanPublicationLabel(planItem)}
                 </span>
               </button>
             ))}
@@ -2113,6 +2200,29 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                 <div className="min-w-0">
                   <h1 className="text-lg font-semibold text-slate-900">{currentDisplayPlan.plan.name}</h1>
                 </div>
+                <div className="flex items-center gap-2">
+                  <span
+                    className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${
+                      currentPlanPublished
+                        ? 'bg-emerald-100 text-emerald-700'
+                        : 'bg-slate-200 text-slate-700'
+                    }`}
+                  >
+                    {getPlanPublicationLabel(currentDisplayPlan)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleTogglePlanPublication}
+                    disabled={isPersistingPlan}
+                    className={`inline-flex items-center rounded-md px-2.5 py-1.5 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-60 ${
+                      currentPlanPublished
+                        ? 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-100'
+                        : 'border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                    }`}
+                  >
+                    {currentPlanPublished ? 'Move to Draft' : 'Publish Plan'}
+                  </button>
+                </div>
               </div>
 
               <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -2122,10 +2232,10 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                     <div className="h-2 w-full rounded-full bg-slate-200 overflow-hidden">
                       <div
                         className="h-full rounded-full bg-green-500"
-                        style={{ width: `${currentDisplayPlan.currentProgress}%` }}
+                        style={{ width: `${currentPlanStepProgress.safeProgress}%` }}
                       />
                     </div>
-                    <span className="text-xs font-semibold text-slate-700">{currentDisplayPlan.currentProgress}%</span>
+                    <span className="text-xs font-semibold text-slate-700">{currentPlanStepProgress.safeProgress}%</span>
                   </div>
                 </div>
                 <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-center">
@@ -2296,8 +2406,15 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
               </div>
 
               <div className="rounded-xl border border-slate-200 bg-white p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Plan Workflow</h2>
+              <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Plan Workflow</h2>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {currentPlanPublished
+                      ? `${currentPlanStepProgress.completedSteps}/${currentPlanStepProgress.totalSteps} steps completed by learner`
+                      : 'Draft mode: publish this plan for the learner to follow these steps.'}
+                  </p>
+                </div>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
@@ -2320,7 +2437,7 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                 </div>
               </div>
               <div className="space-y-2">
-                {sortedStepEntries.map(({ step, index, order }) => (
+                {sortedStepEntries.map(({ step, index, order }, sortedIndex) => (
                     <div
                       role="button"
                       tabIndex={0}
@@ -2343,11 +2460,56 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                             <p className="text-sm font-semibold text-slate-900">{step.title}</p>
                             <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
                               <span className="rounded-full bg-slate-200 px-2 py-0.5">{formatStepType(step.type as string)}</span>
+                              <span
+                                className={`rounded-full px-2 py-0.5 ${
+                                  !currentPlanPublished
+                                    ? 'bg-slate-200 text-slate-700'
+                                    : sortedIndex < currentPlanStepProgress.completedSteps
+                                      ? 'bg-emerald-100 text-emerald-700'
+                                      : sortedIndex === currentPlanStepProgress.activeStepIndex
+                                        ? 'bg-blue-100 text-blue-700'
+                                        : 'bg-slate-200 text-slate-700'
+                                }`}
+                              >
+                                {!currentPlanPublished
+                                  ? 'Draft'
+                                  : sortedIndex < currentPlanStepProgress.completedSteps
+                                    ? 'Completed'
+                                    : sortedIndex === currentPlanStepProgress.activeStepIndex
+                                      ? 'In progress'
+                                      : 'Not started'}
+                              </span>
                               {step.link ? <span className="truncate max-w-[280px]">{step.link}</span> : null}
                             </div>
                           </div>
                         </div>
                         <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              void moveStepInWorkflow(sortedIndex, 'up');
+                            }}
+                            className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            aria-label="Move step up"
+                            disabled={isPersistingPlan || sortedIndex === 0}
+                          >
+                            <ChevronUp className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              void moveStepInWorkflow(sortedIndex, 'down');
+                            }}
+                            className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                            aria-label="Move step down"
+                            disabled={isPersistingPlan || sortedIndex === sortedStepEntries.length - 1}
+                          >
+                            <ChevronDown className="h-3.5 w-3.5" />
+                          </button>
                           <button
                             type="button"
                             onClick={(event) => {

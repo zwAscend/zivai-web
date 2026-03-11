@@ -103,12 +103,21 @@ export const developmentService = {
     return fetchData<DevelopmentPlan>(`/development/plans/student/${studentId}/subject/${subjectId}`, { cacheTtlMs: 60 * 1000 });
   },
 
-  getAllPlansForStudent: async (studentId: string, status?: string): Promise<DevelopmentPlan[]> => {
+  getAllPlansForStudent: async (
+    studentId: string,
+    status?: string,
+    options?: {
+      forceRefresh?: boolean;
+    }
+  ): Promise<DevelopmentPlan[]> => {
     if (!studentId || studentId === 'undefined') {
       return [];
     }
     const query = status ? `?status=${encodeURIComponent(status)}` : '';
-    return fetchData<DevelopmentPlan[]>(`/development/plans/student/${studentId}${query}`, { cacheTtlMs: 60 * 1000 });
+    return fetchData<DevelopmentPlan[]>(`/development/plans/student/${studentId}${query}`, {
+      cacheTtlMs: 60 * 1000,
+      forceRefresh: !!options?.forceRefresh,
+    });
   },
 
   assignPlanToStudent: async (studentId: string, planId: string, subjectId?: string): Promise<DevelopmentPlan> => {

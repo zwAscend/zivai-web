@@ -38,6 +38,17 @@ export interface ClassReportResponse {
   masteryGaps: CurriculumTopicForecast[];
 }
 
+export interface ClassGradeDistributionResponse {
+  subjectId?: string | null;
+  subjectName?: string | null;
+  classId?: string | null;
+  className?: string | null;
+  studentCount: number;
+  assessmentCount: number;
+  gradeDistribution: Record<string, number>;
+  hasGradedSubmissions: boolean;
+}
+
 export interface StudentReportAssessment {
   assessmentId?: string | null;
   assessmentName?: string | null;
@@ -113,6 +124,14 @@ export const reportService = {
     if (classId) params.append('classId', classId);
     const query = params.toString();
     const endpoint = query ? `/reports/class-report?${query}` : '/reports/class-report';
+    return fetchData(endpoint);
+  },
+  getClassGradeDistribution: async (subjectId?: string, classId?: string): Promise<ClassGradeDistributionResponse | null> => {
+    const params = new URLSearchParams();
+    if (subjectId) params.append('subjectId', subjectId);
+    if (classId) params.append('classId', classId);
+    const query = params.toString();
+    const endpoint = query ? `/reports/grade-distribution?${query}` : '/reports/grade-distribution';
     return fetchData(endpoint);
   },
   getStudentReport: async (studentId: string, subjectId?: string): Promise<StudentReportResponse | null> => {
