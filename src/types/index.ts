@@ -1,6 +1,16 @@
 // Enums or Union Types for clarity
 export type ResourceType = 'document' | 'image' | 'video' | 'other';
-export type PlanStatus = 'Active' | 'Completed' | 'On Hold' | 'Cancelled';
+export type PlanStatus =
+  | 'draft'
+  | 'published'
+  | 'active'
+  | 'completed'
+  | 'on_hold'
+  | 'cancelled'
+  | 'Active'
+  | 'Completed'
+  | 'On Hold'
+  | 'Cancelled';
 export type AssessmentType = 'Assignment' | 'Test' | 'D-Plan' | 'Project' | 'Exam' | 'Quiz' | 'Exercise';
 export type QuestionType = 'multiple_choice' | 'true_false' | 'short_answer' | 'essay' | 'code';
 export type DifficultyLevel = 'easy' | 'medium' | 'hard';
@@ -104,6 +114,7 @@ export interface DevelopmentPlan {
   startDate: Date; // From StudentPlan
   currentProgress: number; // Student's actual progress (from StudentPlan)
   status: PlanStatus; // From StudentPlan
+  current?: boolean; // True when this plan is currently published/assigned to the student
   completionDate?: Date; // Optional, when the plan was completed (from StudentPlan)
   skillProgress?: StudentSkillProgress[]; // Student's current scores for skills within this plan (from StudentPlan)
   createdAt?: Date; // Mongoose timestamps

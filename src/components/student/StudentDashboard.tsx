@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
@@ -106,7 +106,7 @@ const DashboardSkeleton = () => (
 
     <main className="w-full bg-white py-6">
       <div className="max-w-[1400px] mx-auto px-4 space-y-4">
-        <section className="w-full border-y border-orange-100 bg-gradient-to-r from-amber-50 via-orange-50 to-yellow-50">
+        <section className="relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] w-screen border-y border-orange-100 bg-gradient-to-r from-amber-50 via-orange-50 to-yellow-50">
           <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4">
             <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
               <div className="h-6 w-72 rounded-md bg-orange-100 animate-pulse" />
@@ -235,6 +235,30 @@ const StudentDashboard: React.FC = () => {
     const candidate = currentUser?.id;
     return candidate ? String(candidate) : undefined;
   }, []);
+
+  const refreshSubjectPlans = useCallback(
+    async (
+      studentId: string,
+      options?: {
+        forceRefresh?: boolean;
+        clearOnError?: boolean;
+      }
+    ) => {
+      try {
+        const plans = await developmentService.getAllPlansForStudent(studentId, undefined, {
+          forceRefresh: !!options?.forceRefresh,
+        });
+        setSubjectPlans(plans || []);
+        return plans || [];
+      } catch {
+        if (options?.clearOnError) {
+          setSubjectPlans([]);
+        }
+        return null;
+      }
+    },
+    []
+  );
 
   const realPlanBySubjectId = useMemo(() => {
     const getStatusRank = (status?: string | null) => {
@@ -516,12 +540,10 @@ const StudentDashboard: React.FC = () => {
         setSubjects(fetchedSubjects);
 
         if (studentData?.id) {
-          try {
-            const plans = await developmentService.getAllPlansForStudent(studentData.id);
-            setSubjectPlans(plans || []);
-          } catch {
-            setSubjectPlans([]);
-          }
+          await refreshSubjectPlans(studentData.id, {
+            forceRefresh: true,
+            clearOnError: true,
+          });
         }
       } catch (err: any) {
         setError(err.message || 'Failed to load student data');
@@ -531,7 +553,32 @@ const StudentDashboard: React.FC = () => {
     };
 
     fetchStudentData();
-  }, []);
+  }, [refreshSubjectPlans]);
+
+  useEffect(() => {
+    if (!student?.id) return;
+
+    const shouldSyncPlans = activeView === 'overview' || activeView === 'plan' || activeView === 'subjects';
+    if (!shouldSyncPlans) return;
+
+    let cancelled = false;
+
+    const syncPlans = async (forceRefresh: boolean) => {
+      if (cancelled) return;
+      await refreshSubjectPlans(student.id, { forceRefresh });
+    };
+
+    void syncPlans(true);
+    const intervalMs = activeView === 'plan' ? 30_000 : 60_000;
+    const intervalId = window.setInterval(() => {
+      void syncPlans(true);
+    }, intervalMs);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [activeView, refreshSubjectPlans, student?.id]);
 
   useEffect(() => {
     if (!student?.id) {
@@ -1006,7 +1053,7 @@ const StudentDashboard: React.FC = () => {
 
   const renderOverview = () => (
     <div className="space-y-4">
-      <section className="w-full border-y border-orange-100 bg-gradient-to-r from-amber-50 via-orange-50 to-yellow-50">
+      <section className="relative left-1/2 right-1/2 -ml-[50vw] -mr-[50vw] w-screen border-y border-orange-100 bg-gradient-to-r from-amber-50 via-orange-50 to-yellow-50">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-4">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <p className="text-lg sm:text-xl font-semibold text-slate-900">
