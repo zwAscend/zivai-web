@@ -29,6 +29,8 @@ export const submissionService = {
       assessmentQuestionId: string;
       studentAnswerText?: string;
       studentAnswerBlob?: unknown;
+      externalAssessmentData?: unknown;
+      ocrText?: string;
     }>;
   }) => {
     return fetchData('/submissions/answers', {

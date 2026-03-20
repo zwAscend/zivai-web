@@ -1,14 +1,8 @@
 // src/components/resources/Sidebar.tsx
 import React, { useState } from 'react';
-import { Menu, UploadCloud, FileText as CreateAssignmentIcon, CheckCircle, FileImage, FileVideo, FilePlus, Eye, BarChart3, UserCheck, Sparkles, BookOpen, Target, ListChecks, User, TrendingUp, Users, CalendarRange } from 'lucide-react';
+import { Menu, UploadCloud, FileText as CreateAssignmentIcon, CheckCircle, Eye, BarChart3, UserCheck, Sparkles, BookOpen, Target, ListChecks, User, TrendingUp, Users, CalendarRange } from 'lucide-react';
 import { clsx } from 'clsx';
 import { motion, AnimatePresence } from 'framer-motion';
-
-interface RecentUpload {
-    id: string; name: string; type: string; createdAt: string;
-    subject: { id: string; name: string; code?: string; };
-    uploadedBy: { id: string; firstName: string; lastName: string; };
-}
 
 interface SidebarProps {
   mode?: 'resources' | 'assessments' | 'development' | 'performance' | 'classroom' | 'students' | 'report';
@@ -43,24 +37,12 @@ interface SidebarProps {
   onStudentsDirectory?: () => void;
   onStudentsProfile?: () => void;
   activeAction?: string;
-  recentUploads: RecentUpload[];
 }
-
-// ✨ UX Improvement: A helper function for consistent, descriptive file icons
-const getFileIcon = (type: string, className = "h-5 w-5") => {
-    switch (type.toLowerCase()) {
-        case 'document': return <CreateAssignmentIcon className={clsx(className, "text-blue-500")} />;
-        case 'image': return <FileImage className={clsx(className, "text-green-500")} />;
-        case 'video': return <FileVideo className={clsx(className, "text-purple-500")} />;
-        default: return <FilePlus className={clsx(className, "text-slate-500")} />;
-    }
-};
 
 const Sidebar: React.FC<SidebarProps> = ({
   mode = 'resources',
   classroomWorkspaceNav = false,
   showClassroomStudentProfile = true,
-  onUploadClick: _onUploadClick,
   onCreateAssessment,
   onMarkAssessment,
   onViewAssessments,
@@ -79,7 +61,6 @@ const Sidebar: React.FC<SidebarProps> = ({
   onDevelopmentProfile,
   onDevelopmentStudents,
   onDevelopmentReteach,
-  onDevelopmentPractice: _onDevelopmentPractice,
   onDevelopmentStudent,
   onPerformanceOverview,
   onPerformanceStudent,
@@ -88,8 +69,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   onClassroomSubject,
   onStudentsDirectory,
   onStudentsProfile,
-  activeAction,
-  recentUploads
+  activeAction
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
 
@@ -193,32 +173,6 @@ const Sidebar: React.FC<SidebarProps> = ({
             </li>
           )})}
         </ul>
-
-        {mode === 'resources' && (
-        <div className="mt-6">
-          <h3 className={clsx(
-              "text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2",
-              isCollapsed ? "text-center" : "px-2.5"
-          )}>
-            {isCollapsed ? "..." : "Recent Uploads"}
-          </h3>
-          <div className="space-y-1">
-            {recentUploads.length > 0 ? recentUploads.map(upload => (
-                <div key={upload.id} className={clsx("flex items-center gap-3 p-2.5 text-sm rounded-md", isCollapsed && "justify-center")} title={isCollapsed ? `${upload.name} in ${upload.subject.name}` : undefined}>
-                  <div className="flex-shrink-0">{getFileIcon(upload.type)}</div>
-                  {!isCollapsed && (
-                    <div className="min-w-0">
-                      <p className="font-medium text-slate-800 truncate">{upload.name}</p>
-                      <p className="text-xs text-slate-500 truncate">{upload.subject.name}</p>
-                    </div>
-                  )}
-                </div>
-              )) : (
-                <p className={clsx("text-sm text-slate-500", isCollapsed ? 'text-center' : 'px-2.5')}>-</p>
-              )}
-          </div>
-        </div>
-        )}
       </nav>
     </motion.aside>
   );

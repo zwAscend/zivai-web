@@ -4,6 +4,7 @@ import { notificationService } from '../../services/api';
 import { motion } from 'framer-motion';
 import SubmissionReviewModal from './SubmissionReviewModal';
 import type { NotificationItem } from '../../services/notificationService';
+import { authService } from '../../services/authService';
 
 interface Notification {
   id: string;
@@ -24,13 +25,15 @@ interface Notification {
 interface NotificationCenterProps {
   isOpen: boolean;
   onClose: () => void;
+  onUnreadCountChange?: (count: number) => void;
 }
 
-const NotificationCenter: React.FC<NotificationCenterProps> = ({ isOpen, onClose }) => {
+const NotificationCenter: React.FC<NotificationCenterProps> = ({ isOpen, onClose, onUnreadCountChange }) => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedSubmission, setSelectedSubmission] = useState<string | null>(null);
   const [showReviewModal, setShowReviewModal] = useState(false);
+  const currentUserId = authService.getCurrentUserId();
 
   useEffect(() => {
     if (isOpen) {
@@ -41,7 +44,12 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ isOpen, onClose
   const fetchNotifications = async () => {
     try {
       setLoading(true);
-      const response = await notificationService.getNotifications(1, 50);
+      if (!currentUserId) {
+        setNotifications([]);
+        onUnreadCountChange?.(0);
+        return;
+      }
+      const response = await notificationService.getNotifications(1, 50, false, currentUserId);
       const list = Array.isArray(response) ? response : [];
       const normalized: Notification[] = list.map((item: NotificationItem) => ({
         id: item.id,
@@ -56,9 +64,11 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ isOpen, onClose
           : 'low') as Notification['priority'],
       }));
       setNotifications(normalized);
+      onUnreadCountChange?.(normalized.filter((item) => !item.read).length);
     } catch (error) {
       console.error('Error fetching notifications:', error);
       setNotifications([]);
+      onUnreadCountChange?.(0);
     } finally {
       setLoading(false);
     }
@@ -66,10 +76,15 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ isOpen, onClose
 
   const handleMarkAsRead = async (notificationId: string) => {
     try {
-      await notificationService.markAsRead(notificationId);
-      setNotifications(prev => 
-        prev.map(n => n.id === notificationId ? { ...n, read: true } : n)
-      );
+      if (!currentUserId) {
+        return;
+      }
+      await notificationService.markAsRead(notificationId, currentUserId);
+      setNotifications(prev => {
+        const next = prev.map(n => n.id === notificationId ? { ...n, read: true } : n);
+        onUnreadCountChange?.(next.filter((item) => !item.read).length);
+        return next;
+      });
     } catch (error) {
       console.error('Error marking notification as read:', error);
     }
@@ -224,8 +239,15 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ isOpen, onClose
         <div className="p-4 border-t">
           <button
             onClick={async () => {
-              await notificationService.markAllAsRead();
-              setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+              if (!currentUserId) {
+                return;
+              }
+              await notificationService.markAllAsRead(currentUserId);
+              setNotifications(prev => {
+                const next = prev.map(n => ({ ...n, read: true }));
+                onUnreadCountChange?.(0);
+                return next;
+              });
             }}
             className="w-full text-sm text-blue-600 hover:text-blue-800 font-medium"
           >

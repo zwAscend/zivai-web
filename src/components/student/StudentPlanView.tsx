@@ -10,20 +10,32 @@ import {
   ExternalLink,
   FileText,
   GripHorizontal,
+  Loader2,
   MessageCircle,
   Send,
   Video,
   X,
 } from 'lucide-react';
 import StudentPracticeRunner, { PracticeQuestion } from './StudentPracticeRunner';
-import { StudentPracticeSession, StudentPracticeSessionQuestion, studentService } from '../../services/studentService';
-import { externalAssessmentService } from '../../services/externalAssessmentService';
+import {
+  StudentPlanRuntimeProgressResult,
+  StudentPracticeSession,
+  StudentPracticeSessionQuestion,
+  studentService,
+} from '../../services/studentService';
+import {
+  externalAssessmentService,
+  STUDENT_ASSESSMENT_ACCEPT,
+  STUDENT_ASSESSMENT_FILE_HELPER,
+} from '../../services/externalAssessmentService';
+import { studentAiService, StudentAiReferenceDocument } from '../../services/studentAiService';
 
 interface StudentPlanViewProps {
   studentId: string;
   plan: DevelopmentPlan;
   subjectName?: string;
   initialStepIndex?: number;
+  onRuntimeChange?: (runtime: StudentPlanRuntimeProgressResult) => void;
 }
 
 interface PlanChatMessage {
@@ -250,6 +262,43 @@ const getNextStepLabel = (type: string) => {
 
 const getStepPublishedContent = (step: Step) => decodeHtmlEntities(String(step.content || '').trim());
 
+const sanitizeRuntimeStepIds = (stepIds: string[] | undefined, validStepIds: Set<string>) =>
+  (stepIds || [])
+    .map((stepId) => String(stepId || '').trim())
+    .filter((stepId) => stepId.length > 0 && validStepIds.has(stepId))
+    .filter((stepId, index, values) => values.indexOf(stepId) === index);
+
+const sanitizeRuntimeStepId = (stepId: string | null | undefined, validStepIds: Set<string>) => {
+  const normalized = String(stepId || '').trim();
+  if (!normalized || !validStepIds.has(normalized)) return null;
+  return normalized;
+};
+
+const getLegacyCompletedStepIds = (steps: Step[], progress: number) => {
+  const totalSteps = steps.length;
+  const safeProgress = Math.max(0, Math.min(100, progress || 0));
+  const completedStepsCount = Math.floor((safeProgress / 100) * totalSteps);
+  return steps
+    .slice(0, completedStepsCount)
+    .map((step) => (step.id ? String(step.id) : ''))
+    .filter(Boolean);
+};
+
+const getRuntimeCurrentStepIndex = (steps: Step[], completedStepIds: string[], activeStepId: string | null) => {
+  if (!steps.length) return 0;
+  if (activeStepId) {
+    const activeIndex = steps.findIndex((step) => String(step.id || '') === activeStepId);
+    if (activeIndex >= 0) return activeIndex;
+  }
+  return Math.min(completedStepIds.length, Math.max(steps.length - 1, 0));
+};
+
+const getRuntimeStepStatusLabel = (stepId: string | null, completedStepIds: Set<string>, activeStepId: string | null) => {
+  if (stepId && completedStepIds.has(stepId)) return 'Completed';
+  if (stepId && activeStepId === stepId) return 'In progress';
+  return 'Not started';
+};
+
 const mapPracticeQuestion = (question: StudentPracticeSessionQuestion): PracticeQuestion => {
   const normalizedType = String(question.questionType || '').toLowerCase();
   if (normalizedType.includes('multiple') || normalizedType === 'true_false') {
@@ -270,21 +319,50 @@ const mapPracticeQuestion = (question: StudentPracticeSessionQuestion): Practice
   };
 };
 
-const StudentPlanView: React.FC<StudentPlanViewProps> = ({ studentId, plan, subjectName, initialStepIndex }) => {
+const StudentPlanView: React.FC<StudentPlanViewProps> = ({
+  studentId,
+  plan,
+  subjectName,
+  initialStepIndex,
+  onRuntimeChange,
+}) => {
   const sortedSteps = useMemo(
     () => plan.plan.steps?.slice().sort((a, b) => (a.order || 0) - (b.order || 0)) || [],
     [plan.plan.steps]
   );
 
   const totalSteps = sortedSteps.length;
-  const safeProgress = Math.max(0, Math.min(100, plan.currentProgress || 0));
-  const completedStepsCount = Math.floor((safeProgress / 100) * totalSteps);
-  const currentStepIndex = Math.min(completedStepsCount, Math.max(totalSteps - 1, 0));
+  const validStepIds = useMemo(
+    () => new Set(sortedSteps.map((step) => String(step.id || '')).filter(Boolean)),
+    [sortedSteps]
+  );
+  const persistedCompletedStepIds = useMemo(
+    () => sanitizeRuntimeStepIds(plan.completedStepIds, validStepIds),
+    [plan.completedStepIds, validStepIds]
+  );
+  const persistedActiveStepId = useMemo(
+    () => sanitizeRuntimeStepId(plan.activeStepId, validStepIds),
+    [plan.activeStepId, validStepIds]
+  );
+  const legacyCompletedStepIds = useMemo(
+    () => getLegacyCompletedStepIds(sortedSteps, plan.currentProgress || 0),
+    [plan.currentProgress, sortedSteps]
+  );
+  const initialCompletedStepIds = persistedCompletedStepIds.length > 0 || persistedActiveStepId
+    ? persistedCompletedStepIds
+    : legacyCompletedStepIds;
+  const [completedStepIds, setCompletedStepIds] = useState<string[]>(initialCompletedStepIds);
+  const [activeStepId, setActiveStepId] = useState<string | null>(persistedActiveStepId);
+  const completedStepIdSet = useMemo(() => new Set(completedStepIds), [completedStepIds]);
+  const completedStepsCount = completedStepIds.length;
+  const safeProgress = totalSteps === 0
+    ? 0
+    : Math.max(0, Math.min(100, (completedStepsCount / totalSteps) * 100));
+  const currentStepIndex = getRuntimeCurrentStepIndex(sortedSteps, completedStepIds, activeStepId);
 
   const [selectedStepIndex, setSelectedStepIndex] = useState(0);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [completedPracticeSteps, setCompletedPracticeSteps] = useState<Record<number, boolean>>({});
-  const [completedStepIds, setCompletedStepIds] = useState<string[]>([]);
   const [practiceSessionsByStep, setPracticeSessionsByStep] = useState<Record<number, StudentPracticeSession>>({});
   const [practiceSessionError, setPracticeSessionError] = useState<string | null>(null);
   const [isPracticeSessionLoading, setIsPracticeSessionLoading] = useState(false);
@@ -296,18 +374,14 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ studentId, plan, subj
   const [isManualPracticeAssessing, setIsManualPracticeAssessing] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [chatInput, setChatInput] = useState('');
-  const [chatMessages, setChatMessages] = useState<PlanChatMessage[]>([
-    {
-      id: 'welcome-1',
-      sender: 'coach',
-      text: 'Need help with this plan step? Ask a question and I will guide you.',
-    },
-  ]);
+  const [chatMessages, setChatMessages] = useState<PlanChatMessage[]>([]);
+  const [isChatSending, setIsChatSending] = useState(false);
   const [chatPosition, setChatPosition] = useState<{ x: number; y: number } | null>(null);
   const chatFloatingRef = useRef<HTMLDivElement | null>(null);
   const chatDragStateRef = useRef<ChatDragState | null>(null);
   const chatDragCleanupRef = useRef<(() => void) | null>(null);
   const stepLoadingTimeoutRef = useRef<number | null>(null);
+  const initialSelectionKeyRef = useRef<string | null>(null);
 
   const selectedStep = sortedSteps[selectedStepIndex] || null;
   const selectedStepId = selectedStep?.id ? String(selectedStep.id) : null;
@@ -325,6 +399,10 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ studentId, plan, subj
   const contentDesktopOffset = isSidebarCollapsed ? 'md:ml-[88px]' : 'md:ml-[340px]';
   const desktopSidebarWidthPx = isSidebarCollapsed ? 88 : 340;
   const desktopContainerInset = 'max(1rem, calc((100vw - 1400px)/2 + 1rem))';
+  const sortedStepSignature = useMemo(
+    () => sortedSteps.map((step, index) => String(step.id || `${index}:${step.title}:${step.order}`)).join('|'),
+    [sortedSteps]
+  );
 
   useEffect(() => {
     if (selectedStepIndex > sortedSteps.length - 1) {
@@ -333,6 +411,10 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ studentId, plan, subj
   }, [selectedStepIndex, sortedSteps.length]);
 
   useEffect(() => {
+    const selectionKey = `${plan.id}:${typeof initialStepIndex === 'number' ? initialStepIndex : 'auto'}`;
+    if (initialSelectionKeyRef.current === selectionKey) return;
+    initialSelectionKeyRef.current = selectionKey;
+
     if (typeof initialStepIndex === 'number') {
       setSelectedStepIndex(Math.max(0, Math.min(initialStepIndex, Math.max(sortedSteps.length - 1, 0))));
       return;
@@ -342,11 +424,8 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ studentId, plan, subj
 
   useEffect(() => {
     setCompletedPracticeSteps({});
-    const initialCompleted = sortedSteps
-      .slice(0, completedStepsCount)
-      .map((step) => (step.id ? String(step.id) : ''))
-      .filter(Boolean);
-    setCompletedStepIds(initialCompleted);
+    setCompletedStepIds(initialCompletedStepIds);
+    setActiveStepId(persistedActiveStepId);
     setPracticeSessionsByStep({});
     setPracticeSessionError(null);
     setIsPracticeSessionLoading(false);
@@ -362,15 +441,10 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ studentId, plan, subj
     }
     setIsChatOpen(false);
     setChatInput('');
-    setChatMessages([
-      {
-        id: 'welcome-1',
-        sender: 'coach',
-        text: 'Need help with this plan step? Ask a question and I will guide you.',
-      },
-    ]);
+    setChatMessages([]);
+    setIsChatSending(false);
     setChatPosition(null);
-  }, [plan.id, completedStepsCount, sortedSteps]);
+  }, [plan.id, sortedStepSignature]);
 
   useEffect(() => () => {
     if (stepLoadingTimeoutRef.current) {
@@ -382,7 +456,43 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ studentId, plan, subj
     }
   }, []);
 
+  const buildPlanChatReferenceDocuments = (): StudentAiReferenceDocument[] => {
+    const documents: StudentAiReferenceDocument[] = [];
+
+    if (selectedStepContent.trim()) {
+      documents.push({
+        documentName: selectedStep?.title || 'Plan step',
+        markdown: decodeHtmlEntities(selectedStepContent).replace(/<[^>]+>/g, ' ').trim().slice(0, 1800),
+      });
+    }
+
+    if (selectedPracticeSession?.questions?.length) {
+      const questionText = selectedPracticeSession.questions
+        .map((question, index) => `${index + 1}. ${question.prompt}`)
+        .join('\n');
+      if (questionText.trim()) {
+        documents.push({
+          documentName: `${selectedStep?.title || 'Practice step'} questions`,
+          markdown: questionText.slice(0, 1800),
+        });
+      }
+    }
+
+    return documents.filter((document) => document.markdown.trim().length > 0).slice(0, 3);
+  };
+
+  const formatTutorReply = (reply: { reply: string; suggestedNextAction?: string; followUpQuestion?: string }) => (
+    [
+      reply.reply,
+      reply.suggestedNextAction ? `Next step: ${reply.suggestedNextAction}` : '',
+      reply.followUpQuestion ? `Think about this: ${reply.followUpQuestion}` : '',
+    ]
+      .filter((part) => part.trim().length > 0)
+      .join('\n\n')
+  );
+
   const sendChatMessage = () => {
+    if (isChatSending) return;
     const message = chatInput.trim();
     if (!message) return;
 
@@ -392,28 +502,66 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ studentId, plan, subj
       text: message,
     };
 
-    const coachReply: PlanChatMessage = {
-      id: `coach-${Date.now() + 1}`,
-      sender: 'coach',
-      text: `Good question. Focus on "${selectedStep?.title || 'this step'}", then explain your reasoning before moving to the next activity.`,
-    };
-
-    setChatMessages((previous) => [...previous, studentMessage, coachReply]);
     setChatInput('');
+    setChatMessages((previous) => [...previous, studentMessage]);
+    setIsChatSending(true);
+
+    const nextMessages = [...chatMessages, studentMessage];
+    void studentAiService.askTutor({
+      studentId,
+      subjectName,
+      planTitle: plan.plan.name,
+      planStepTitle: selectedStep?.title || undefined,
+      latestMessage: message,
+      coachMode: 'socratic',
+      taskGoal: selectedStep?.title || subjectName || 'Current plan step',
+      messages: nextMessages.map((entry) => ({
+        role: entry.sender === 'student' ? 'student' : 'assistant',
+        text: entry.text,
+      })),
+      referenceDocuments: buildPlanChatReferenceDocuments(),
+    })
+      .then((reply) => {
+        setChatMessages((previous) => [
+          ...previous,
+          {
+            id: `coach-${Date.now() + 1}`,
+            sender: 'coach',
+            text: formatTutorReply(reply),
+          },
+        ]);
+      })
+      .catch(() => {
+        setChatMessages((previous) => [
+          ...previous,
+          {
+            id: `coach-${Date.now() + 1}`,
+            sender: 'coach',
+            text: 'I could not generate guidance right now. Rephrase your question and focus on one step or concept.',
+          },
+        ]);
+      })
+      .finally(() => {
+        setIsChatSending(false);
+      });
   };
 
   const persistRuntimeProgress = useCallback(async (nextCompletedStepIds: string[], nextActiveStepId?: string | null) => {
     if (!studentId || !plan.id) return;
     try {
-      await studentService.updatePlanRuntimeProgress(studentId, plan.id, {
+      const runtime = await studentService.updatePlanRuntimeProgress(studentId, plan.id, {
         completedStepIds: nextCompletedStepIds,
         activeStepId: nextActiveStepId || undefined,
         status: 'active',
       });
+      const normalizedCompletedStepIds = sanitizeRuntimeStepIds(runtime.completedStepIds, validStepIds);
+      setCompletedStepIds(normalizedCompletedStepIds);
+      setActiveStepId(sanitizeRuntimeStepId(runtime.activeStepId, validStepIds));
+      onRuntimeChange?.(runtime);
     } catch {
       // Non-blocking; next interaction will retry.
     }
-  }, [plan.id, studentId]);
+  }, [onRuntimeChange, plan.id, studentId, validStepIds]);
 
   useEffect(() => {
     const loadPracticeSession = async () => {
@@ -460,6 +608,7 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ studentId, plan, subj
 
   useEffect(() => {
     if (!selectedStepId) return;
+    setActiveStepId((previous) => (previous === selectedStepId ? previous : selectedStepId));
     void persistRuntimeProgress(completedStepIds, selectedStepId);
   }, [completedStepIds, persistRuntimeProgress, selectedStepId]);
 
@@ -605,7 +754,7 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ studentId, plan, subj
     const normalizedText = (responseText || '').trim();
     const candidateImage = imageFile || null;
     if (!normalizedText && !candidateImage) {
-      throw new Error('Enter a response or upload an image before requesting AI feedback.');
+      throw new Error('Enter a response or attach a file before requesting AI feedback.');
     }
 
     const moduleName = selectedStep?.title?.trim() || subjectName?.trim() || 'Practice step';
@@ -649,7 +798,11 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ studentId, plan, subj
     if (selectedStepId) {
       const nextCompletedStepIds = Array.from(new Set([...completedStepIds, selectedStepId]));
       setCompletedStepIds(nextCompletedStepIds);
-      await persistRuntimeProgress(nextCompletedStepIds, selectedStepId);
+      const nextActiveStepId = nextStep?.id ? String(nextStep.id) : null;
+      if (nextStep) {
+        setSelectedStepIndex((previous) => Math.min(previous + 1, totalSteps - 1));
+      }
+      await persistRuntimeProgress(nextCompletedStepIds, nextActiveStepId);
     }
   };
 
@@ -669,7 +822,10 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ studentId, plan, subj
   };
 
   const selectedStepIsPractice = Boolean(selectedStep && isPracticeStep(selectedStep.type));
-  const showUpNextFooter = !selectedStepIsPractice || Boolean(completedPracticeSteps[selectedStepIndex]);
+  const showUpNextFooter =
+    !selectedStepIsPractice ||
+    Boolean(completedPracticeSteps[selectedStepIndex]) ||
+    Boolean(selectedStepId && completedStepIdSet.has(selectedStepId));
   const sidebarTitle = subjectName?.trim() || 'Subject';
   const mainHeaderTitle = selectedStep?.title?.trim() || sidebarTitle;
 
@@ -725,8 +881,9 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ studentId, plan, subj
 
         <div className="md:overflow-y-auto">
           {sortedSteps.map((step, index) => {
-            const isCompleted = index < completedStepsCount;
-            const isCurrent = index === currentStepIndex;
+            const stepId = step.id ? String(step.id) : null;
+            const isCompleted = Boolean(stepId && completedStepIdSet.has(stepId));
+            const isCurrent = Boolean(stepId && activeStepId === stepId);
             const isSelected = index === selectedStepIndex;
 
             return (
@@ -765,7 +922,7 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ studentId, plan, subj
                     <p className="text-[11px] uppercase tracking-wide text-slate-400 font-semibold">Step {index + 1}</p>
                     <p className="text-sm font-semibold text-slate-800 truncate">{step.title}</p>
                     <p className="text-xs text-slate-500 capitalize">
-                      {isCompleted ? 'Completed' : isCurrent ? 'In progress' : 'Not started'} • {step.type}
+                      {getRuntimeStepStatusLabel(stepId, completedStepIdSet, activeStepId)} • {step.type}
                     </p>
                   </div>
                 </div>
@@ -811,11 +968,7 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ studentId, plan, subj
                   <span className="capitalize">{selectedStep.type}</span>
                 </span>
                 <span className="text-xs text-slate-500">
-                  {selectedStepIndex < completedStepsCount
-                    ? 'Completed'
-                    : selectedStepIndex === currentStepIndex
-                      ? 'In progress'
-                      : 'Not started'}
+                  {getRuntimeStepStatusLabel(selectedStepId, completedStepIdSet, activeStepId)}
                 </span>
               </div>
 
@@ -930,17 +1083,17 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ studentId, plan, subj
 
                     <div className="flex flex-wrap items-center gap-2">
                       <label className="inline-flex cursor-pointer items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={(event) => {
-                            const file = event.target.files?.[0] || null;
-                            setManualPracticeImageFile(file);
-                            event.currentTarget.value = '';
-                          }}
-                        />
-                        {manualPracticeImageFile ? `Image attached: ${manualPracticeImageFile.name}` : 'Upload answer image (optional)'}
+                          <input
+                            type="file"
+                            accept={STUDENT_ASSESSMENT_ACCEPT}
+                            className="hidden"
+                            onChange={(event) => {
+                              const file = event.target.files?.[0] || null;
+                              setManualPracticeImageFile(file);
+                              event.currentTarget.value = '';
+                            }}
+                          />
+                        {manualPracticeImageFile ? `File attached: ${manualPracticeImageFile.name}` : 'Attach answer file (optional)'}
                       </label>
                       {manualPracticeImageFile && (
                         <button
@@ -948,10 +1101,12 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ studentId, plan, subj
                           onClick={() => setManualPracticeImageFile(null)}
                           className="inline-flex items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100"
                         >
-                          Remove image
+                          Remove file
                         </button>
                       )}
                     </div>
+
+                    <p className="text-xs text-slate-500">{STUDENT_ASSESSMENT_FILE_HELPER}</p>
 
                     {manualPracticeError && (
                       <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
@@ -1030,27 +1185,36 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ studentId, plan, subj
                 </div>
               </div>
               <div className="h-[300px] max-h-[52vh] space-y-2 overflow-y-auto px-3 py-3">
+                {chatMessages.length === 0 && (
+                  <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+                    Your messages and tutor guidance will appear here.
+                  </div>
+                )}
                 {chatMessages.map((message) => (
                   <div
                     key={message.id}
                     className={`flex ${message.sender === 'student' ? 'justify-end' : 'justify-start'}`}
                   >
                     <div
-                      className={`max-w-[88%] rounded-lg px-3 py-2 text-sm ${
+                      className={`max-w-[88%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm ${
                         message.sender === 'student'
                           ? 'bg-blue-600 text-white'
                           : 'border border-slate-200 bg-slate-50 text-slate-700'
                       }`}
                     >
+                      <p className={`mb-1 text-[11px] font-semibold ${
+                        message.sender === 'student' ? 'text-blue-100' : 'text-slate-500'
+                      }`}>
+                        {message.sender === 'student' ? 'You' : 'AI Tutor'}
+                      </p>
                       {message.text}
                     </div>
                   </div>
                 ))}
               </div>
               <div className="border-t border-slate-200 p-3">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
+                <div className="flex items-end gap-2">
+                  <textarea
                     value={chatInput}
                     onChange={(event) => setChatInput(event.target.value)}
                     onKeyDown={(event) => {
@@ -1060,15 +1224,18 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ studentId, plan, subj
                       }
                     }}
                     placeholder="Type a message..."
-                    className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-blue-500 focus:outline-none"
+                    rows={2}
+                    disabled={isChatSending}
+                    className="min-h-[44px] min-w-0 flex-1 resize-none rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-50"
                   />
                   <button
                     type="button"
                     onClick={sendChatMessage}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-blue-600 text-white hover:bg-blue-700"
+                    disabled={isChatSending || chatInput.trim().length === 0}
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-400"
                     aria-label="Send message"
                   >
-                    <Send className="h-4 w-4" />
+                    {isChatSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   </button>
                 </div>
               </div>
@@ -1120,10 +1287,10 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ studentId, plan, subj
                     void persistRuntimeProgress(nextCompletedStepIds, nextStep?.id ? String(nextStep.id) : null);
                     if (nextStep) setSelectedStepIndex((prev) => Math.min(prev + 1, totalSteps - 1));
                   }}
-                  disabled={!nextStep}
+                  disabled={!selectedStepId}
                   className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
                 >
-                  {nextStep ? `Up next: ${getNextStepLabel(nextStep.type)}` : 'Plan complete'}
+                  {nextStep ? `Up next: ${getNextStepLabel(nextStep.type)}` : 'Mark plan complete'}
                 </button>
               </div>
             </footer>
@@ -1143,10 +1310,10 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({ studentId, plan, subj
                   void persistRuntimeProgress(nextCompletedStepIds, nextStep?.id ? String(nextStep.id) : null);
                   if (nextStep) setSelectedStepIndex((prev) => Math.min(prev + 1, totalSteps - 1));
                 }}
-                disabled={!nextStep}
+                disabled={!selectedStepId}
                 className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
               >
-                {nextStep ? `Up next: ${getNextStepLabel(nextStep.type)}` : 'Plan complete'}
+                {nextStep ? `Up next: ${getNextStepLabel(nextStep.type)}` : 'Mark plan complete'}
               </button>
             </div>
           </div>

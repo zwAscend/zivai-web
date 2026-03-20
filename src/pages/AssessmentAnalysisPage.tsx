@@ -5,6 +5,18 @@ import Sidebar from '../components/resources/Sidebar';
 import { assessmentService, subjectService } from '../services/api';
 import { Assessment, Subject } from '../types';
 
+interface AssessmentResultSummary {
+  actualMark?: number;
+  expectedMark?: number;
+  grade?: string;
+}
+
+interface AssessmentAnalysisView extends Assessment {
+  assessmentType?: string;
+  isAIEnhanced?: boolean;
+  aiEnhanced?: boolean;
+}
+
 const AssessmentAnalysisPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -73,9 +85,9 @@ const AssessmentAnalysisPage: React.FC = () => {
       if (!selectedAssessmentId) return;
       setLoading(true);
       try {
-        const results = await assessmentService.getResults(selectedAssessmentId).catch(() => []);
+        const results = (await assessmentService.getResults(selectedAssessmentId).catch(() => [])) as AssessmentResultSummary[];
         const normalizedResults = Array.isArray(results)
-          ? results.map((result: any) => ({
+          ? results.map((result: AssessmentResultSummary) => ({
               actualMark: Number(result?.actualMark ?? 0),
               expectedMark: Number(result?.expectedMark ?? 0),
             }))
@@ -115,7 +127,7 @@ const AssessmentAnalysisPage: React.FC = () => {
   }, [selectedAssessmentId]);
 
   const selectedAssessment = useMemo(
-    () => assessments.find((assessment) => assessment.id === selectedAssessmentId),
+    () => assessments.find((assessment) => assessment.id === selectedAssessmentId) as AssessmentAnalysisView | undefined,
     [assessments, selectedAssessmentId]
   );
 
@@ -155,7 +167,7 @@ const AssessmentAnalysisPage: React.FC = () => {
         recentUploads={[]}
       />
       <main className="flex-1 p-8 overflow-y-auto">
-        <div className="max-w-5xl">
+        <div className="w-full">
           <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
             <div>
               <h1 className="text-2xl font-bold">Class Assessment Analysis</h1>
@@ -215,11 +227,11 @@ const AssessmentAnalysisPage: React.FC = () => {
                   <div>
                     <h2 className="text-lg font-semibold">{selectedAssessment?.name || 'Assessment'}</h2>
                     <p className="text-xs text-gray-500">
-                      {(selectedAssessment as any)?.assessmentType || selectedAssessment?.type || 'Assessment'} • Status: {selectedAssessment?.status || 'draft'}
+                      {selectedAssessment?.assessmentType || selectedAssessment?.type || 'Assessment'} • Status: {selectedAssessment?.status || 'draft'}
                     </p>
                   </div>
                   <div className="text-xs text-gray-500">
-                    AI Review: {(selectedAssessment as any)?.isAIEnhanced || (selectedAssessment as any)?.aiEnhanced ? 'Enabled' : 'Disabled'}
+                    AI Review: {selectedAssessment?.isAIEnhanced || selectedAssessment?.aiEnhanced ? 'Enabled' : 'Disabled'}
                   </div>
                 </div>
 

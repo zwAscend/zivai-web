@@ -8,6 +8,7 @@ import {
   ChevronsRight,
   FileText,
   GripHorizontal,
+  Loader2,
   MessageCircle,
   PlayCircle,
   Send,
@@ -28,7 +29,17 @@ import {
 } from '../../services/studentService';
 import { assessmentService } from '../../services/assessmentService';
 import { resourceService, ResourceItem } from '../../services/resourceService';
-import { externalAssessmentService } from '../../services/externalAssessmentService';
+import {
+  externalAssessmentService,
+  STUDENT_ASSESSMENT_ACCEPT,
+  STUDENT_ASSESSMENT_FILE_HELPER,
+} from '../../services/externalAssessmentService';
+import {
+  studentAiService,
+  StudentAiMasteryTopic,
+  StudentAiReferenceDocument,
+  StudentChallengeQuestion,
+} from '../../services/studentAiService';
 import { normalizeResourceContentType } from '../../constants/resourceContentTypes';
 import StudentPracticeRunner, { PracticeQuestion, PracticeRunSummary } from './StudentPracticeRunner';
 
@@ -101,6 +112,9 @@ interface ChallengeGenerationConfig {
   difficulty: ChallengeDifficulty;
   questions: PracticeQuestion[];
   sessionId?: string | null;
+  coachMessage?: string | null;
+  summary?: string | null;
+  focusTopics?: string[];
   isGenerating: boolean;
   error: string | null;
 }
@@ -142,9 +156,33 @@ const createChallengeGenerationConfig = (questionCount: number): ChallengeGenera
   difficulty: 'medium',
   questions: [],
   sessionId: null,
+  coachMessage: null,
+  summary: null,
+  focusTopics: [],
   isGenerating: false,
   error: null,
 });
+
+const mapAiChallengeQuestionToPracticeQuestion = (question: StudentChallengeQuestion): PracticeQuestion => {
+  if (question.type === 'input') {
+    return {
+      id: question.id,
+      type: 'input',
+      prompt: question.prompt,
+      placeholder: 'Type your answer',
+      acceptedAnswers: question.acceptedAnswers || [],
+      helpText: question.helpText,
+    };
+  }
+  return {
+    id: question.id,
+    type: question.type,
+    prompt: question.prompt,
+    options: question.options || [],
+    correctOptionIndexes: question.correctOptionIndexes || [],
+    helpText: question.helpText,
+  };
+};
 
 const getPracticeActionLabel = (status: PracticeStatus) => {
   if (status === 'mastered') return 'Review';
@@ -684,7 +722,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
   const [isSubjectOverviewActive, setIsSubjectOverviewActive] = useState(false);
   const [selectedUnitIndex, setSelectedUnitIndex] = useState(0);
   const [backendUnits, setBackendUnits] = useState<CurriculumUnit[]>([]);
-  const [subjectOverview, setSubjectOverview] = useState<StudentSubjectOverview | null>(null);
+  const [, setSubjectOverview] = useState<StudentSubjectOverview | null>(null);
   const [isCurriculumLoading, setIsCurriculumLoading] = useState(false);
   const [, setCurriculumError] = useState<string | null>(null);
   const [practiceStatusOverrides, setPracticeStatusOverrides] = useState<Record<string, PracticeStatus>>({});
@@ -720,13 +758,8 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
   const [subjectChallengeConfigBySubjectId, setSubjectChallengeConfigBySubjectId] = useState<Record<string, ChallengeGenerationConfig>>({});
   const [isSubjectsChatOpen, setIsSubjectsChatOpen] = useState(false);
   const [subjectsChatInput, setSubjectsChatInput] = useState('');
-  const [subjectsChatMessages, setSubjectsChatMessages] = useState<SubjectsChatMessage[]>([
-    {
-      id: 'subjects-chat-welcome',
-      sender: 'coach',
-      text: 'Need help on this topic? Ask a question and I will guide your next step.',
-    },
-  ]);
+  const [subjectsChatMessages, setSubjectsChatMessages] = useState<SubjectsChatMessage[]>([]);
+  const [isSubjectsChatSending, setIsSubjectsChatSending] = useState(false);
   const [subjectsChatPosition, setSubjectsChatPosition] = useState<{ x: number; y: number } | null>(null);
   const subjectsChatFloatingRef = useRef<HTMLDivElement | null>(null);
   const subjectsChatDragStateRef = useRef<SubjectsChatDragState | null>(null);
@@ -768,10 +801,9 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
     : selectedSubjectChallengeConfig.questionCount;
   const unitChallengeEstimatedMinutes = Math.max(15, unitChallengeQuestionTotal * 2);
   const subjectChallengeEstimatedMinutes = Math.max(20, subjectChallengeQuestionTotal * 2);
-  const subjectChallengeEligibility = subjectOverview?.challengeEligibility || null;
-  const isSubjectChallengeEligible = subjectChallengeEligibility ? subjectChallengeEligibility.eligible : true;
+  const isSubjectChallengeEligible = Boolean(activeSubject && units.length > 0);
   const subjectChallengeBlockedReason = !isSubjectChallengeEligible
-    ? subjectChallengeEligibility?.reason || 'Subject challenge is currently unavailable.'
+    ? 'No teacher-published topics are available for this subject yet.'
     : null;
   const shouldShowSubjectsChat = !isUnitChallengeActive && !isSubjectChallengeActive && Boolean(detailState);
 
@@ -811,8 +843,6 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
 
         if (mappedUnits.length === 0) {
           setCurriculumError('No teacher-published curriculum found yet.');
-        } else if (!overview.challengeEligibility?.eligible) {
-          setCurriculumError(overview.challengeEligibility.reason || null);
         } else {
           setCurriculumError(null);
         }
@@ -860,13 +890,8 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
     setIsSubjectsChatOpen(false);
     setSubjectsChatInput('');
     setSubjectsChatPosition(null);
-    setSubjectsChatMessages([
-      {
-        id: 'subjects-chat-welcome',
-        sender: 'coach',
-        text: 'Need help on this topic? Ask a question and I will guide your next step.',
-      },
-    ]);
+    setSubjectsChatMessages([]);
+    setIsSubjectsChatSending(false);
   }, [activeSubject?.id]);
 
   useEffect(() => () => {
@@ -935,6 +960,69 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
     });
   };
 
+  const buildMasteryTopics = (topics: CurriculumTopic[]): StudentAiMasteryTopic[] => (
+    topics
+      .slice()
+      .sort((left, right) => {
+        if (left.masteryPercent !== right.masteryPercent) return left.masteryPercent - right.masteryPercent;
+        return right.questionCount - left.questionCount;
+      })
+      .map((topic, index) => ({
+        topicId: topic.id,
+        title: topic.title,
+        masteryPercent: topic.masteryPercent,
+        questionCount: topic.questionCount,
+        priority: index + 1,
+      }))
+  );
+
+  const buildSubjectsChatReferenceDocuments = (): StudentAiReferenceDocument[] => {
+    const documents: StudentAiReferenceDocument[] = [];
+
+    if (selectedDetailItem?.kind === 'learn' && normalizedSelectedResourceBody) {
+      documents.push({
+        documentName: selectedDetailItem.title,
+        markdown: normalizedSelectedResourceBody.slice(0, 1800),
+      });
+    }
+
+    if (selectedDetailItem?.kind === 'practice' && detailPracticeSession?.questions?.length) {
+      const questionText = detailPracticeSession.questions
+        .map((question, index) => `${index + 1}. ${question.prompt}`)
+        .join('\n');
+      if (questionText.trim()) {
+        documents.push({
+          documentName: `${selectedDetailItem.title} practice`,
+          markdown: questionText.slice(0, 1800),
+        });
+      }
+    }
+
+    if (selectedDetailItem?.kind === 'assessment' && effectiveDetailAssessmentQuestions.length) {
+      const questionText = effectiveDetailAssessmentQuestions
+        .map((question, index) => `${index + 1}. ${question.prompt}`)
+        .join('\n');
+      if (questionText.trim()) {
+        documents.push({
+          documentName: `${selectedDetailItem.title} assessment`,
+          markdown: questionText.slice(0, 1800),
+        });
+      }
+    }
+
+    return documents.slice(0, 3);
+  };
+
+  const formatTutorReply = (reply: { reply: string; suggestedNextAction?: string; followUpQuestion?: string }) => (
+    [
+      reply.reply,
+      reply.suggestedNextAction ? `Next step: ${reply.suggestedNextAction}` : '',
+      reply.followUpQuestion ? `Think about this: ${reply.followUpQuestion}` : '',
+    ]
+      .filter((part) => part.trim().length > 0)
+      .join('\n\n')
+  );
+
   const generateUnitChallengeWithAi = async () => {
     if (!activeSubject || !selectedUnit) return;
 
@@ -942,28 +1030,39 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
     updateUnitChallengeConfig((current) => ({ ...current, isGenerating: true, error: null }));
 
     try {
-      const session = await studentService.startPracticeSession(studentId, activeSubject.id, {
-        topicId: selectedUnit.topics[0]?.id,
-        questionCount: currentConfig.questionCount,
+      const generatedChallenge = await studentAiService.generateChallenge({
+        studentId,
+        subjectId: activeSubject.id,
+        subjectName: activeSubject.name,
         mode: 'topic_challenge',
-        title: `${selectedUnit.code}: ${selectedUnit.title} topic challenge`,
+        unitTitle: `${selectedUnit.code}: ${selectedUnit.title}`,
+        topicTitle: selectedUnit.topics[0]?.title || selectedUnit.title,
+        questionCount: currentConfig.questionCount,
+        difficulty: currentConfig.difficulty,
+        objective: `Strengthen the weakest skills inside ${selectedUnit.title}.`,
+        masteryTopics: buildMasteryTopics(selectedUnit.topics),
       });
-      const practiceQuestions = (session.questions || []).map(mapPracticeQuestionFromSession);
 
       updateUnitChallengeConfig((current) => ({
         ...current,
-        questions: practiceQuestions,
-        sessionId: session.sessionId,
+        questions: generatedChallenge.questions.map(mapAiChallengeQuestionToPracticeQuestion),
+        sessionId: generatedChallenge.challengeId,
+        coachMessage: generatedChallenge.coachMessage,
+        summary: generatedChallenge.summary,
+        focusTopics: generatedChallenge.focusTopics,
         isGenerating: false,
         error: null,
       }));
-    } catch {
+    } catch (error: unknown) {
       updateUnitChallengeConfig((current) => ({
         ...current,
         questions: [],
         sessionId: null,
+        coachMessage: null,
+        summary: null,
+        focusTopics: [],
         isGenerating: false,
-        error: 'Unable to prepare challenge questions right now. Please retry.',
+        error: getErrorMessage(error, 'Unable to prepare challenge questions right now. Please retry.'),
       }));
     }
   };
@@ -982,27 +1081,37 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
     updateSubjectChallengeConfig((current) => ({ ...current, isGenerating: true, error: null }));
 
     try {
-      const session = await studentService.startPracticeSession(studentId, activeSubject.id, {
-        questionCount: currentConfig.questionCount,
+      const generatedChallenge = await studentAiService.generateChallenge({
+        studentId,
+        subjectId: activeSubject.id,
+        subjectName: activeSubject.name,
         mode: 'subject_challenge',
-        title: `${activeSubject.name} subject challenge`,
+        questionCount: currentConfig.questionCount,
+        difficulty: currentConfig.difficulty,
+        objective: `Focus the challenge on the student's weakest subject areas in ${activeSubject.name}.`,
+        masteryTopics: buildMasteryTopics(units.flatMap((unit) => unit.topics)),
       });
-      const practiceQuestions = (session.questions || []).map(mapPracticeQuestionFromSession);
 
       updateSubjectChallengeConfig((current) => ({
         ...current,
-        questions: practiceQuestions,
-        sessionId: session.sessionId,
+        questions: generatedChallenge.questions.map(mapAiChallengeQuestionToPracticeQuestion),
+        sessionId: generatedChallenge.challengeId,
+        coachMessage: generatedChallenge.coachMessage,
+        summary: generatedChallenge.summary,
+        focusTopics: generatedChallenge.focusTopics,
         isGenerating: false,
         error: null,
       }));
-    } catch {
+    } catch (error: unknown) {
       updateSubjectChallengeConfig((current) => ({
         ...current,
         questions: [],
         sessionId: null,
+        coachMessage: null,
+        summary: null,
+        focusTopics: [],
         isGenerating: false,
-        error: 'Unable to prepare challenge questions right now. Please retry.',
+        error: getErrorMessage(error, 'Unable to prepare challenge questions right now. Please retry.'),
       }));
     }
   };
@@ -1070,6 +1179,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
   };
 
   const sendSubjectsChatMessage = () => {
+    if (isSubjectsChatSending) return;
     const message = subjectsChatInput.trim();
     if (!message) return;
 
@@ -1079,15 +1189,55 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
       text: message,
     };
 
-    const focusLabel = detailTopic?.title || selectedUnit?.title || activeSubject?.name || 'this topic';
-    const coachReply: SubjectsChatMessage = {
-      id: `subjects-coach-${Date.now() + 1}`,
-      sender: 'coach',
-      text: `Focus on "${focusLabel}". Review one example, then attempt one practice item and explain each step.`,
-    };
-
-    setSubjectsChatMessages((previous) => [...previous, studentMessage, coachReply]);
     setSubjectsChatInput('');
+    setSubjectsChatMessages((previous) => [...previous, studentMessage]);
+    setIsSubjectsChatSending(true);
+
+    const nextMessages = [...subjectsChatMessages, studentMessage];
+    const referenceDocuments = buildSubjectsChatReferenceDocuments();
+    const masteryTopics = detailTopic
+      ? buildMasteryTopics(detailUnit?.topics || [detailTopic])
+      : buildMasteryTopics(selectedUnit?.topics || []);
+
+    void studentAiService.askTutor({
+      studentId,
+      subjectId: activeSubject?.id,
+      subjectName: activeSubject?.name,
+      unitTitle: detailUnit?.title || selectedUnit?.title,
+      topicTitle: detailTopic?.title || selectedUnit?.title,
+      latestMessage: message,
+      coachMode: 'socratic',
+      taskGoal: detailTopic?.title || selectedUnit?.title || activeSubject?.name,
+      messages: nextMessages.map((entry) => ({
+        role: entry.sender === 'student' ? 'student' : 'assistant',
+        text: entry.text,
+      })),
+      referenceDocuments,
+      masteryTopics,
+    })
+      .then((reply) => {
+        setSubjectsChatMessages((previous) => [
+          ...previous,
+          {
+            id: `subjects-coach-${Date.now() + 1}`,
+            sender: 'coach',
+            text: formatTutorReply(reply),
+          },
+        ]);
+      })
+      .catch(() => {
+        setSubjectsChatMessages((previous) => [
+          ...previous,
+          {
+            id: `subjects-coach-${Date.now() + 1}`,
+            sender: 'coach',
+            text: 'I could not generate guidance right now. Rephrase your question and focus on one concept or step.',
+          },
+        ]);
+      })
+      .finally(() => {
+        setIsSubjectsChatSending(false);
+      });
   };
 
   const clampSubjectsChatPosition = (x: number, y: number) => {
@@ -1553,7 +1703,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
     const normalizedText = (responseText || '').trim();
     const candidateImage = imageFile || null;
     if (!normalizedText && !candidateImage) {
-      throw new Error('Enter a response or upload an image before requesting AI feedback.');
+      throw new Error('Enter a response or attach a file before requesting AI feedback.');
     }
 
     const moduleName = selectedDetailItem?.title?.trim()
@@ -1977,7 +2127,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                           <label className="inline-flex cursor-pointer items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">
                             <input
                               type="file"
-                              accept="image/*"
+                              accept={STUDENT_ASSESSMENT_ACCEPT}
                               className="hidden"
                               onChange={(event) => {
                                 const file = event.target.files?.[0] || null;
@@ -1988,8 +2138,8 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                               }}
                             />
                             {detailAssessmentImageFile
-                              ? `Image attached: ${detailAssessmentImageFile.name}`
-                              : 'Upload answer image (optional)'}
+                              ? `File attached: ${detailAssessmentImageFile.name}`
+                              : 'Attach answer file (optional)'}
                           </label>
                           {detailAssessmentImageFile && (
                             <button
@@ -2000,10 +2150,12 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                               }}
                               className="inline-flex items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100"
                             >
-                              Remove image
+                              Remove file
                             </button>
                           )}
                         </div>
+
+                        <p className="text-xs text-slate-500">{STUDENT_ASSESSMENT_FILE_HELPER}</p>
 
                         {detailAssessmentError && (
                           <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
@@ -2376,9 +2528,14 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                         </p>
                       )}
                       {selectedSubjectChallengeConfig.questions.length > 0 && (
-                        <p className="text-xs text-emerald-700">
-                          {selectedSubjectChallengeConfig.questions.length} questions ready.
-                        </p>
+                        <div className="space-y-1">
+                          <p className="text-xs text-emerald-700">
+                            {selectedSubjectChallengeConfig.questions.length} questions ready.
+                          </p>
+                          {selectedSubjectChallengeConfig.coachMessage && (
+                            <p className="text-xs text-slate-600">{selectedSubjectChallengeConfig.coachMessage}</p>
+                          )}
+                        </div>
                       )}
                       {selectedSubjectChallengeConfig.error && (
                         <p className="text-xs text-amber-700">{selectedSubjectChallengeConfig.error}</p>
@@ -2398,43 +2555,23 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                           right: 'var(--subjects-footer-right)',
                           bottom: '0.75rem',
                         }}
-                        onSubmitAnswer={async ({ question, studentAnswerText, selectedOptions, skipped }) => {
-                          const sessionId = selectedSubjectChallengeConfig.sessionId;
-                          if (!sessionId) {
-                            throw new Error('Challenge session is unavailable.');
-                          }
-                          const result = await studentService.submitPracticeAnswer(studentId, sessionId, {
-                            assessmentQuestionId: question.id,
-                            studentAnswerText,
-                            selectedOptions,
-                            skipped,
-                          });
-                          return {
-                            correct: result.correct,
-                            skipped: result.skipped,
-                            completed: result.completed,
-                            feedback: result.feedback || null,
-                          };
-                        }}
-                        onCompleteSession={async () => {
-                          const sessionId = selectedSubjectChallengeConfig.sessionId;
-                          if (!sessionId) return;
-                          await studentService.completePracticeSession(studentId, sessionId);
-                        }}
                         onComplete={completeSubjectChallenge}
                       />
                     ) : (
                       <section className="overflow-hidden rounded-lg border border-slate-200">
-                        <div className="bg-slate-900 px-6 py-10 text-center text-white">
-                          <p className="text-xs uppercase tracking-[0.2em] text-blue-200">Step 2 of 2</p>
+                        <div className="bg-gradient-to-r from-emerald-500 via-sky-500 to-cyan-500 px-6 py-10 text-center text-white">
+                          <p className="text-xs uppercase tracking-[0.2em] text-emerald-50">Step 2 of 2</p>
                           <h3 className="mt-3 text-4xl font-bold">Attempt subject challenge</h3>
-                          <p className="mt-3 text-lg text-blue-100">
+                          <p className="mt-3 text-lg text-white/90">
                             {!isSubjectChallengeEligible
                               ? `${subjectChallengeBlockedReason}`
                               : selectedSubjectChallengeConfig.questions.length > 0
                               ? `Your challenge is ready. Test your skills across all topics in ${activeSubject.name}.`
                               : `Return to Step 1 and prepare questions first.`}
                           </p>
+                          {selectedSubjectChallengeConfig.summary && (
+                            <p className="mt-3 text-sm text-white/85">{selectedSubjectChallengeConfig.summary}</p>
+                          )}
                           <p className="mt-4 text-xl font-semibold">
                             {subjectChallengeQuestionTotal} questions • {subjectChallengeEstimatedMinutes}-{subjectChallengeEstimatedMinutes + 5} minutes
                           </p>
@@ -2543,9 +2680,14 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                             {selectedUnitChallengeConfig.isGenerating ? 'Preparing...' : 'Prepare challenge'}
                           </button>
                           {selectedUnitChallengeConfig.questions.length > 0 && (
-                            <p className="text-xs text-emerald-700">
-                              {selectedUnitChallengeConfig.questions.length} questions ready.
-                            </p>
+                            <div className="space-y-1">
+                              <p className="text-xs text-emerald-700">
+                                {selectedUnitChallengeConfig.questions.length} questions ready.
+                              </p>
+                              {selectedUnitChallengeConfig.coachMessage && (
+                                <p className="text-xs text-slate-600">{selectedUnitChallengeConfig.coachMessage}</p>
+                              )}
+                            </div>
                           )}
                           {selectedUnitChallengeConfig.error && (
                             <p className="text-xs text-amber-700">{selectedUnitChallengeConfig.error}</p>
@@ -2563,41 +2705,21 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                           right: 'var(--subjects-footer-right)',
                           bottom: '0.75rem',
                         }}
-                        onSubmitAnswer={async ({ question, studentAnswerText, selectedOptions, skipped }) => {
-                          const sessionId = selectedUnitChallengeConfig.sessionId;
-                          if (!sessionId) {
-                            throw new Error('Challenge session is unavailable.');
-                          }
-                          const result = await studentService.submitPracticeAnswer(studentId, sessionId, {
-                            assessmentQuestionId: question.id,
-                            studentAnswerText,
-                            selectedOptions,
-                            skipped,
-                          });
-                          return {
-                            correct: result.correct,
-                            skipped: result.skipped,
-                            completed: result.completed,
-                            feedback: result.feedback || null,
-                          };
-                        }}
-                        onCompleteSession={async () => {
-                          const sessionId = selectedUnitChallengeConfig.sessionId;
-                          if (!sessionId) return;
-                          await studentService.completePracticeSession(studentId, sessionId);
-                        }}
                         onComplete={completeUnitChallenge}
                       />
                     ) : (
                       <section className="overflow-hidden rounded-lg border border-slate-200">
-                        <div className="bg-slate-900 px-6 py-10 text-center text-white">
-                          <p className="text-xs uppercase tracking-[0.2em] text-blue-200">Step 2 of 2</p>
+                        <div className="bg-gradient-to-r from-emerald-500 via-sky-500 to-cyan-500 px-6 py-10 text-center text-white">
+                          <p className="text-xs uppercase tracking-[0.2em] text-emerald-50">Step 2 of 2</p>
                           <h3 className="mt-3 text-4xl font-bold">Attempt topic challenge</h3>
-                          <p className="mt-3 text-lg text-blue-100">
+                          <p className="mt-3 text-lg text-white/90">
                             {selectedUnitChallengeConfig.questions.length > 0
                               ? 'Your challenge is ready. Test your skills across this topic area.'
                               : 'Return to Step 1 and prepare questions first.'}
                           </p>
+                          {selectedUnitChallengeConfig.summary && (
+                            <p className="mt-3 text-sm text-white/85">{selectedUnitChallengeConfig.summary}</p>
+                          )}
                           <p className="mt-4 text-xl font-semibold">
                             {unitChallengeQuestionTotal} questions • {unitChallengeEstimatedMinutes}-{unitChallengeEstimatedMinutes + 5} minutes
                           </p>
@@ -3003,27 +3125,36 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                   </div>
                 </div>
                 <div className="h-[300px] max-h-[52vh] space-y-2 overflow-y-auto px-3 py-3">
+                  {subjectsChatMessages.length === 0 && (
+                    <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+                      Your messages and tutor guidance will appear here.
+                    </div>
+                  )}
                   {subjectsChatMessages.map((message) => (
                     <div
                       key={message.id}
                       className={`flex ${message.sender === 'student' ? 'justify-end' : 'justify-start'}`}
                     >
                       <div
-                        className={`max-w-[88%] rounded-lg px-3 py-2 text-sm ${
+                        className={`max-w-[88%] whitespace-pre-wrap rounded-lg px-3 py-2 text-sm ${
                           message.sender === 'student'
                             ? 'bg-blue-600 text-white'
                             : 'border border-slate-200 bg-slate-50 text-slate-700'
                         }`}
                       >
+                        <p className={`mb-1 text-[11px] font-semibold ${
+                          message.sender === 'student' ? 'text-blue-100' : 'text-slate-500'
+                        }`}>
+                          {message.sender === 'student' ? 'You' : 'AI Tutor'}
+                        </p>
                         {message.text}
                       </div>
                     </div>
                   ))}
                 </div>
                 <div className="border-t border-slate-200 p-3">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
+                  <div className="flex items-end gap-2">
+                    <textarea
                       value={subjectsChatInput}
                       onChange={(event) => setSubjectsChatInput(event.target.value)}
                       onKeyDown={(event) => {
@@ -3033,15 +3164,18 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                         }
                       }}
                       placeholder="Ask about this topic..."
-                      className="min-w-0 flex-1 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-blue-500 focus:outline-none"
+                      rows={2}
+                      disabled={isSubjectsChatSending}
+                      className="min-h-[44px] min-w-0 flex-1 resize-none rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-50"
                     />
                     <button
                       type="button"
                       onClick={sendSubjectsChatMessage}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-blue-600 text-white hover:bg-blue-700"
+                      disabled={isSubjectsChatSending || subjectsChatInput.trim().length === 0}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-400"
                       aria-label="Send message"
                     >
-                      <Send className="h-4 w-4" />
+                      {isSubjectsChatSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                     </button>
                   </div>
                 </div>

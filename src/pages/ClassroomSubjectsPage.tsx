@@ -50,7 +50,15 @@ import { useAuth } from '../context/AuthContext';
 import { authService } from '../services/authService';
 import { curriculumService, CurriculumTopicWithResources } from '../services/curriculumService';
 import { ResourceItem, resourceService } from '../services/resourceService';
+import {
+  TeacherPracticeGenerationQuestion,
+  WORKSPACE_REFERENCE_ACCEPT,
+  WORKSPACE_REFERENCE_HELPER,
+  WorkspaceReferenceDocument,
+  workspaceAiService,
+} from '../services/workspaceAiService';
 import { normalizeResourceContentType } from '../constants/resourceContentTypes';
+import type { Assessment } from '../types';
 
 type TeachingSubject = {
   id: string;
@@ -83,6 +91,33 @@ type WorkspaceOperationFeedback = {
   title: string;
   message: string;
 };
+type ResourceWorkspaceSnapshot = {
+  title: string;
+  body: string;
+};
+type AssessmentWorkspaceSnapshot = {
+  name: string;
+  assessmentType: WorkspaceAssessment['assessmentType'] | string;
+  description: string;
+  maxScore: string;
+  weight: string;
+  timeLimit: string;
+  attempts: string;
+  status: string;
+  visibility: string;
+  questions: Array<{
+    prompt: string;
+    type: AssessmentQuestionType;
+    marks: number;
+    options: string[];
+    correctAnswers: string[];
+    correctAnswer: string;
+    markingGuide: string;
+  }>;
+};
+type WorkspaceBaseline =
+  | { tab: 'resource'; snapshot: ResourceWorkspaceSnapshot }
+  | { tab: 'assessment'; snapshot: AssessmentWorkspaceSnapshot };
 type PendingWorkspaceDelete = {
   topicId: string;
   type: TopicContentType;
@@ -90,6 +125,7 @@ type PendingWorkspaceDelete = {
 };
 type SelectionActionType = 'change' | 'different' | 'chat';
 type AssessmentQuestionType = 'short-answer' | 'multiple-choice';
+type AiQuestionTypeMode = 'multiple_choice' | 'structured' | 'mixed';
 type AssessmentQuestion = {
   id: string;
   prompt: string;
@@ -114,6 +150,59 @@ type WorkspaceAssessment = {
   resourceId?: string | null;
   createdAt?: string;
   updatedAt?: string;
+};
+
+type AssessmentApiQuestion = {
+  id?: string;
+  questionId?: string;
+  stem?: string;
+  questionTypeCode?: string;
+  maxMark?: number;
+  points?: number;
+  difficulty?: number;
+  sequenceIndex?: number;
+  rubricJson?: Record<string, unknown> | null;
+};
+
+type AssessmentApiRecord = WorkspaceAssessment & {
+  resource?: string | { id?: string | null } | null;
+  questions?: AssessmentApiQuestion[];
+  aiEnhanced?: boolean;
+};
+
+type AssessmentMutationPayload = {
+  schoolId: string;
+  subjectId: string;
+  name: string;
+  description: string;
+  assessmentType: string;
+  visibility: string;
+  timeLimitMin: number | null;
+  attemptsAllowed: number;
+  maxScore: number;
+  weightPct: number;
+  resourceId: string;
+  aiEnhanced: boolean;
+  status: string;
+  createdBy: string;
+  lastModifiedBy: string;
+  questions: Array<{
+    stem: string;
+    questionTypeCode: string;
+    maxMark: number;
+    difficulty: number;
+    rubricJson: {
+      options: string[];
+      correctAnswers: string[];
+      correctAnswer: string;
+      expectedAnswer: string;
+      answer: string;
+      markingGuide: string;
+      markingPoints: string[];
+    };
+    sequenceIndex: number;
+    points: number;
+  }>;
 };
 
 type TopicCoverage = {
@@ -331,6 +420,7 @@ const TOPIC_TEMPLATES: Record<string, TopicCoverage[]> = {
     },
   ],
 };
+void TOPIC_TEMPLATES;
 
 const getTopicMissingTypes = (topic: TopicCoverage): TopicContentType[] => {
   const missing: TopicContentType[] = [];
@@ -409,97 +499,103 @@ const normalizeEditorContent = (value: string) => {
   return normalized;
 };
 
-const buildSeedMaterialDraft = (_topicTitle: string, _itemTitle: string, _type: TopicContentType) => '';
+const stripHtmlToText = (value: string) =>
+  value
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>/gi, '\n')
+    .replace(/<\/li>/gi, '\n')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
 
-const buildAiGeneratedDraft = ({
-  topicTitle,
-  itemTitle,
-  type,
-  gradeLevel,
-  objective,
-  prompt,
-  variant,
-}: {
-  topicTitle: string;
-  itemTitle: string;
-  type: TopicContentType;
-  gradeLevel: string;
-  objective: string;
-  prompt: string;
-  variant: boolean;
-}) => {
-  const title = itemTitle || `${toTitleCase(type)} draft`;
-  const objectiveLine = objective || `Build mastery on ${topicTitle}`;
-  const promptLine = prompt || 'Use clear teacher-ready wording and concise learner instructions.';
-  const variantLine = variant ? 'Alternative version with a different activity structure.' : 'Primary version.';
-
-  if (type === 'assessment') {
-    return `${title}
-
-Grade level: ${gradeLevel}
-Objective: ${objectiveLine}
-${variantLine}
-
-Practice brief:
-- Design 5 items: 2 recall, 2 application, 1 reasoning.
-- Focus topic: ${topicTitle}.
-
-Items:
-1. Recall question on core definition.
-2. Recall question on key components.
-3. Application scenario question.
-4. Data/diagram interpretation question.
-5. Reasoning question with justification.
-
-Marking guide:
-- Allocate marks for method and accuracy.
-- Provide model responses and common error notes.
-
-AI direction used:
-${promptLine}`;
-  }
-
-  if (type === 'practice') {
-    return `${title}
-
-Grade level: ${gradeLevel}
-Objective: ${objectiveLine}
-${variantLine}
-
-Practice flow:
-1. Retrieval warm-up (3 mins)
-2. Guided practice with scaffold
-3. Independent practice set
-4. Reflection check
-
-Teacher checks:
-- Watch for misconceptions tied to ${topicTitle}.
-- Use quick verbal prompts for correction.
-
-AI direction used:
-${promptLine}`;
-  }
-
-  return `${title}
-
-Grade level: ${gradeLevel}
-Objective: ${objectiveLine}
-${variantLine}
-
-Lesson content:
-- Hook: introduce why ${topicTitle} matters.
-- Teach: concise explanation + worked example.
-- Guided step: one co-created example.
-- Independent step: one short task.
-- Exit check: one prompt.
-
-Differentiation:
-- Support: vocabulary bank + sentence starters.
-- Extension: transfer challenge task.
-
-AI direction used:
-${promptLine}`;
+const sanitizeAiEditorHtml = (value: string) => {
+  if (!value.trim()) return '';
+  const parser = new DOMParser();
+  const document = parser.parseFromString(`<div>${value}</div>`, 'text/html');
+  document.querySelectorAll('script, style').forEach((node) => node.remove());
+  const container = document.body.firstElementChild as HTMLElement | null;
+  return container?.innerHTML?.trim() || '';
 };
+
+const collapseText = (value: string) => value.replace(/\s+/g, ' ').trim();
+
+const buildPartialAiResourceHtml = (args: {
+  title: string;
+  topicTitle: string;
+  objective: string;
+  teacherPrompt: string;
+  summary?: string;
+  teacherMessage?: string;
+  existingContent?: string;
+}) => {
+  const sections: string[] = [];
+  const safeTitle = escapeHtml(args.title || args.topicTitle || 'Generated resource');
+  sections.push(`<h1>${safeTitle}</h1>`);
+
+  if (args.topicTitle && args.title && collapseText(args.title).toLowerCase() !== collapseText(args.topicTitle).toLowerCase()) {
+    sections.push(`<p><strong>Topic:</strong> ${escapeHtml(args.topicTitle)}</p>`);
+  }
+
+  if (args.objective) {
+    sections.push(`<p><strong>Objective:</strong> ${escapeHtml(args.objective)}</p>`);
+  }
+
+  if (args.summary) {
+    sections.push(`<p>${escapeHtml(args.summary)}</p>`);
+  }
+
+  if (args.teacherMessage) {
+    sections.push(`<p>${escapeHtml(args.teacherMessage)}</p>`);
+  }
+
+  const existingExcerpt = stripHtmlToText(args.existingContent || '');
+  if (existingExcerpt) {
+    sections.push('<h2>Working Draft</h2>');
+    sections.push(`<p>${escapeHtml(existingExcerpt.slice(0, 800))}</p>`);
+  }
+
+  if (args.teacherPrompt) {
+    sections.push('<h2>Teacher Direction</h2>');
+    sections.push(`<blockquote>${escapeHtml(args.teacherPrompt)}</blockquote>`);
+  }
+
+  return sanitizeAiEditorHtml(sections.join(''));
+};
+
+const renameOrInsertMaterialItem = (items: string[], oldTitle: string, nextTitle: string) => {
+  const normalizedNext = collapseText(nextTitle);
+  if (!normalizedNext) return items;
+
+  const normalizedOld = collapseText(oldTitle);
+  const uniqueWithoutNext = items.filter((item) => collapseText(item) !== normalizedNext);
+  const existingIndex = uniqueWithoutNext.findIndex((item) => collapseText(item) === normalizedOld);
+
+  if (existingIndex >= 0) {
+    const nextItems = [...uniqueWithoutNext];
+    nextItems.splice(existingIndex, 1, normalizedNext);
+    return nextItems;
+  }
+
+  return [normalizedNext, ...uniqueWithoutNext];
+};
+
+const buildSeedMaterialDraft = (topicTitle: string, itemTitle: string, type: TopicContentType) => {
+  void topicTitle;
+  void itemTitle;
+  void type;
+  return '';
+};
+
+const buildAiChatMessage = (role: AiChatMessage['role'], text: string): AiChatMessage => ({
+  id: `${role}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+  role,
+  text,
+});
 
 const inferTopicForm = (
   topic: Pick<CurriculumTopicWithResources, 'name' | 'description' | 'objectives' | 'code'>,
@@ -525,7 +621,7 @@ const toWorkspaceUnitLabel = (topic: Pick<CurriculumTopicWithResources, 'code' |
   return firstWord ? `${toTitleCase(firstWord)} strand` : 'Curriculum';
 };
 
-const extractAssessmentResourceId = (assessment: any): string | null => {
+const extractAssessmentResourceId = (assessment: AssessmentApiRecord | null | undefined): string | null => {
   const raw = assessment?.resourceId ?? assessment?.resource;
   if (!raw) return null;
   if (typeof raw === 'string') return raw;
@@ -567,7 +663,7 @@ const normalizeAssessmentQuestionCorrectAnswers = (rawAnswers: unknown): string[
   return Array.from(new Set(normalized));
 };
 
-const extractAssessmentLegacyCorrectAnswer = (rubricJson: any): string => {
+const extractAssessmentLegacyCorrectAnswer = (rubricJson: Record<string, unknown> | null | undefined): string => {
   if (typeof rubricJson?.correctAnswer === 'string') return rubricJson.correctAnswer;
   if (typeof rubricJson?.expectedAnswer === 'string') return rubricJson.expectedAnswer;
   if (typeof rubricJson?.answer === 'string') return rubricJson.answer;
@@ -575,7 +671,7 @@ const extractAssessmentLegacyCorrectAnswer = (rubricJson: any): string => {
 };
 
 const mapAssessmentQuestionFromApi = (
-  question: any,
+  question: AssessmentApiQuestion,
   fallbackId: string
 ): AssessmentQuestion => {
   const normalizedQuestionTypeCode = String(question.questionTypeCode || '')
@@ -631,6 +727,29 @@ const mapAssessmentQuestionFromApi = (
   };
 };
 
+const mapGeneratedPracticeQuestion = (
+  question: TeacherPracticeGenerationQuestion,
+  fallbackId: string
+): AssessmentQuestion => {
+  const type: AssessmentQuestionType = question.type === 'multiple-choice' ? 'multiple-choice' : 'short-answer';
+  const options = type === 'multiple-choice'
+    ? normalizeAssessmentQuestionOptions(question.options).map((option) => option.trim())
+    : [];
+  const correctAnswers = type === 'multiple-choice'
+    ? normalizeAssessmentQuestionCorrectAnswers(question.correctAnswers.length > 0 ? question.correctAnswers : question.correctAnswer)
+    : [];
+  return {
+    id: fallbackId,
+    prompt: question.prompt,
+    type,
+    marks: Number(question.marks) || 1,
+    options,
+    correctAnswers,
+    correctAnswer: typeof question.correctAnswer === 'string' ? question.correctAnswer.trim() : '',
+    markingGuide: typeof question.markingGuide === 'string' ? question.markingGuide.trim() : '',
+  };
+};
+
 const buildAssessmentResourceContent = (questions: AssessmentQuestion[]) => {
   const questionLines = questions.length
     ? questions
@@ -642,6 +761,80 @@ const buildAssessmentResourceContent = (questions: AssessmentQuestion[]) => {
 
   return questionLines;
 };
+
+const AI_QUESTION_COUNT_WORDS: Record<string, number> = {
+  a: 1,
+  an: 1,
+  another: 1,
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+};
+
+const inferRequestedAiPracticeQuestionCount = (
+  prompt: string,
+  existingCount: number,
+  fallbackCount: number
+) => {
+  const normalizedPrompt = prompt.trim().toLowerCase();
+  if (!normalizedPrompt) {
+    return Math.max(1, existingCount, fallbackCount);
+  }
+
+  const additivePatterns = [
+    /\b(?:add|append|include|create|generate)\s+(?<count>a|an|another|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\d+)\s+(?:more|additional|extra|new)?\s*questions?\b/i,
+    /\b(?<count>a|an|another|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\d+)\s+(?:more|additional|extra|new)\s+questions?\b/i,
+  ];
+  for (const pattern of additivePatterns) {
+    const match = normalizedPrompt.match(pattern);
+    const rawCount = match?.groups?.count?.toLowerCase() || '';
+    if (!rawCount) continue;
+    const parsedCount = /^\d+$/.test(rawCount) ? Number(rawCount) : AI_QUESTION_COUNT_WORDS[rawCount];
+    if (parsedCount && Number.isFinite(parsedCount)) {
+      return Math.max(1, existingCount + parsedCount, fallbackCount);
+    }
+  }
+
+  return Math.max(1, existingCount, fallbackCount);
+};
+
+const getErrorMessage = (error: unknown, fallback: string): string => {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+  if (
+    typeof error === 'object'
+    && error !== null
+    && 'message' in error
+    && typeof (error as { message?: unknown }).message === 'string'
+    && (error as { message: string }).message.trim()
+  ) {
+    return (error as { message: string }).message;
+  }
+  return fallback;
+};
+
+const cloneAssessmentQuestions = (
+  questions: AssessmentQuestion[]
+): AssessmentWorkspaceSnapshot['questions'] =>
+  questions.map((question) => ({
+    prompt: question.prompt.trim(),
+    type: question.type,
+    marks: Number(question.marks) || 0,
+    options: normalizeAssessmentQuestionOptions(question.options).map((option) => option.trim()),
+    correctAnswers: normalizeAssessmentQuestionCorrectAnswers(question.correctAnswers),
+    correctAnswer: question.correctAnswer.trim(),
+    markingGuide: question.markingGuide.trim(),
+  }));
 
 const ClassroomSubjectsPage: React.FC = () => {
   const { selectedSubject, setSelectedSubject } = useAuth();
@@ -661,7 +854,7 @@ const ClassroomSubjectsPage: React.FC = () => {
   const [materialRecordIds, setMaterialRecordIds] = useState<Record<string, string>>({});
   const [assessmentResourceIds, setAssessmentResourceIds] = useState<Record<string, string>>({});
   const [resourceDetailsCache, setResourceDetailsCache] = useState<Record<string, ResourceItem>>({});
-  const [assessmentDetailsCache, setAssessmentDetailsCache] = useState<Record<string, any>>({});
+  const [assessmentDetailsCache, setAssessmentDetailsCache] = useState<Record<string, AssessmentApiRecord>>({});
   const [selectedTopicId, setSelectedTopicId] = useState('');
   const [view, setView] = useState<WorkspaceView>('overview');
   const [workspaceNavView, setWorkspaceNavView] = useState<ClassroomWorkspaceNavView>('subject');
@@ -686,7 +879,12 @@ const ClassroomSubjectsPage: React.FC = () => {
   const [aiGradeLevel, setAiGradeLevel] = useState('Form 4');
   const [aiObjective, setAiObjective] = useState('');
   const [aiPrompt, setAiPrompt] = useState('');
+  const [aiDifficulty, setAiDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
+  const [aiQuestionCount, setAiQuestionCount] = useState('5');
+  const [aiQuestionTypeMode, setAiQuestionTypeMode] = useState<AiQuestionTypeMode>('mixed');
   const [aiChatInput, setAiChatInput] = useState('');
+  const [aiAttachedFiles, setAiAttachedFiles] = useState<File[]>([]);
+  const [isAiGenerationLoading, setIsAiGenerationLoading] = useState(false);
   const [aiMessages, setAiMessages] = useState<AiChatMessage[]>([]);
   const [assessmentName, setAssessmentName] = useState('');
   const [assessmentType, setAssessmentType] = useState<'quiz' | 'assignment' | 'test' | 'project' | 'exam'>('quiz');
@@ -698,13 +896,14 @@ const ClassroomSubjectsPage: React.FC = () => {
   const [assessmentStatus, setAssessmentStatus] = useState<'draft' | 'published' | 'archived'>('draft');
   const [assessmentVisibility, setAssessmentVisibility] = useState<'private' | 'public'>('private');
   const [assessmentQuestions, setAssessmentQuestions] = useState<AssessmentQuestion[]>([]);
-  const [assessmentAiPrompt, setAssessmentAiPrompt] = useState('');
-  const [assessmentAiLogs, setAssessmentAiLogs] = useState<string[]>([]);
-  const [assessmentAttachedFileName, setAssessmentAttachedFileName] = useState('');
+  const [assessmentAiEnhanced, setAssessmentAiEnhanced] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [workspaceOperationFeedback, setWorkspaceOperationFeedback] = useState<WorkspaceOperationFeedback | null>(null);
+  const [workspaceBaseline, setWorkspaceBaseline] = useState<WorkspaceBaseline | null>(null);
   const [pendingWorkspaceDelete, setPendingWorkspaceDelete] = useState<PendingWorkspaceDelete | null>(null);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [isUnsavedWorkspacePromptOpen, setIsUnsavedWorkspacePromptOpen] = useState(false);
+  const [pendingWorkspaceExitLabel, setPendingWorkspaceExitLabel] = useState('leave the workspace');
   const [isLinkPromptOpen, setIsLinkPromptOpen] = useState(false);
   const [pendingLinkUrl, setPendingLinkUrl] = useState('');
   const [isTablePromptOpen, setIsTablePromptOpen] = useState(false);
@@ -714,8 +913,11 @@ const ClassroomSubjectsPage: React.FC = () => {
   const editorOverlayHostRef = useRef<HTMLDivElement | null>(null);
   const editorImageInputRef = useRef<HTMLInputElement | null>(null);
   const aiChatInputRef = useRef<HTMLTextAreaElement | null>(null);
-  const assessmentAttachmentInputRef = useRef<HTMLInputElement | null>(null);
+  const aiAttachmentInputRef = useRef<HTMLInputElement | null>(null);
   const savedSelectionRef = useRef<Range | null>(null);
+  const pendingWorkspaceExitActionRef = useRef<(() => void | Promise<void>) | null>(null);
+  const lastResourceBaselineTokenRef = useRef('');
+  const lastAssessmentBaselineTokenRef = useRef('');
   const [selectionActionOverlay, setSelectionActionOverlay] = useState<{ top: number; left: number; text: string } | null>(null);
   const [selectionActionHint, setSelectionActionHint] = useState<string | null>(null);
 
@@ -748,7 +950,10 @@ const ClassroomSubjectsPage: React.FC = () => {
 
       const assessmentsByTopicId = new Map<string, WorkspaceAssessment[]>();
       const nextAssessmentResourceIds: Record<string, string> = {};
-      (Array.isArray(subjectAssessments) ? subjectAssessments : []).forEach((assessment: any) => {
+      const normalizedSubjectAssessments = Array.isArray(subjectAssessments)
+        ? (subjectAssessments as AssessmentApiRecord[])
+        : [];
+      normalizedSubjectAssessments.forEach((assessment) => {
         const resourceId = extractAssessmentResourceId(assessment);
         if (!resourceId) return;
         nextAssessmentResourceIds[assessment.id] = resourceId;
@@ -825,9 +1030,9 @@ const ClassroomSubjectsPage: React.FC = () => {
         if (previous && nextTopics.some((topic) => topic.id === previous)) return previous;
         return nextTopics[0]?.id || '';
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       setTopics([]);
-      setWorkspaceError(error?.message || 'Unable to load the workspace right now.');
+      setWorkspaceError(getErrorMessage(error, 'Unable to load the workspace right now.'));
       setSelectedTopicId('');
     } finally {
       setWorkspaceLoading(false);
@@ -838,12 +1043,15 @@ const ClassroomSubjectsPage: React.FC = () => {
     const loadSubjects = async () => {
       try {
         const data = await subjectService.getTeachingSubjects();
-        const normalized = (Array.isArray(data) ? data : []).map((subject: any) => ({
-          id: subject.id,
-          code: subject.code || '',
-          name: subject.name,
-          grades: Array.isArray(subject.grades) ? subject.grades : [],
-        }));
+        const normalized = (Array.isArray(data) ? data : []).map((subject) => {
+          const normalizedSubject = subject as Partial<TeachingSubject>;
+          return {
+            id: normalizedSubject.id || '',
+            code: normalizedSubject.code || '',
+            name: normalizedSubject.name || '',
+            grades: Array.isArray(normalizedSubject.grades) ? normalizedSubject.grades : [],
+          };
+        });
         setSubjects(normalized);
       } catch {
         setSubjects([]);
@@ -923,7 +1131,11 @@ const ClassroomSubjectsPage: React.FC = () => {
     setAiGradeLevel('Form 4');
     setAiObjective('');
     setAiPrompt('');
+    setAiDifficulty('medium');
+    setAiQuestionCount('5');
+    setAiQuestionTypeMode('mixed');
     setAiChatInput('');
+    setIsAiGenerationLoading(false);
     setAiMessages([]);
     setAssessmentName('');
     setAssessmentType('quiz');
@@ -935,9 +1147,13 @@ const ClassroomSubjectsPage: React.FC = () => {
     setAssessmentStatus('draft');
     setAssessmentVisibility('private');
     setAssessmentQuestions([]);
-    setAssessmentAiPrompt('');
-    setAssessmentAiLogs([]);
-    setAssessmentAttachedFileName('');
+    setAssessmentAiEnhanced(false);
+    setWorkspaceBaseline(null);
+    setIsUnsavedWorkspacePromptOpen(false);
+    setPendingWorkspaceExitLabel('leave the workspace');
+    pendingWorkspaceExitActionRef.current = null;
+    lastResourceBaselineTokenRef.current = '';
+    lastAssessmentBaselineTokenRef.current = '';
     void refreshWorkspaceData();
   }, [
     refreshWorkspaceData,
@@ -992,10 +1208,55 @@ const ClassroomSubjectsPage: React.FC = () => {
     return getMaterialDraftKey(selectedTopic.id, workspaceTab, selectedWorkspaceItem);
   }, [selectedTopic, selectedWorkspaceItem, workspaceTab]);
 
+  const currentResourceSnapshot = useMemo<ResourceWorkspaceSnapshot>(
+    () => ({
+      title: editorTitle.trim(),
+      body: normalizeEditorContent(editorBody),
+    }),
+    [editorBody, editorTitle]
+  );
+
+  const currentAssessmentSnapshot = useMemo<AssessmentWorkspaceSnapshot>(
+    () => ({
+      name: assessmentName.trim(),
+      assessmentType,
+      description: assessmentDescription.trim(),
+      maxScore: String(assessmentMaxScore).trim(),
+      weight: String(assessmentWeight).trim(),
+      timeLimit: String(assessmentTimeLimit).trim(),
+      attempts: String(assessmentAttempts).trim(),
+      status: assessmentStatus,
+      visibility: assessmentVisibility,
+      questions: cloneAssessmentQuestions(assessmentQuestions),
+    }),
+    [
+      assessmentAttempts,
+      assessmentDescription,
+      assessmentMaxScore,
+      assessmentName,
+      assessmentQuestions,
+      assessmentStatus,
+      assessmentTimeLimit,
+      assessmentType,
+      assessmentVisibility,
+      assessmentWeight,
+    ]
+  );
+
   useEffect(() => {
     if (!selectedTopic || !selectedWorkspaceItem || !selectedMaterialKey) {
       setEditorTitle('');
       setEditorBody('');
+      if (workspaceTab !== 'assessment' && lastResourceBaselineTokenRef.current !== 'resource:blank') {
+        setWorkspaceBaseline({
+          tab: 'resource',
+          snapshot: {
+            title: '',
+            body: '',
+          },
+        });
+        lastResourceBaselineTokenRef.current = 'resource:blank';
+      }
       if (workspaceTab === 'assessment') {
         setIsAssessmentConfigured(false);
       }
@@ -1008,9 +1269,22 @@ const ClassroomSubjectsPage: React.FC = () => {
 
     const persistedId = materialRecordIds[selectedMaterialKey];
     const cachedBody = materialDrafts[selectedMaterialKey];
+    const baselineToken = `resource:${selectedMaterialKey}:${persistedId || 'new'}`;
+    const setResourceBaseline = (title: string, body: string) => {
+      if (lastResourceBaselineTokenRef.current === baselineToken) return;
+      setWorkspaceBaseline({
+        tab: 'resource',
+        snapshot: {
+          title: title.trim(),
+          body: normalizeEditorContent(body),
+        },
+      });
+      lastResourceBaselineTokenRef.current = baselineToken;
+    };
     if (cachedBody !== undefined) {
       setEditorTitle(selectedWorkspaceItem);
       setEditorBody(cachedBody);
+      setResourceBaseline(selectedWorkspaceItem, cachedBody);
       return;
     }
 
@@ -1021,6 +1295,7 @@ const ClassroomSubjectsPage: React.FC = () => {
       ));
       setEditorTitle(selectedWorkspaceItem);
       setEditorBody(fallback);
+      setResourceBaseline(selectedWorkspaceItem, fallback);
       return;
     }
 
@@ -1032,6 +1307,7 @@ const ClassroomSubjectsPage: React.FC = () => {
       ));
       setEditorTitle(cachedResource.name || selectedWorkspaceItem);
       setEditorBody(body);
+      setResourceBaseline(cachedResource.name || selectedWorkspaceItem, body);
       return;
     }
 
@@ -1047,6 +1323,7 @@ const ClassroomSubjectsPage: React.FC = () => {
         ));
         setEditorTitle(detail.name || selectedWorkspaceItem);
         setEditorBody(body);
+        setResourceBaseline(detail.name || selectedWorkspaceItem, body);
       } catch {
         if (cancelled) return;
         const fallback = buildSeedMaterialDraft(selectedTopic.title, selectedWorkspaceItem, workspaceTab);
@@ -1055,6 +1332,7 @@ const ClassroomSubjectsPage: React.FC = () => {
         ));
         setEditorTitle(selectedWorkspaceItem);
         setEditorBody(fallback);
+        setResourceBaseline(selectedWorkspaceItem, fallback);
       }
     };
 
@@ -1074,20 +1352,73 @@ const ClassroomSubjectsPage: React.FC = () => {
 
   useEffect(() => {
     if (workspaceTab !== 'assessment' || !selectedTopic || !selectedWorkspaceItem || !selectedMaterialKey) {
+      if (workspaceTab === 'assessment' && lastAssessmentBaselineTokenRef.current !== 'assessment:blank') {
+        setWorkspaceBaseline({
+          tab: 'assessment',
+          snapshot: {
+            name: '',
+            assessmentType: 'quiz',
+            description: '',
+            maxScore: '100',
+            weight: '0',
+            timeLimit: '0',
+            attempts: '1',
+            status: 'draft',
+            visibility: 'private',
+            questions: [],
+          },
+        });
+        lastAssessmentBaselineTokenRef.current = 'assessment:blank';
+      }
       return;
     }
 
     const persistedId = materialRecordIds[selectedMaterialKey];
+    const baselineToken = `assessment:${selectedMaterialKey}:${persistedId || 'new'}`;
+    const setAssessmentBaseline = (snapshot: AssessmentWorkspaceSnapshot) => {
+      if (lastAssessmentBaselineTokenRef.current === baselineToken) return;
+      setWorkspaceBaseline({
+        tab: 'assessment',
+        snapshot,
+      });
+      lastAssessmentBaselineTokenRef.current = baselineToken;
+    };
     if (!persistedId) {
       setAssessmentName(selectedWorkspaceItem);
+      setAssessmentType('quiz');
       setAssessmentDescription('');
+      setAssessmentMaxScore('100');
+      setAssessmentWeight('0');
+      setAssessmentTimeLimit('0');
+      setAssessmentAttempts('1');
+      setAssessmentStatus('draft');
+      setAssessmentVisibility('private');
       setAssessmentQuestions([]);
+      setAssessmentAiEnhanced(false);
       setIsAssessmentConfigured(false);
+      setAssessmentBaseline({
+        name: selectedWorkspaceItem.trim(),
+        assessmentType: 'quiz',
+        description: '',
+        maxScore: '100',
+        weight: '0',
+        timeLimit: '0',
+        attempts: '1',
+        status: 'draft',
+        visibility: 'private',
+        questions: [],
+      });
       return;
     }
 
     const cachedAssessment = assessmentDetailsCache[persistedId];
     if (cachedAssessment) {
+      const mappedQuestions = (cachedAssessment.questions || []).map((question: AssessmentApiQuestion) =>
+        mapAssessmentQuestionFromApi(
+          question,
+          `${persistedId}-${question.sequenceIndex || 0}`
+        )
+      );
       setAssessmentName(cachedAssessment.name || selectedWorkspaceItem);
       setAssessmentType((cachedAssessment.assessmentType || 'quiz') as typeof assessmentType);
       setAssessmentDescription(cachedAssessment.description || '');
@@ -1097,15 +1428,21 @@ const ClassroomSubjectsPage: React.FC = () => {
       setAssessmentAttempts(String(cachedAssessment.attemptsAllowed ?? 1));
       setAssessmentStatus((cachedAssessment.status || 'draft') as typeof assessmentStatus);
       setAssessmentVisibility((cachedAssessment.visibility || 'private') as typeof assessmentVisibility);
-      setAssessmentQuestions(
-        (cachedAssessment.questions || []).map((question: any) =>
-          mapAssessmentQuestionFromApi(
-            question,
-            `${persistedId}-${question.sequenceIndex || 0}`
-          )
-        )
-      );
+      setAssessmentQuestions(mappedQuestions);
+      setAssessmentAiEnhanced(Boolean(cachedAssessment.aiEnhanced));
       setIsAssessmentConfigured(true);
+      setAssessmentBaseline({
+        name: (cachedAssessment.name || selectedWorkspaceItem || '').trim(),
+        assessmentType: cachedAssessment.assessmentType || 'quiz',
+        description: cachedAssessment.description || '',
+        maxScore: String(cachedAssessment.maxScore ?? 100),
+        weight: String(cachedAssessment.weightPct ?? 0),
+        timeLimit: String(cachedAssessment.timeLimitMin ?? 0),
+        attempts: String(cachedAssessment.attemptsAllowed ?? 1),
+        status: cachedAssessment.status || 'draft',
+        visibility: cachedAssessment.visibility || 'private',
+        questions: cloneAssessmentQuestions(mappedQuestions),
+      });
       return;
     }
 
@@ -1114,6 +1451,12 @@ const ClassroomSubjectsPage: React.FC = () => {
       try {
         const detail = await assessmentService.getAssessmentWithQuestions(persistedId);
         if (cancelled) return;
+        const mappedQuestions = (detail.questions || []).map((question: AssessmentApiQuestion) =>
+          mapAssessmentQuestionFromApi(
+            question,
+            `${persistedId}-${question.sequenceIndex || 0}`
+          )
+        );
         setAssessmentDetailsCache((previous) => ({ ...previous, [persistedId]: detail }));
         setAssessmentName(detail.name || selectedWorkspaceItem);
         setAssessmentType((detail.assessmentType || 'quiz') as typeof assessmentType);
@@ -1124,20 +1467,47 @@ const ClassroomSubjectsPage: React.FC = () => {
         setAssessmentAttempts(String(detail.attemptsAllowed ?? 1));
         setAssessmentStatus((detail.status || 'draft') as typeof assessmentStatus);
         setAssessmentVisibility((detail.visibility || 'private') as typeof assessmentVisibility);
-        setAssessmentQuestions(
-          (detail.questions || []).map((question: any) =>
-            mapAssessmentQuestionFromApi(
-              question,
-              `${persistedId}-${question.sequenceIndex || 0}`
-            )
-          )
-        );
+        setAssessmentQuestions(mappedQuestions);
+        setAssessmentAiEnhanced(Boolean(detail.aiEnhanced));
         setIsAssessmentConfigured(true);
+        setAssessmentBaseline({
+          name: (detail.name || selectedWorkspaceItem || '').trim(),
+          assessmentType: detail.assessmentType || 'quiz',
+          description: detail.description || '',
+          maxScore: String(detail.maxScore ?? 100),
+          weight: String(detail.weightPct ?? 0),
+          timeLimit: String(detail.timeLimitMin ?? 0),
+          attempts: String(detail.attemptsAllowed ?? 1),
+          status: detail.status || 'draft',
+          visibility: detail.visibility || 'private',
+          questions: cloneAssessmentQuestions(mappedQuestions),
+        });
       } catch {
         if (!cancelled) {
           setAssessmentName(selectedWorkspaceItem);
+          setAssessmentType('quiz');
+          setAssessmentDescription('');
+          setAssessmentMaxScore('100');
+          setAssessmentWeight('0');
+          setAssessmentTimeLimit('0');
+          setAssessmentAttempts('1');
+          setAssessmentStatus('draft');
+          setAssessmentVisibility('private');
           setAssessmentQuestions([]);
+          setAssessmentAiEnhanced(false);
           setIsAssessmentConfigured(false);
+          setAssessmentBaseline({
+            name: selectedWorkspaceItem.trim(),
+            assessmentType: 'quiz',
+            description: '',
+            maxScore: '100',
+            weight: '0',
+            timeLimit: '0',
+            attempts: '1',
+            status: 'draft',
+            visibility: 'private',
+            questions: [],
+          });
         }
       }
     };
@@ -1199,9 +1569,14 @@ const ClassroomSubjectsPage: React.FC = () => {
   }, [filteredTopics]);
 
   const openMissingItemComposer = (topicId: string, missingType: TopicContentType) => {
-    setSelectedTopicId(topicId);
-    setView('overview');
-    openTopicWorkspace(topicId, missingType);
+    requestWorkspaceTransition(
+      () => {
+        setSelectedTopicId(topicId);
+        setView('overview');
+        openTopicWorkspace(topicId, missingType);
+      },
+      `open ${getTopicContentLabelLower(missingType, true)} composer`
+    );
   };
 
   const openTopicWorkspace = (topicId: string, tab: TopicContentType = 'resource') => {
@@ -1216,6 +1591,10 @@ const ClassroomSubjectsPage: React.FC = () => {
     setIsAssessmentConfigOpen(false);
     setSelectionActionOverlay(null);
     setSelectionActionHint(null);
+    setAiChatInput('');
+    setAiMessages([]);
+    setIsAiGenerationLoading(false);
+    setAiAttachedFiles([]);
     setWorkspaceTab(normalizedTab);
     setSelectedWorkspaceItem('');
     if (topic) {
@@ -1347,19 +1726,21 @@ const ClassroomSubjectsPage: React.FC = () => {
         });
       }
       return savedId || null;
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (!overrides?.skipFeedback) {
         setWorkspaceOperationFeedback({
           status: 'error',
           title: `Failed to ${mode === 'published' ? 'publish' : 'save'} ${materialLabel}`,
-          message: error?.message || 'Please try again.',
+          message: getErrorMessage(error, 'Please try again.'),
         });
       }
       throw error;
     }
   };
 
-  const persistAssessmentWorkspace = async () => {
+  const persistAssessmentWorkspace = async (
+    statusOverride?: 'draft' | 'published' | 'archived'
+  ) => {
     if (!selectedTopic) return null;
     const context = ensureWorkspaceContext();
     if (!context) return null;
@@ -1368,6 +1749,7 @@ const ClassroomSubjectsPage: React.FC = () => {
       return null;
     }
 
+    const effectiveStatus = statusOverride || assessmentStatus;
     const selectedKey = selectedMaterialKey || getMaterialDraftKey(selectedTopic.id, 'assessment', assessmentName.trim());
     const existingAssessmentId = materialRecordIds[selectedKey] || null;
     const existingResourceId = existingAssessmentId ? assessmentResourceIds[existingAssessmentId] || null : null;
@@ -1379,7 +1761,7 @@ const ClassroomSubjectsPage: React.FC = () => {
 
     try {
       const resourceId = await createOrUpdateWorkspaceResource(
-        assessmentStatus === 'published' ? 'published' : 'draft',
+        effectiveStatus === 'published' ? 'published' : 'draft',
         {
           title: assessmentName.trim(),
           body: buildAssessmentResourceContent(assessmentQuestions),
@@ -1391,7 +1773,7 @@ const ClassroomSubjectsPage: React.FC = () => {
       );
       if (!resourceId) return null;
 
-      const payload = {
+      const payload: AssessmentMutationPayload = {
         schoolId: context.schoolId,
         subjectId: selectedSubjectId,
         name: assessmentName.trim(),
@@ -1403,8 +1785,8 @@ const ClassroomSubjectsPage: React.FC = () => {
         maxScore: Number(assessmentMaxScore) || 100,
         weightPct: Number(assessmentWeight) || 0,
         resourceId,
-        aiEnhanced: assessmentAiLogs.length > 0,
-        status: assessmentStatus,
+        aiEnhanced: assessmentAiEnhanced,
+        status: effectiveStatus,
         createdBy: context.currentUserId,
         lastModifiedBy: context.currentUserId,
         questions: assessmentQuestions.map((question, index) => {
@@ -1445,14 +1827,14 @@ const ClassroomSubjectsPage: React.FC = () => {
       };
 
       const savedAssessment = existingAssessmentId
-        ? await assessmentService.updateAssessment(existingAssessmentId, payload as any)
-        : await assessmentService.createAssessment(payload as any);
+        ? await assessmentService.updateAssessment(existingAssessmentId, payload as unknown as Partial<Assessment>)
+        : await assessmentService.createAssessment(payload as unknown as Omit<Assessment, 'id' | 'createdAt' | 'updatedAt'>);
 
       const savedAssessmentId = savedAssessment?.id || existingAssessmentId;
       let enrolledCount = 0;
       if (savedAssessmentId) {
         setAssessmentResourceIds((previous) => ({ ...previous, [savedAssessmentId]: resourceId }));
-        if (assessmentStatus === 'published') {
+        if (effectiveStatus === 'published') {
           const publishResult = await assessmentEnrollmentService.publishAssessmentToSubjectStudents({
             assessmentId: savedAssessmentId,
             subjectId: selectedSubjectId,
@@ -1465,22 +1847,33 @@ const ClassroomSubjectsPage: React.FC = () => {
         }
       }
 
+      setAssessmentStatus(effectiveStatus);
+      setSelectedWorkspaceItem(assessmentName.trim());
       await refreshWorkspaceData();
+      setWorkspaceBaseline({
+        tab: 'assessment',
+        snapshot: {
+          ...currentAssessmentSnapshot,
+          name: assessmentName.trim(),
+          status: effectiveStatus,
+        },
+      });
+      lastAssessmentBaselineTokenRef.current = `assessment:${getMaterialDraftKey(selectedTopic.id, 'assessment', assessmentName.trim())}:${savedAssessmentId || existingAssessmentId || 'new'}`;
       setWorkspaceOperationFeedback({
         status: 'success',
-        title: assessmentStatus === 'published' ? 'Practice published' : 'Practice saved',
-        message: assessmentStatus === 'published'
+        title: effectiveStatus === 'published' ? 'Practice published' : 'Practice saved',
+        message: effectiveStatus === 'published'
           ? enrolledCount > 0
             ? `"${assessmentName.trim()}" is now available to ${enrolledCount} student${enrolledCount === 1 ? '' : 's'}.`
             : `"${assessmentName.trim()}" was published, but no enrolled students were found for this subject yet.`
           : `"${assessmentName.trim()}" was saved as draft.`,
       });
       return savedAssessmentId || null;
-    } catch (error: any) {
+    } catch (error: unknown) {
       setWorkspaceOperationFeedback({
         status: 'error',
         title: 'Practice save failed',
-        message: error?.message || 'Please try again.',
+        message: getErrorMessage(error, 'Please try again.'),
       });
       throw error;
     }
@@ -1488,7 +1881,10 @@ const ClassroomSubjectsPage: React.FC = () => {
 
   const handleQuickCreate = (type: TopicContentType) => {
     if (!selectedTopic) return;
-    openTopicWorkspace(selectedTopic.id, type);
+    requestWorkspaceTransition(
+      () => openTopicWorkspace(selectedTopic.id, type),
+      `switch to ${getTopicContentLabelLower(type, true)}`
+    );
   };
 
   const handleOpenTopicContentItem = (
@@ -1496,12 +1892,44 @@ const ClassroomSubjectsPage: React.FC = () => {
     type: TopicContentType,
     item: string
   ) => {
-    openTopicWorkspace(topicId, type);
-    setSelectedWorkspaceItem(item);
+    requestWorkspaceTransition(
+      () => {
+        openTopicWorkspace(topicId, type);
+        setSelectedWorkspaceItem(item);
+      },
+      `open "${item}"`
+    );
   };
 
   const handleCreateWorkspaceItem = () => {
     if (!selectedTopic) return;
+    lastResourceBaselineTokenRef.current = 'resource:blank';
+    lastAssessmentBaselineTokenRef.current = 'assessment:blank';
+    setWorkspaceBaseline(
+      workspaceTab === 'assessment'
+        ? {
+            tab: 'assessment',
+            snapshot: {
+              name: '',
+              assessmentType: 'quiz',
+              description: '',
+              maxScore: '100',
+              weight: '0',
+              timeLimit: '0',
+              attempts: '1',
+              status: 'draft',
+              visibility: 'private',
+              questions: [],
+            },
+          }
+        : {
+            tab: 'resource',
+            snapshot: {
+              title: '',
+              body: '',
+            },
+          }
+    );
     setSelectedWorkspaceItem('');
     setSelectionActionOverlay(null);
     setSelectionActionHint(null);
@@ -1516,9 +1944,7 @@ const ClassroomSubjectsPage: React.FC = () => {
       setAssessmentStatus('draft');
       setAssessmentVisibility('private');
       setAssessmentQuestions([]);
-      setAssessmentAiPrompt('');
-      setAssessmentAiLogs([]);
-      setAssessmentAttachedFileName('');
+      setAssessmentAiEnhanced(false);
       setIsAssessmentConfigured(false);
       setToastMessage('Start creating a new practice on the canvas.');
       return;
@@ -1527,6 +1953,31 @@ const ClassroomSubjectsPage: React.FC = () => {
     setEditorTitle('');
     setEditorBody('');
     setToastMessage(`Start creating a new ${getTopicContentLabelLower(workspaceTab, true)}.`);
+  };
+
+  const handleRequestCreateWorkspaceItem = () => {
+    requestWorkspaceTransition(
+      () => {
+        handleCreateWorkspaceItem();
+      },
+      `create a new ${getTopicContentLabelLower(workspaceTab, true)}`
+    );
+  };
+
+  const handleSelectWorkspaceTab = (type: TopicContentType) => {
+    if (workspaceTab === type) return;
+    requestWorkspaceTransition(
+      () => setWorkspaceTab(type),
+      `switch to ${TOPIC_CONTENT_LABELS[type]}`
+    );
+  };
+
+  const handleSelectWorkspaceItem = (item: string) => {
+    if (selectedWorkspaceItem === item) return;
+    requestWorkspaceTransition(
+      () => setSelectedWorkspaceItem(item),
+      `open "${item}"`
+    );
   };
 
   const handleMarkItemUpdated = (type: TopicContentType, item: string) => {
@@ -1539,6 +1990,8 @@ const ClassroomSubjectsPage: React.FC = () => {
 
   const handleDuplicateWorkspaceItem = async (item: string) => {
     if (!selectedTopic) return;
+    const context = ensureWorkspaceContext();
+    if (!context) return;
 
     const existingNames = new Set(selectedTopic.materials[workspaceTab]);
     let duplicateName = `${item} (Copy)`;
@@ -1554,17 +2007,19 @@ const ClassroomSubjectsPage: React.FC = () => {
       if (workspaceTab === 'assessment' && sourceId) {
         const assessmentDetail = await assessmentService.getAssessmentWithQuestions(sourceId);
         const sourceResourceId = assessmentResourceIds[sourceId] || assessmentDetail.resourceId || null;
-        let duplicatedResourceId: string | null = null;
+        let duplicatedResourceBody = buildAssessmentResourceContent([]);
         if (sourceResourceId) {
           const sourceResource = await resourceService.get(sourceResourceId);
-          duplicatedResourceId = await createOrUpdateWorkspaceResource('draft', {
-            title: duplicateName,
-            body: sourceResource.contentBody || buildAssessmentResourceContent([]),
-            type: 'assessment',
-          });
+          duplicatedResourceBody = sourceResource.contentBody || duplicatedResourceBody;
         }
-        const duplicatedAssessment = await assessmentService.createAssessment({
-          schoolId: activeSchoolId,
+        const duplicatedResourceId = await createOrUpdateWorkspaceResource('draft', {
+          title: duplicateName,
+          body: duplicatedResourceBody,
+          type: 'assessment',
+        });
+        if (!duplicatedResourceId) return;
+        const duplicatedAssessmentPayload: AssessmentMutationPayload = {
+          schoolId: context.schoolId,
           subjectId: selectedSubjectId,
           name: duplicateName,
           description: assessmentDetail.description || '',
@@ -1577,9 +2032,9 @@ const ClassroomSubjectsPage: React.FC = () => {
           resourceId: duplicatedResourceId,
           aiEnhanced: assessmentDetail.aiEnhanced || false,
           status: 'draft',
-          createdBy: authService.getCurrentUser()?.id,
-          lastModifiedBy: authService.getCurrentUser()?.id,
-          questions: (assessmentDetail.questions || []).map((question: any, index: number) => ({
+          createdBy: context.currentUserId,
+          lastModifiedBy: context.currentUserId,
+          questions: (assessmentDetail.questions || []).map((question: AssessmentApiQuestion, index: number) => ({
             stem: question.stem,
             questionTypeCode: question.questionTypeCode,
             maxMark: question.maxMark,
@@ -1588,7 +2043,10 @@ const ClassroomSubjectsPage: React.FC = () => {
             sequenceIndex: index + 1,
             points: question.points,
           })),
-        } as any);
+        };
+        const duplicatedAssessment = await assessmentService.createAssessment(
+          duplicatedAssessmentPayload as unknown as Omit<Assessment, 'id' | 'createdAt' | 'updatedAt'>
+        );
         if (duplicatedAssessment?.id && duplicatedResourceId) {
           setAssessmentResourceIds((previous) => ({ ...previous, [duplicatedAssessment.id]: duplicatedResourceId }));
         }
@@ -1606,8 +2064,8 @@ const ClassroomSubjectsPage: React.FC = () => {
       setSelectedWorkspaceItem(duplicateName);
       setEditorTitle(duplicateName);
       setToastMessage(`Duplicated "${item}" as "${duplicateName}".`);
-    } catch (error: any) {
-      setToastMessage(error?.message || `Failed to duplicate "${item}".`);
+    } catch (error: unknown) {
+      setToastMessage(getErrorMessage(error, `Failed to duplicate "${item}".`));
     }
   };
 
@@ -1644,8 +2102,8 @@ const ClassroomSubjectsPage: React.FC = () => {
       setToastMessage(
         `Deleted "${pendingDelete.item}" from ${TOPIC_CONTENT_LABELS[pendingDelete.type]}.`
       );
-    } catch (error: any) {
-      setToastMessage(error?.message || `Failed to delete "${pendingDelete.item}".`);
+    } catch (error: unknown) {
+      setToastMessage(getErrorMessage(error, `Failed to delete "${pendingDelete.item}".`));
       throw error;
     }
   };
@@ -1931,16 +2389,93 @@ const ClassroomSubjectsPage: React.FC = () => {
     return autoTitle;
   };
 
-  const handleSaveMaterialDraft = () => {
+  const buildWorkspaceReferenceDocuments = React.useCallback((): WorkspaceReferenceDocument[] => {
+    if (!selectedTopic) return [];
+
+    const seen = new Set<string>();
+    const documents: WorkspaceReferenceDocument[] = [];
+    const candidateTitles = selectedTopic.materials.resource.filter(
+      (item) => item && item !== selectedWorkspaceItem
+    );
+
+    candidateTitles.forEach((itemTitle) => {
+      if (documents.length >= 3) return;
+      const key = getMaterialDraftKey(selectedTopic.id, 'resource', itemTitle);
+      const cachedDraft = materialDrafts[key];
+      const recordId = materialRecordIds[key];
+      const cachedResourceBody = recordId ? resourceDetailsCache[recordId]?.contentBody : '';
+      const sourceBody = typeof cachedDraft === 'string' && cachedDraft.trim().length > 0
+        ? cachedDraft
+        : cachedResourceBody || '';
+      const markdown = stripHtmlToText(sourceBody);
+      if (!markdown || seen.has(itemTitle)) return;
+      seen.add(itemTitle);
+      documents.push({
+        documentName: itemTitle,
+        markdown,
+      });
+    });
+
+    return documents;
+  }, [materialDrafts, materialRecordIds, resourceDetailsCache, selectedTopic, selectedWorkspaceItem]);
+
+  const handleAttachAiReference = () => {
+    aiAttachmentInputRef.current?.click();
+  };
+
+  const handleAiAttachmentChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    if (!files.length) return;
+
+    setAiAttachedFiles((previous) => {
+      const next = [...previous];
+      const seen = new Set(previous.map((file) => `${file.name}:${file.size}:${file.lastModified}`));
+      files.forEach((file) => {
+        const key = `${file.name}:${file.size}:${file.lastModified}`;
+        if (!seen.has(key)) {
+          next.push(file);
+          seen.add(key);
+        }
+      });
+      return next;
+    });
+    setToastMessage(
+      files.length === 1
+        ? `Attached reference: ${files[0].name}`
+        : `Attached ${files.length} reference files for AI generation.`
+    );
+    event.target.value = '';
+  };
+
+  const handleRemoveAiAttachment = (fileToRemove: File) => {
+    setAiAttachedFiles((previous) =>
+      previous.filter(
+        (file) =>
+          !(
+            file.name === fileToRemove.name
+            && file.size === fileToRemove.size
+            && file.lastModified === fileToRemove.lastModified
+          )
+      )
+    );
+  };
+
+  const persistCurrentMaterialWorkspace = async (
+    mode: 'draft' | 'published'
+  ): Promise<boolean> => {
     if (!selectedTopic) {
       setToastMessage('Select a topic first.');
-      return;
+      return false;
     }
 
     const activeItem = selectedWorkspaceItem || ensureActiveWorkspaceItem();
     if (!activeItem) {
-      setToastMessage('Enter a title to create a new draft.');
-      return;
+      setToastMessage(
+        mode === 'published'
+          ? 'Select or create a material item first.'
+          : 'Enter a title to create a new draft.'
+      );
+      return false;
     }
 
     const oldTitle = activeItem;
@@ -1949,186 +2484,416 @@ const ClassroomSubjectsPage: React.FC = () => {
     const nextKey = getMaterialDraftKey(selectedTopic.id, workspaceTab, nextTitle);
     const nextBody = editorBody.trim() || materialDrafts[oldKey] || buildSeedMaterialDraft(selectedTopic.title, nextTitle, workspaceTab);
 
-    const persist = async () => {
-      try {
-        const existingId = materialRecordIds[oldKey] || null;
-        const savedId = await createOrUpdateWorkspaceResource('draft', {
+    try {
+      const existingId = materialRecordIds[oldKey] || null;
+      const savedId = await createOrUpdateWorkspaceResource(mode, {
+        title: nextTitle,
+        body: nextBody,
+        type: workspaceTab,
+        existingId,
+      });
+      if (!savedId) return false;
+      setMaterialDrafts((previous) => {
+        const next = { ...previous };
+        if (oldKey !== nextKey) delete next[oldKey];
+        next[nextKey] = nextBody;
+        return next;
+      });
+      setSelectedWorkspaceItem(nextTitle);
+      setEditorTitle(nextTitle);
+      setEditorBody(nextBody);
+      setWorkspaceBaseline({
+        tab: 'resource',
+        snapshot: {
           title: nextTitle,
-          body: nextBody,
-          type: workspaceTab,
-          existingId,
-        });
-        if (!savedId) return;
-        setMaterialDrafts((previous) => {
-          const next = { ...previous };
-          if (oldKey !== nextKey) delete next[oldKey];
-          next[nextKey] = nextBody;
-          return next;
-        });
-        setSelectedWorkspaceItem(nextTitle);
-        setEditorTitle(nextTitle);
-        setEditorBody(nextBody);
-        setToastMessage(`Saved "${nextTitle}" in ${TOPIC_CONTENT_LABELS[workspaceTab]}.`);
-      } catch (error: any) {
-        setToastMessage(error?.message || `Failed to save "${nextTitle}".`);
-      }
-    };
-    void persist();
+          body: normalizeEditorContent(nextBody),
+        },
+      });
+      lastResourceBaselineTokenRef.current = `resource:${nextKey}:${savedId || existingId || 'new'}`;
+      setToastMessage(
+        mode === 'published'
+          ? `Published "${nextTitle}" in ${TOPIC_CONTENT_LABELS[workspaceTab]}.`
+          : `Saved "${nextTitle}" in ${TOPIC_CONTENT_LABELS[workspaceTab]}.`
+      );
+      return true;
+    } catch (error: unknown) {
+      setToastMessage(
+        getErrorMessage(
+          error,
+          (mode === 'published'
+            ? `Failed to publish "${nextTitle}".`
+            : `Failed to save "${nextTitle}".`)
+        )
+      );
+      return false;
+    }
+  };
+
+  const handleSaveMaterialDraft = () => {
+    void persistCurrentMaterialWorkspace('draft');
   };
 
   const handlePublishMaterial = () => {
-    if (!selectedTopic) {
-      setToastMessage('Select a topic first.');
-      return;
-    }
-
-    const activeItem = selectedWorkspaceItem || ensureActiveWorkspaceItem();
-    if (!activeItem) {
-      setToastMessage('Select or create a material item first.');
-      return;
-    }
-
-    const oldTitle = activeItem;
-    const nextTitle = editorTitle.trim() || oldTitle;
-    const oldKey = getMaterialDraftKey(selectedTopic.id, workspaceTab, oldTitle);
-    const nextKey = getMaterialDraftKey(selectedTopic.id, workspaceTab, nextTitle);
-    const nextBody = editorBody.trim() || materialDrafts[oldKey] || buildSeedMaterialDraft(selectedTopic.title, nextTitle, workspaceTab);
-
-    const persist = async () => {
-      try {
-        const existingId = materialRecordIds[oldKey] || null;
-        const savedId = await createOrUpdateWorkspaceResource('published', {
-          title: nextTitle,
-          body: nextBody,
-          type: workspaceTab,
-          existingId,
-        });
-        if (!savedId) return;
-        setMaterialDrafts((previous) => {
-          const next = { ...previous };
-          if (oldKey !== nextKey) delete next[oldKey];
-          next[nextKey] = nextBody;
-          return next;
-        });
-        setSelectedWorkspaceItem(nextTitle);
-        setEditorTitle(nextTitle);
-        setEditorBody(nextBody);
-        setToastMessage(`Published "${nextTitle}" in ${TOPIC_CONTENT_LABELS[workspaceTab]}.`);
-      } catch (error: any) {
-        setToastMessage(error?.message || `Failed to publish "${nextTitle}".`);
-      }
-    };
-    void persist();
+    void persistCurrentMaterialWorkspace('published');
   };
 
-  const handleGenerateWithAi = (variant = false, teacherPrompt?: string) => {
+  const handleGenerateResourceWithAi = async (variant = false, teacherPrompt?: string) => {
+    if (isAiGenerationLoading) return;
     if (!selectedTopic) return;
-    const activeTitle = ensureActiveWorkspaceItem();
+    if (workspaceTab !== 'resource') {
+      setToastMessage('AI collaborator resource generation is currently enabled for the resource workspace.');
+      return;
+    }
+
+    const activeTitle = editorTitle.trim() || ensureActiveWorkspaceItem();
     if (!activeTitle) return;
 
-    const generatedBody = buildAiGeneratedDraft({
-      topicTitle: selectedTopic.title,
-      itemTitle: activeTitle,
-      type: workspaceTab,
-      gradeLevel: aiGradeLevel,
-      objective: aiObjective,
-      prompt: aiPrompt,
-      variant,
+    const promptText =
+      teacherPrompt?.trim() ||
+      aiChatInput.trim() ||
+      aiPrompt.trim() ||
+      (variant ? 'Create an alternative version of this resource draft.' : 'Generate a resource draft for this topic.');
+    const key = getMaterialDraftKey(selectedTopic.id, workspaceTab, activeTitle);
+    const existingContent = editorBody.trim() || materialDrafts[key] || '';
+    const attachmentCount = aiAttachedFiles.length;
+
+    setIsAiGenerationLoading(true);
+    setWorkspaceOperationFeedback({
+      status: 'loading',
+      title: variant ? 'Generating alternative content' : 'Generating content',
+      message: attachmentCount > 0
+        ? `Processing ${attachmentCount} attached reference${attachmentCount === 1 ? '' : 's'} for "${activeTitle}"...`
+        : `Working on "${activeTitle}"...`,
     });
 
-    const key = getMaterialDraftKey(selectedTopic.id, workspaceTab, activeTitle);
-    setMaterialDrafts((previous) => ({
-      ...previous,
-      [key]: generatedBody,
-    }));
-    setEditorTitle(activeTitle);
-    setEditorBody(generatedBody);
+    try {
+      const ocrReferenceDocuments = attachmentCount > 0
+        ? await workspaceAiService.processDocumentsWithOCR(aiAttachedFiles)
+        : [];
+      const referenceDocuments = [...buildWorkspaceReferenceDocuments(), ...ocrReferenceDocuments];
+      const result = await workspaceAiService.generateTeacherResource({
+        subjectName: selectedSubject?.name || undefined,
+        topicTitle: selectedTopic.title,
+        unitTitle: selectedTopic.unit,
+        gradeLevel: aiGradeLevel || selectedTopic.form,
+        contentType: 'resource',
+        title: activeTitle,
+        objective: aiObjective || selectedTopic.title,
+        teacherPrompt: promptText,
+        existingContent,
+        variant,
+        relatedRecords: selectedTopic.materials.resource,
+        referenceDocuments,
+      });
 
-    setAiMessages((previous) => [
-      ...previous,
-      {
-        id: `teacher-generate-${Date.now()}`,
-        role: 'teacher',
-        text:
-          teacherPrompt ||
-          (variant ? 'Try a different version for this draft.' : 'Generate a first draft for this item.'),
-      },
-      {
-        id: `assistant-generate-${Date.now()}`,
-        role: 'assistant',
-        text: variant
-          ? 'I created an alternative version with a different structure and pacing.'
-          : `Draft ready for "${activeTitle}". Review and edit before publishing.`,
-      },
-    ]);
-    setToastMessage(variant ? 'Generated an alternative AI draft.' : 'Generated AI draft.');
+      const nextTitle = collapseText(result.title || activeTitle) || activeTitle;
+      const oldKey = key;
+      const nextKey = getMaterialDraftKey(selectedTopic.id, workspaceTab, nextTitle);
+      let generatedBody = sanitizeAiEditorHtml(result.contentHtml);
+      let usedPartialFallback = false;
+
+      if (!generatedBody) {
+        generatedBody = buildPartialAiResourceHtml({
+          title: nextTitle,
+          topicTitle: selectedTopic.title,
+          objective: aiObjective || selectedTopic.title,
+          teacherPrompt: promptText,
+          summary: result.summary,
+          teacherMessage: result.teacherMessage,
+          existingContent,
+        });
+        usedPartialFallback = generatedBody.trim().length > 0;
+      }
+
+      if (!generatedBody) {
+        throw new Error('AI returned no usable resource draft content.');
+      }
+
+      setMaterialDrafts((previous) => {
+        const next = { ...previous };
+        if (oldKey !== nextKey) delete next[oldKey];
+        next[nextKey] = generatedBody;
+        return next;
+      });
+      setMaterialRecordIds((previous) => {
+        const existingId = previous[oldKey];
+        if (!existingId || oldKey === nextKey) return previous;
+        const next = { ...previous };
+        delete next[oldKey];
+        next[nextKey] = existingId;
+        return next;
+      });
+      setTopics((previous) =>
+        previous.map((topic) => {
+          if (topic.id !== selectedTopic.id) return topic;
+          return {
+            ...topic,
+            updatedAtLabel: 'Updated just now',
+            materials: {
+              ...topic.materials,
+              resource: renameOrInsertMaterialItem(topic.materials.resource, activeTitle, nextTitle),
+            },
+          };
+        })
+      );
+      const cachedResourceId = materialRecordIds[oldKey];
+      if (cachedResourceId) {
+        setResourceDetailsCache((previous) => ({
+          ...previous,
+          [cachedResourceId]: {
+            ...(previous[cachedResourceId] || {}),
+            id: cachedResourceId,
+            name: nextTitle,
+            contentBody: generatedBody,
+          } as ResourceItem,
+        }));
+      }
+      setSelectedWorkspaceItem(nextTitle);
+      setEditorTitle(nextTitle);
+      setEditorBody(generatedBody);
+      setAiMessages((previous) => [
+        ...previous,
+        buildAiChatMessage(
+          'assistant',
+          usedPartialFallback
+            ? `Done. I applied a usable draft to the canvas, but some requested parts could not be completed exactly as asked. ${result.teacherMessage || ''}`.trim()
+            : `Done. ${
+              result.teacherMessage
+              || (variant
+                ? 'I created an alternative version of the resource draft.'
+                : `I generated a resource draft for "${nextTitle}".`)
+            }`
+        ),
+      ]);
+      setWorkspaceOperationFeedback({
+        status: 'success',
+        title: variant ? 'Alternative content ready' : 'Content generated',
+        message:
+          result.summary
+          || (usedPartialFallback
+            ? `A partial but usable draft was applied to "${nextTitle}". Review it before saving or publishing.`
+            : `Review "${nextTitle}" in the editor before saving or publishing.`),
+      });
+      setToastMessage(variant ? 'Generated an alternative AI resource draft.' : 'Generated AI resource draft.');
+    } catch (error: unknown) {
+      console.error('Failed to generate workspace resource with AI:', error);
+      setWorkspaceOperationFeedback({
+        status: 'error',
+        title: 'AI generation failed',
+        message: getErrorMessage(error, 'Failed to generate resource draft.'),
+      });
+      setAiMessages((previous) => [
+        ...previous,
+        buildAiChatMessage(
+          'assistant',
+          'I could not complete that request just now. Check the AI backend and try again.'
+        ),
+      ]);
+      setToastMessage(getErrorMessage(error, 'Failed to generate AI resource draft.'));
+    } finally {
+      setIsAiGenerationLoading(false);
+    }
   };
 
-  const handleSendAiMessage = () => {
+  const handleGeneratePracticeWithAi = async (variant = false, teacherPrompt?: string) => {
+    if (isAiGenerationLoading) return;
+    if (!selectedTopic) return;
+    if (workspaceTab !== 'assessment') {
+      setToastMessage('AI collaborator practice generation is currently enabled for the practice workspace.');
+      return;
+    }
+
+    const activeTitle = assessmentName.trim() || selectedWorkspaceItem || `${selectedTopic.title} Practice`;
+    const promptText =
+      teacherPrompt?.trim()
+      || aiChatInput.trim()
+      || aiPrompt.trim()
+      || (variant
+        ? 'Create an alternative version of this practice set.'
+        : 'Generate a classroom-ready practice set for this topic.');
+    const populatedQuestions = assessmentQuestions.filter((question) => question.prompt.trim().length > 0);
+    const requestedQuestionCount = inferRequestedAiPracticeQuestionCount(
+      promptText,
+      populatedQuestions.length,
+      populatedQuestions.length > 0
+        ? populatedQuestions.length
+        : Math.max(1, Number(aiQuestionCount) || 5)
+    );
+    const inferredQuestionTypeMode: AiQuestionTypeMode =
+      populatedQuestions.length === 0
+        ? aiQuestionTypeMode
+        : (
+          populatedQuestions.every((question) => question.type === 'multiple-choice')
+            ? 'multiple_choice'
+            : populatedQuestions.every((question) => question.type === 'short-answer')
+              ? 'structured'
+              : 'mixed'
+        );
+    const attachmentCount = aiAttachedFiles.length;
+
+    setIsAiGenerationLoading(true);
+    setWorkspaceOperationFeedback({
+      status: 'loading',
+      title: variant ? 'Generating alternative practice' : 'Generating practice',
+      message: attachmentCount > 0
+        ? `Processing ${attachmentCount} attached reference${attachmentCount === 1 ? '' : 's'} for "${activeTitle}"...`
+        : `Building "${activeTitle}" on the practice canvas...`,
+    });
+
+    try {
+      const ocrReferenceDocuments = attachmentCount > 0
+        ? await workspaceAiService.processDocumentsWithOCR(aiAttachedFiles)
+        : [];
+      const referenceDocuments = [...buildWorkspaceReferenceDocuments(), ...ocrReferenceDocuments];
+      const result = await workspaceAiService.generateTeacherPractice({
+        subjectName: selectedSubject?.name || undefined,
+        topicTitle: selectedTopic.title,
+        unitTitle: selectedTopic.unit,
+        gradeLevel: aiGradeLevel || selectedTopic.form,
+        title: activeTitle,
+        objective: aiObjective || selectedTopic.title,
+        teacherPrompt: promptText,
+        description: assessmentDescription.trim(),
+        practiceType: assessmentType,
+        difficulty: aiDifficulty,
+        questionTypeMode: inferredQuestionTypeMode,
+        numberOfQuestions: requestedQuestionCount,
+        variant,
+        relatedRecords: selectedTopic.materials.assessment,
+        existingQuestions: populatedQuestions.map((question) => ({
+          prompt: question.prompt,
+          type: question.type,
+          marks: question.marks,
+          options: question.options,
+          correctAnswers: question.correctAnswers,
+          correctAnswer: question.correctAnswer,
+          markingGuide: question.markingGuide,
+        })),
+        referenceDocuments,
+      });
+
+      if (!result.questions.length) {
+        throw new Error('AI returned an empty practice set.');
+      }
+
+      const mappedQuestions = result.questions.map((question, index) =>
+        mapGeneratedPracticeQuestion(question, `ai-question-${Date.now()}-${index}`)
+      );
+      setAssessmentName((result.title || activeTitle).trim() || activeTitle);
+      setSelectedWorkspaceItem((result.title || activeTitle).trim() || activeTitle);
+      setAssessmentDescription(result.description || assessmentDescription.trim());
+      setAssessmentQuestions(mappedQuestions);
+      setAssessmentAiEnhanced(true);
+      setIsAssessmentConfigured(true);
+      setAiMessages((previous) => [
+        ...previous,
+        buildAiChatMessage(
+          'assistant',
+          `Done. ${
+            result.teacherMessage
+            || (variant
+              ? 'I created an alternative practice set with questions and answers on the canvas.'
+              : `I generated ${result.questions.length} practice question${result.questions.length === 1 ? '' : 's'} for "${result.title || activeTitle}".`)
+          }`
+        ),
+      ]);
+      setWorkspaceOperationFeedback({
+        status: 'success',
+        title: variant ? 'Alternative practice ready' : 'Practice generated',
+        message:
+          result.summary
+          || `Review "${result.title || activeTitle}" on the practice canvas before saving or publishing.`,
+      });
+      setToastMessage(variant ? 'Generated an alternative AI practice set.' : 'Generated AI practice set.');
+    } catch (error: unknown) {
+      console.error('Failed to generate workspace practice with AI:', error);
+      setWorkspaceOperationFeedback({
+        status: 'error',
+        title: 'AI generation failed',
+        message: getErrorMessage(error, 'Failed to generate practice set.'),
+      });
+      setAiMessages((previous) => [
+        ...previous,
+        buildAiChatMessage(
+          'assistant',
+          'I could not complete that request just now. Check the AI backend and try again.'
+        ),
+      ]);
+      setToastMessage(getErrorMessage(error, 'Failed to generate AI practice set.'));
+    } finally {
+      setIsAiGenerationLoading(false);
+    }
+  };
+
+  const handleSendAiMessage = async () => {
+    if (isAiGenerationLoading) return;
     const message = aiChatInput.trim();
     const direction = aiPrompt.trim();
     const normalized = message.toLowerCase();
+    const hasAttachments = aiAttachedFiles.length > 0;
 
-    if (!message && !direction) {
-      setToastMessage('Type a message or add AI direction before sending.');
+    if (!message && !direction && !hasAttachments) {
+      setToastMessage('Type a message, add AI direction, or attach a reference before sending.');
       return;
     }
 
+    const outboundMessage = message
+      || (direction
+        ? `${workspaceTab === 'assessment' ? 'Generate practice' : 'Generate draft'} with this AI direction: ${direction}`
+        : '')
+      || (hasAttachments
+        ? `${workspaceTab === 'assessment' ? 'Generate practice' : 'Generate draft'} using the attached references and the current topic context.`
+        : '');
+
+    if (outboundMessage) {
+      setAiMessages((previous) => [...previous, buildAiChatMessage('teacher', outboundMessage)]);
+    }
+    setAiChatInput('');
+
     if (!message && direction) {
-      handleGenerateWithAi(false, `Generate draft with this AI direction: ${direction}`);
-      setAiChatInput('');
+      if (workspaceTab === 'assessment') {
+        await handleGeneratePracticeWithAi(false, outboundMessage);
+        return;
+      }
+      await handleGenerateResourceWithAi(false, outboundMessage);
+      return;
+    }
+
+    if (!message && hasAttachments) {
+      if (workspaceTab === 'assessment') {
+        await handleGeneratePracticeWithAi(false, outboundMessage);
+        return;
+      }
+      await handleGenerateResourceWithAi(false, outboundMessage);
       return;
     }
 
     if (normalized.includes('try something different') || normalized.includes('alternative version')) {
-      handleGenerateWithAi(true, message);
-      setAiChatInput('');
+      if (workspaceTab === 'assessment') {
+        await handleGeneratePracticeWithAi(true, outboundMessage);
+        return;
+      }
+      await handleGenerateResourceWithAi(true, outboundMessage);
       return;
     }
 
-    if (normalized.includes('generate') || normalized.includes('draft') || normalized.includes('create')) {
-      handleGenerateWithAi(false, message);
-      setAiChatInput('');
+    if (workspaceTab === 'resource') {
+      await handleGenerateResourceWithAi(false, outboundMessage);
+      return;
+    }
+
+    if (workspaceTab === 'assessment') {
+      await handleGeneratePracticeWithAi(false, outboundMessage);
       return;
     }
 
     setAiMessages((previous) => [
       ...previous,
-      { id: `teacher-chat-${Date.now()}`, role: 'teacher', text: message },
-      {
-        id: `assistant-chat-${Date.now()}`,
-        role: 'assistant',
-        text: `Suggested next step: refine "${selectedWorkspaceItem || `${toTitleCase(workspaceTab)} draft`}" to align with ${aiObjective || selectedTopic?.title || 'the topic goal'} and then run "Generate draft" again.`,
-      },
+      buildAiChatMessage(
+        'assistant',
+        `Done. Suggested next step: refine "${selectedWorkspaceItem || `${toTitleCase(workspaceTab)} draft`}" to align with ${aiObjective || selectedTopic?.title || 'the topic goal'} and then run "generate practice" again.`
+      ),
     ]);
-    setAiChatInput('');
-  };
-
-  const handleAssessmentAiGenerate = () => {
-    const prompt = assessmentAiPrompt.trim();
-    if (!prompt) {
-      setToastMessage('Enter a prompt for AI collaborator.');
-      return;
-    }
-
-    setAssessmentAiLogs((previous) => [
-      ...previous,
-      `Prompt: ${prompt}`,
-      'AI generated a draft suggestion for the practice canvas.',
-    ]);
-    setAssessmentAiPrompt('');
-  };
-
-  const handleAssessmentAttachFile = () => {
-    assessmentAttachmentInputRef.current?.click();
-  };
-
-  const handleAssessmentAttachmentChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    setAssessmentAttachedFileName(file.name);
-    setAssessmentAiLogs((previous) => [...previous, `Attached file: ${file.name}`]);
-    event.target.value = '';
   };
 
   const handleAddAssessmentQuestion = () => {
@@ -2490,6 +3255,141 @@ const ClassroomSubjectsPage: React.FC = () => {
     return () => document.removeEventListener('selectionchange', handleSelectionChange);
   }, []);
 
+  const activeWorkspaceSnapshotKind = workspaceTab === 'assessment' ? 'assessment' : 'resource';
+  const hasUnsavedWorkspaceChanges = useMemo(() => {
+    if (!isTopicWorkspaceOpen || !workspaceBaseline) return false;
+    if (workspaceBaseline.tab !== activeWorkspaceSnapshotKind) return false;
+
+    return JSON.stringify(workspaceBaseline.snapshot) !== JSON.stringify(
+      activeWorkspaceSnapshotKind === 'assessment'
+        ? currentAssessmentSnapshot
+        : currentResourceSnapshot
+    );
+  }, [
+    activeWorkspaceSnapshotKind,
+    currentAssessmentSnapshot,
+    currentResourceSnapshot,
+    isTopicWorkspaceOpen,
+    workspaceBaseline,
+  ]);
+
+  const clearUnsavedWorkspacePrompt = () => {
+    setIsUnsavedWorkspacePromptOpen(false);
+    setPendingWorkspaceExitLabel('leave the workspace');
+    pendingWorkspaceExitActionRef.current = null;
+  };
+
+  const closeWorkspaceDirect = () => {
+    setIsStudioExpanded(false);
+    setIsTopicContentCollapsed(false);
+    setIsAiCollaboratorExpanded(false);
+    setSelectionActionOverlay(null);
+    setSelectionActionHint(null);
+    setIsMaterialConfigOpen(false);
+    setIsAssessmentConfigOpen(false);
+    setIsTopicWorkspaceOpen(false);
+  };
+
+  const restoreCurrentWorkspaceFromBaseline = () => {
+    if (!workspaceBaseline) return;
+
+    setSelectionActionOverlay(null);
+    setSelectionActionHint(null);
+
+    if (workspaceBaseline.tab === 'assessment') {
+      setAssessmentName(workspaceBaseline.snapshot.name);
+      setAssessmentType(workspaceBaseline.snapshot.assessmentType as typeof assessmentType);
+      setAssessmentDescription(workspaceBaseline.snapshot.description);
+      setAssessmentMaxScore(workspaceBaseline.snapshot.maxScore);
+      setAssessmentWeight(workspaceBaseline.snapshot.weight);
+      setAssessmentTimeLimit(workspaceBaseline.snapshot.timeLimit);
+      setAssessmentAttempts(workspaceBaseline.snapshot.attempts);
+      setAssessmentStatus(workspaceBaseline.snapshot.status as typeof assessmentStatus);
+      setAssessmentVisibility(workspaceBaseline.snapshot.visibility as typeof assessmentVisibility);
+      setAssessmentQuestions(
+        workspaceBaseline.snapshot.questions.map((question, index) => ({
+          id: `${selectedMaterialKey || 'assessment'}-restored-${index}`,
+          prompt: question.prompt,
+          type: question.type,
+          marks: question.marks,
+          options: [...question.options],
+          correctAnswers: [...question.correctAnswers],
+          correctAnswer: question.correctAnswer,
+          markingGuide: question.markingGuide,
+        }))
+      );
+      setIsAssessmentConfigured(workspaceBaseline.snapshot.questions.length > 0);
+      return;
+    }
+
+    setEditorTitle(workspaceBaseline.snapshot.title);
+    setEditorBody(workspaceBaseline.snapshot.body);
+    if (selectedMaterialKey) {
+      setMaterialDrafts((previous) => ({
+        ...previous,
+        [selectedMaterialKey]: workspaceBaseline.snapshot.body,
+      }));
+    }
+  };
+
+  const runPendingWorkspaceExitAction = async () => {
+    const action = pendingWorkspaceExitActionRef.current;
+    clearUnsavedWorkspacePrompt();
+    if (action) {
+      await action();
+    }
+  };
+
+  const requestWorkspaceTransition = (
+    action: () => void | Promise<void>,
+    label: string
+  ) => {
+    if (!isTopicWorkspaceOpen || !hasUnsavedWorkspaceChanges) {
+      void Promise.resolve(action());
+      return;
+    }
+
+    pendingWorkspaceExitActionRef.current = action;
+    setPendingWorkspaceExitLabel(label);
+    setIsUnsavedWorkspacePromptOpen(true);
+  };
+
+  const handleRequestCloseWorkspace = () => {
+    requestWorkspaceTransition(closeWorkspaceDirect, 'leave the workspace');
+  };
+
+  const handleUnsavedWorkspaceSaveDraft = async () => {
+    const saved = activeWorkspaceSnapshotKind === 'assessment'
+      ? Boolean(await persistAssessmentWorkspace('draft'))
+      : await persistCurrentMaterialWorkspace('draft');
+    if (!saved) return;
+    await runPendingWorkspaceExitAction();
+  };
+
+  const handleUnsavedWorkspacePublish = async () => {
+    const published = activeWorkspaceSnapshotKind === 'assessment'
+      ? Boolean(await persistAssessmentWorkspace('published'))
+      : await persistCurrentMaterialWorkspace('published');
+    if (!published) return;
+    await runPendingWorkspaceExitAction();
+  };
+
+  const handleDiscardUnsavedWorkspaceChanges = async () => {
+    restoreCurrentWorkspaceFromBaseline();
+    await runPendingWorkspaceExitAction();
+  };
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!hasUnsavedWorkspaceChanges) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedWorkspaceChanges]);
+
   const isPracticeConfigured = Boolean(
     editorTitle.trim() || selectedWorkspaceItem || editorBody.trim()
   );
@@ -2504,6 +3404,9 @@ const ClassroomSubjectsPage: React.FC = () => {
   const assessmentPrimaryActionLabel = hasExistingWorkspaceRecord
     ? 'Update Practice'
     : 'Create Practice';
+  const resourcePrimaryActionLabel = hasExistingWorkspaceRecord
+    ? 'Update'
+    : 'Publish';
   const hasAssessmentQuestionContent = assessmentQuestions.some(
     (question) =>
       question.prompt.trim() ||
@@ -2535,6 +3438,12 @@ const ClassroomSubjectsPage: React.FC = () => {
     allAssessmentQuestionsAnswered;
   const canCreatePracticeFromEditor = hasWorkspaceEditorContent;
   const canPublishWorkspaceMaterial = hasWorkspaceEditorContent;
+  const practiceCanvasLoadingLabel = isAiGenerationLoading
+    ? 'Generating practice...'
+    : 'Saving practice...';
+  const resourceCanvasLoadingLabel = isAiGenerationLoading
+    ? 'Generating content...'
+    : `Saving ${getTopicContentLabelLower(workspaceTab, true)}...`;
   const hasVisibleWorkspaceFeedback = Boolean(
     workspaceOperationFeedback && workspaceOperationFeedback.status !== 'loading'
   );
@@ -2560,8 +3469,10 @@ const ClassroomSubjectsPage: React.FC = () => {
       classroomWorkspaceNav
       activeClassroomAction={workspaceNavView === 'my-subjects' ? 'classroom-my-subjects' : 'classroom-subject'}
       onClassroomMySubjects={() => {
-        setWorkspaceNavView('my-subjects');
-        setIsTopicWorkspaceOpen(false);
+        requestWorkspaceTransition(() => {
+          setWorkspaceNavView('my-subjects');
+          closeWorkspaceDirect();
+        }, 'leave this workspace');
       }}
       onClassroomSubject={() => setWorkspaceNavView('subject')}
     >
@@ -2645,10 +3556,12 @@ const ClassroomSubjectsPage: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => {
-                            setSelectedSubjectId(subject.id);
-                            setWorkspaceNavView('subject');
-                            setView('overview');
-                            setIsTopicWorkspaceOpen(false);
+                            requestWorkspaceTransition(() => {
+                              setSelectedSubjectId(subject.id);
+                              setWorkspaceNavView('subject');
+                              setView('overview');
+                              closeWorkspaceDirect();
+                            }, `switch to ${subject.name}`);
                           }}
                           className="inline-flex shrink-0 items-center rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
                         >
@@ -2744,6 +3657,63 @@ const ClassroomSubjectsPage: React.FC = () => {
                     </div>
                   ))}
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isUnsavedWorkspacePromptOpen && (
+          <div
+            className="fixed inset-0 z-[67] flex items-center justify-center bg-slate-900/35 p-4"
+            onClick={clearUnsavedWorkspacePrompt}
+          >
+            <div
+              className="w-full max-w-lg rounded-lg border border-slate-200 bg-white p-4 shadow-2xl"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="mb-2">
+                <p className="text-sm font-semibold text-slate-900">Unsaved workspace changes</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Save your work as a draft or publish it before you {pendingWorkspaceExitLabel}.
+                </p>
+              </div>
+              <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={clearUnsavedWorkspacePrompt}
+                  className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                >
+                  Stay here
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleDiscardUnsavedWorkspaceChanges();
+                  }}
+                  className="rounded-md border border-rose-200 bg-white px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-50"
+                >
+                  Leave without saving
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleUnsavedWorkspaceSaveDraft();
+                  }}
+                  disabled={isWorkspaceActionLoading}
+                  className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Save draft
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleUnsavedWorkspacePublish();
+                  }}
+                  disabled={isWorkspaceActionLoading}
+                  className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {workspaceTab === 'resource' ? resourcePrimaryActionLabel : 'Publish'}
+                </button>
               </div>
             </div>
           </div>
@@ -3157,6 +4127,45 @@ const ClassroomSubjectsPage: React.FC = () => {
                     className="mt-1 w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs"
                   />
                 </label>
+                {workspaceTab === 'assessment' && (
+                  <>
+                    <label className="block text-xs font-semibold text-slate-600">
+                      Difficulty
+                      <select
+                        value={aiDifficulty}
+                        onChange={(event) => setAiDifficulty(event.target.value as typeof aiDifficulty)}
+                        className="mt-1 w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs"
+                      >
+                        <option value="easy">Easy</option>
+                        <option value="medium">Medium</option>
+                        <option value="hard">Hard</option>
+                      </select>
+                    </label>
+                    <label className="block text-xs font-semibold text-slate-600">
+                      Question count
+                      <input
+                        type="number"
+                        min="1"
+                        max="20"
+                        value={aiQuestionCount}
+                        onChange={(event) => setAiQuestionCount(event.target.value)}
+                        className="mt-1 w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs"
+                      />
+                    </label>
+                    <label className="block text-xs font-semibold text-slate-600">
+                      Question style
+                      <select
+                        value={aiQuestionTypeMode}
+                        onChange={(event) => setAiQuestionTypeMode(event.target.value as AiQuestionTypeMode)}
+                        className="mt-1 w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs"
+                      >
+                        <option value="multiple_choice">Multiple choice</option>
+                        <option value="structured">Short answer</option>
+                        <option value="mixed">Mixed</option>
+                      </select>
+                    </label>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -3410,16 +4419,7 @@ const ClassroomSubjectsPage: React.FC = () => {
               </div>
               <button
                 type="button"
-                  onClick={() => {
-                    setIsStudioExpanded(false);
-                    setIsTopicContentCollapsed(false);
-                    setIsAiCollaboratorExpanded(false);
-                    setSelectionActionOverlay(null);
-                    setSelectionActionHint(null);
-                    setIsMaterialConfigOpen(false);
-                    setIsAssessmentConfigOpen(false);
-                    setIsTopicWorkspaceOpen(false);
-                  }}
+                onClick={handleRequestCloseWorkspace}
                 className="inline-flex items-center gap-1 self-start rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
               >
                 <ArrowLeft className="h-4 w-4" />
@@ -3474,7 +4474,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                         <button
                           key={type}
                           type="button"
-                          onClick={() => setWorkspaceTab(type)}
+                          onClick={() => handleSelectWorkspaceTab(type)}
                           className={`w-full rounded-md border px-2 py-2 text-center text-[11px] font-semibold transition-colors ${
                             workspaceTab === type
                               ? 'border-blue-200 bg-blue-50 text-blue-700'
@@ -3497,7 +4497,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                             <button
                               key={type}
                               type="button"
-                              onClick={() => setWorkspaceTab(type)}
+                              onClick={() => handleSelectWorkspaceTab(type)}
                               className={`w-full rounded-md border px-3 py-2 text-left text-xs font-semibold transition-colors ${
                                 workspaceTab === type
                                   ? 'border-blue-200 bg-blue-50 text-blue-700'
@@ -3517,7 +4517,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                           </p>
                           <button
                             type="button"
-                            onClick={handleCreateWorkspaceItem}
+                            onClick={handleRequestCreateWorkspaceItem}
                             disabled={isWorkspaceActionLoading}
                             className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-blue-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
                           >
@@ -3538,7 +4538,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                               >
                                 <button
                                   type="button"
-                                  onClick={() => setSelectedWorkspaceItem(item)}
+                                  onClick={() => handleSelectWorkspaceItem(item)}
                                   className={`flex-1 rounded-md px-3 py-2 text-left text-xs ${
                                     selectedWorkspaceItem === item
                                       ? 'bg-blue-50 text-blue-700'
@@ -3613,11 +4613,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setIsAssessmentConfigOpen(false);
-                                  setIsTopicContentCollapsed(false);
-                                  setIsTopicWorkspaceOpen(false);
-                                }}
+                                onClick={handleRequestCloseWorkspace}
                                 className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
                               >
                                 Cancel
@@ -3635,10 +4631,12 @@ const ClassroomSubjectsPage: React.FC = () => {
                                           ? `Practice "${assessmentName.trim()}" published to students.`
                                           : `Practice "${assessmentName.trim()}" saved.`
                                       );
-                                    } catch (error: any) {
+                                    } catch (error: unknown) {
                                       setToastMessage(
-                                        error?.message ||
+                                        getErrorMessage(
+                                          error,
                                           `Failed to ${hasExistingWorkspaceRecord ? 'update' : 'create'} practice.`
+                                        )
                                       );
                                     }
                                   })();
@@ -3868,7 +4866,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                                       ))}
                                     </div>
                                   )}
-                                  {isWorkspaceActionLoading && renderCanvasLoadingOverlay('Saving practice canvas...')}
+                                  {isWorkspaceActionLoading && renderCanvasLoadingOverlay(practiceCanvasLoadingLabel)}
                                 </div>
                               </section>
                             </div>
@@ -3888,11 +4886,12 @@ const ClassroomSubjectsPage: React.FC = () => {
                               style={{ width: isAiCollaboratorExpanded ? 360 : 64 }}
                             >
                               <input
-                                ref={assessmentAttachmentInputRef}
+                                ref={aiAttachmentInputRef}
                                 type="file"
                                 className="hidden"
-                                accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"
-                                onChange={handleAssessmentAttachmentChange}
+                                accept={WORKSPACE_REFERENCE_ACCEPT}
+                                multiple
+                                onChange={handleAiAttachmentChange}
                               />
 
                               <div
@@ -3933,83 +4932,104 @@ const ClassroomSubjectsPage: React.FC = () => {
 
                               {isAiCollaboratorExpanded ? (
                                 <div className="flex h-full min-h-0 flex-col rounded-md border border-slate-200 bg-white p-2">
-                                  <div className="mb-2 flex items-center justify-end gap-1">
-                                    <div className="flex items-center gap-1">
-                                      <button
-                                        type="button"
-                                        onClick={handleAssessmentAttachFile}
-                                        className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
-                                      >
-                                        <Paperclip className="h-3.5 w-3.5" />
-                                        Attach
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => setIsAiConfigOpen(true)}
-                                        className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
-                                      >
-                                        <Settings2 className="h-3.5 w-3.5" />
-                                        Configure
-                                      </button>
-                                    </div>
-                                  </div>
-
                                   <div className="mt-2 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
-                                    {assessmentAiLogs.length === 0 ? (
+                                    {aiMessages.length === 0 && !isAiGenerationLoading && (
                                       <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
                                         Prompts and AI completion summaries will appear here.
                                       </div>
-                                    ) : (
-                                      assessmentAiLogs.map((entry, index) => {
-                                        const isPrompt = entry.startsWith('Prompt:');
-                                        return (
-                                          <div
-                                            key={`${entry}-${index}`}
-                                            className={`rounded-md px-2 py-1.5 text-xs ${
-                                              isPrompt ? 'bg-blue-50 text-blue-800' : 'bg-slate-100 text-slate-700'
-                                            }`}
-                                          >
-                                            {isPrompt ? entry.replace(/^Prompt:\s*/, '') : entry}
-                                          </div>
-                                        );
-                                      })
                                     )}
+                                    {aiMessages.map((message) => {
+                                      return (
+                                        <div
+                                          key={message.id}
+                                          className={`rounded-md px-2 py-1.5 text-xs ${
+                                            message.role === 'assistant'
+                                              ? 'bg-slate-100 text-slate-700'
+                                              : 'bg-blue-50 text-blue-800'
+                                          }`}
+                                        >
+                                          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                                            {message.role === 'assistant' ? 'AI Collaborator' : 'You'}
+                                          </p>
+                                          <p className="whitespace-pre-wrap">{message.text}</p>
+                                        </div>
+                                      );
+                                    })}
                                   </div>
 
-                                  <div className="mt-2 flex items-end gap-2">
-                                    <textarea
-                                      value={assessmentAiPrompt}
-                                      onChange={(event) => setAssessmentAiPrompt(event.target.value)}
-                                      onInput={(event) => {
-                                        const next = event.currentTarget;
-                                        next.style.height = 'auto';
-                                        next.style.height = `${next.scrollHeight}px`;
-                                      }}
-                                      onKeyDown={(event) => {
-                                        if (event.key === 'Enter' && !event.shiftKey) {
-                                          event.preventDefault();
-                                          handleAssessmentAiGenerate();
-                                        }
-                                      }}
-                                      placeholder="Ask the AI assistant or type 'generate draft'..."
-                                      rows={2}
-                                      className="min-h-[44px] min-w-0 flex-1 resize-none overflow-hidden rounded-md border border-slate-200 px-2 py-1.5 text-xs leading-5"
-                                    />
-                                    <button
-                                      type="button"
-                                      onClick={handleAssessmentAiGenerate}
-                                      disabled={!assessmentAiPrompt.trim()}
-                                      className="inline-flex shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white px-2 py-1.5 text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-                                      aria-label="Send message"
-                                    >
-                                      <SendHorizontal className="h-4 w-4" />
-                                    </button>
+                                  <div className="mt-2 space-y-3">
+                                    {aiAttachedFiles.length > 0 && (
+                                      <div className="flex flex-wrap gap-2">
+                                        {aiAttachedFiles.map((file) => {
+                                          const fileKey = `${file.name}:${file.size}:${file.lastModified}`;
+                                          return (
+                                            <span
+                                              key={fileKey}
+                                              className="inline-flex max-w-full items-center gap-1 rounded-full bg-blue-50 px-2 py-1 text-[11px] text-blue-700"
+                                            >
+                                              <Paperclip className="h-3 w-3 shrink-0" />
+                                              <span className="truncate">{file.name}</span>
+                                              <button
+                                                type="button"
+                                                onClick={() => handleRemoveAiAttachment(file)}
+                                                disabled={isAiGenerationLoading}
+                                                className="inline-flex items-center justify-center rounded-full text-blue-700 hover:text-blue-900 disabled:cursor-not-allowed disabled:opacity-50"
+                                                aria-label={`Remove ${file.name}`}
+                                              >
+                                                <X className="h-3 w-3" />
+                                              </button>
+                                            </span>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+
+                                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-2 shadow-sm shadow-slate-200/50">
+                                      <div className="px-1 py-1.5">
+                                        <textarea
+                                          ref={aiChatInputRef}
+                                          value={aiChatInput}
+                                          disabled={isAiGenerationLoading}
+                                          onChange={(event) => setAiChatInput(event.target.value)}
+                                          onKeyDown={(event) => {
+                                            if (event.key === 'Enter' && !event.shiftKey && !isAiGenerationLoading) {
+                                              event.preventDefault();
+                                              handleSendAiMessage();
+                                            }
+                                          }}
+                                          placeholder="Ask the AI assistant or type 'generate practice'..."
+                                          rows={2}
+                                          className="min-h-[72px] w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-xs leading-5 text-slate-700 placeholder:text-slate-400 focus:outline-none disabled:cursor-not-allowed disabled:text-slate-500"
+                                        />
+                                      </div>
+                                      <div className="flex items-center justify-between border-t border-slate-200/80 pt-1">
+                                        <button
+                                          type="button"
+                                          onClick={handleAttachAiReference}
+                                          disabled={isAiGenerationLoading}
+                                          className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                                          aria-label="Attach reference files"
+                                          title={WORKSPACE_REFERENCE_HELPER}
+                                        >
+                                          <Paperclip className="h-4 w-4" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={handleSendAiMessage}
+                                          disabled={isAiGenerationLoading}
+                                          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                          aria-label={isAiGenerationLoading ? 'Generating practice' : 'Send message'}
+                                        >
+                                          {isAiGenerationLoading ? (
+                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                          ) : (
+                                          <SendHorizontal className="h-4 w-4" />
+                                          )}
+                                        </button>
+                                      </div>
+                                    </div>
+
                                   </div>
-                                  {assessmentAttachedFileName && (
-                                    <p className="mt-2 truncate rounded-md bg-blue-50 px-2 py-1 text-[11px] text-blue-700">
-                                      Attached: {assessmentAttachedFileName}
-                                    </p>
-                                  )}
                                 </div>
                               ) : null}
                             </aside>
@@ -4036,11 +5056,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setIsMaterialConfigOpen(false);
-                                  setIsTopicContentCollapsed(false);
-                                  setIsTopicWorkspaceOpen(false);
-                                }}
+                                onClick={handleRequestCloseWorkspace}
                                 className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
                               >
                                 Cancel
@@ -4049,20 +5065,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                                 type="button"
                                 onClick={() => {
                                   void (async () => {
-                                    try {
-                                      const savedPracticeId = await createOrUpdateWorkspaceResource('published', {
-                                        type: 'practice',
-                                      });
-                                      if (!savedPracticeId) return;
-                                      setToastMessage(
-                                        `Practice "${(editorTitle.trim() || selectedWorkspaceItem || 'Draft').trim()}" published.`
-                                      );
-                                    } catch (error: any) {
-                                      setToastMessage(
-                                        error?.message ||
-                                          `Failed to ${hasExistingWorkspaceRecord ? 'update' : 'create'} practice.`
-                                      );
-                                    }
+                                    await persistCurrentMaterialWorkspace('published');
                                   })();
                                 }}
                                 disabled={isWorkspaceActionLoading || !canCreatePracticeFromEditor}
@@ -4191,7 +5194,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                                           </div>
                                         </div>
                                       )}
-                                      {isWorkspaceActionLoading && renderCanvasLoadingOverlay('Saving practice canvas...')}
+                                      {isWorkspaceActionLoading && renderCanvasLoadingOverlay(practiceCanvasLoadingLabel)}
                                     </div>
                                   </div>
                                 </div>
@@ -4216,6 +5219,15 @@ const ClassroomSubjectsPage: React.FC = () => {
                             >
                               {isAiCollaboratorExpanded ? (
                                 <div className="flex h-full min-h-0 flex-col rounded-md border border-slate-200 bg-white p-2">
+                                  <input
+                                    ref={aiAttachmentInputRef}
+                                    type="file"
+                                    className="hidden"
+                                    accept={WORKSPACE_REFERENCE_ACCEPT}
+                                    multiple
+                                    onChange={handleAiAttachmentChange}
+                                  />
+
                                   <div className="mb-3 flex items-center justify-between">
                                     <div className="flex items-center gap-2">
                                       <p className="text-sm font-semibold text-slate-900">AI Collaborator</p>
@@ -4239,6 +5251,11 @@ const ClassroomSubjectsPage: React.FC = () => {
                                   </div>
 
                                   <div className="mt-2 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+                                    {aiMessages.length === 0 && !isAiGenerationLoading && (
+                                      <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+                                        Prompts and AI completion summaries will appear here.
+                                      </div>
+                                    )}
                                     {aiMessages.map((message) => (
                                       <div
                                         key={message.id}
@@ -4248,48 +5265,90 @@ const ClassroomSubjectsPage: React.FC = () => {
                                             : 'bg-blue-50 text-blue-800'
                                         }`}
                                       >
-                                        {message.text}
+                                        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                                          {message.role === 'assistant' ? 'AI Collaborator' : 'You'}
+                                        </p>
+                                        <p className="whitespace-pre-wrap">{message.text}</p>
                                       </div>
                                     ))}
                                   </div>
 
                                   <div className="mt-2 space-y-3">
-                                    <div className="relative">
-                                      <textarea
-                                        ref={aiChatInputRef}
-                                        value={aiChatInput}
-                                        onChange={(event) => setAiChatInput(event.target.value)}
-                                        onKeyDown={(event) => {
-                                          if (event.key === 'Enter' && !event.shiftKey) {
-                                            event.preventDefault();
-                                            handleSendAiMessage();
-                                          }
-                                        }}
-                                        placeholder="Prompt AI here. Use @ to attach library references."
-                                        className="min-h-[120px] w-full resize-none rounded-md border border-slate-200 px-3 py-2 pb-12 pr-16 text-sm"
-                                      />
-                                      <button
-                                        type="button"
-                                        onClick={handleSendAiMessage}
-                                        className="absolute right-2 bottom-2 inline-flex h-9 min-w-9 items-center justify-center rounded-full bg-blue-600 px-3 text-white hover:bg-blue-700 disabled:opacity-60"
-                                        aria-label="Generate on canvas"
-                                      >
-                                        <SendHorizontal className="h-4 w-4" />
-                                      </button>
-                                    </div>
+                                    {aiAttachedFiles.length > 0 && (
+                                      <div className="flex flex-wrap gap-2">
+                                        {aiAttachedFiles.map((file) => {
+                                          const fileKey = `${file.name}:${file.size}:${file.lastModified}`;
+                                          return (
+                                            <span
+                                              key={fileKey}
+                                              className="inline-flex max-w-full items-center gap-1 rounded-full bg-blue-50 px-2 py-1 text-[11px] text-blue-700"
+                                            >
+                                              <Paperclip className="h-3 w-3 shrink-0" />
+                                              <span className="truncate">{file.name}</span>
+                                              <button
+                                                type="button"
+                                                onClick={() => handleRemoveAiAttachment(file)}
+                                                disabled={isAiGenerationLoading}
+                                                className="inline-flex items-center justify-center rounded-full text-blue-700 hover:text-blue-900 disabled:cursor-not-allowed disabled:opacity-50"
+                                                aria-label={`Remove ${file.name}`}
+                                              >
+                                                <X className="h-3 w-3" />
+                                              </button>
+                                            </span>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
 
-                                    <div className="flex items-center justify-between gap-2">
-                                      <div className="flex items-center gap-2">
+                                    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-2 shadow-sm shadow-slate-200/50">
+                                      <div className="px-1 py-1.5">
+                                        <textarea
+                                          ref={aiChatInputRef}
+                                          value={aiChatInput}
+                                          disabled={isAiGenerationLoading}
+                                          onChange={(event) => setAiChatInput(event.target.value)}
+                                          onKeyDown={(event) => {
+                                            if (event.key === 'Enter' && !event.shiftKey && !isAiGenerationLoading) {
+                                              event.preventDefault();
+                                              handleSendAiMessage();
+                                            }
+                                          }}
+                                          placeholder="Prompt AI here. Attach reference files when needed."
+                                          rows={3}
+                                          className="min-h-[96px] w-full resize-none border-0 bg-transparent p-0 text-sm leading-6 text-slate-700 placeholder:text-slate-400 focus:outline-none disabled:cursor-not-allowed disabled:text-slate-500"
+                                        />
+                                      </div>
+                                      <div className="flex items-center justify-between border-t border-slate-200/80 pt-1">
                                         <button
                                           type="button"
-                                          onClick={() => setIsAiConfigOpen(true)}
-                                          className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 hover:text-blue-700"
+                                          onClick={handleAttachAiReference}
+                                          disabled={isAiGenerationLoading}
+                                          className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                                          aria-label="Attach reference files"
+                                          title={WORKSPACE_REFERENCE_HELPER}
                                         >
-                                          <Settings2 className="h-3.5 w-3.5" />
-                                          Configure
+                                          <Paperclip className="h-4 w-4" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={handleSendAiMessage}
+                                          disabled={isAiGenerationLoading}
+                                          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                          aria-label={isAiGenerationLoading ? 'Generating content' : 'Generate on canvas'}
+                                        >
+                                          {isAiGenerationLoading ? (
+                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                          ) : (
+                                            <SendHorizontal className="h-4 w-4" />
+                                          )}
                                         </button>
                                       </div>
-                                      <span className="text-[11px] text-slate-500">Type @ to attach reference</span>
+                                    </div>
+
+                                    <div className="flex items-center justify-end gap-2">
+                                      <span className="text-[11px] text-slate-500">
+                                        Use the collaborator to refine the current workspace draft.
+                                      </span>
                                     </div>
                                   </div>
                                 </div>
@@ -4366,7 +5425,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                       className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <ArrowUp className="h-3.5 w-3.5" />
-                      Publish
+                      {resourcePrimaryActionLabel}
                     </button>
                   </div>
                   <button
@@ -4615,7 +5674,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                           </div>
                         </div>
                       )}
-                      {isWorkspaceActionLoading && renderCanvasLoadingOverlay(`Saving ${getTopicContentLabelLower(workspaceTab, true)}...`)}
+                      {isWorkspaceActionLoading && renderCanvasLoadingOverlay(resourceCanvasLoadingLabel)}
                     </div>
                   </div>
                 </div>
@@ -4663,18 +5722,21 @@ const ClassroomSubjectsPage: React.FC = () => {
 
                   {isAiCollaboratorExpanded ? (
                     <div className="flex h-full min-h-0 flex-col rounded-md border border-slate-200 bg-white p-2">
-                      <div className="mb-2 flex items-center justify-end gap-1">
-                        <button
-                          type="button"
-                          onClick={() => setIsAiConfigOpen(true)}
-                          className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100"
-                        >
-                          <Settings2 className="h-3.5 w-3.5" />
-                          Configure
-                        </button>
-                      </div>
+                      <input
+                        ref={aiAttachmentInputRef}
+                        type="file"
+                        className="hidden"
+                        accept={WORKSPACE_REFERENCE_ACCEPT}
+                        multiple
+                        onChange={handleAiAttachmentChange}
+                      />
 
                       <div className="mt-2 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+                        {aiMessages.length === 0 && !isAiGenerationLoading && (
+                          <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+                            Prompts and AI completion summaries will appear here.
+                          </div>
+                        )}
                         {aiMessages.map((message) => (
                           <div
                             key={message.id}
@@ -4684,34 +5746,84 @@ const ClassroomSubjectsPage: React.FC = () => {
                                 : 'bg-blue-50 text-blue-800'
                             }`}
                           >
-                            {message.text}
+                            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                              {message.role === 'assistant' ? 'AI Collaborator' : 'You'}
+                            </p>
+                            <p className="whitespace-pre-wrap">{message.text}</p>
                           </div>
                         ))}
                       </div>
 
-                      <div className="mt-2 flex items-end gap-2">
-                        <textarea
-                          ref={aiChatInputRef}
-                          value={aiChatInput}
-                          onChange={(event) => setAiChatInput(event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter' && !event.shiftKey) {
-                              event.preventDefault();
-                              handleSendAiMessage();
-                            }
-                          }}
-                          placeholder="Ask the AI assistant or type 'generate draft'..."
-                          rows={2}
-                          className="min-h-[44px] min-w-0 flex-1 resize-none overflow-hidden rounded-md border border-slate-200 px-2 py-1.5 text-xs leading-5"
-                        />
-                        <button
-                          type="button"
-                          onClick={handleSendAiMessage}
-                          className="inline-flex shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white px-2 py-1.5 text-slate-700 hover:bg-slate-100"
-                          aria-label="Send message"
-                        >
-                          <SendHorizontal className="h-4 w-4" />
-                        </button>
+                      <div className="mt-2 space-y-3">
+                        {aiAttachedFiles.length > 0 && (
+                          <div className="flex flex-wrap gap-2">
+                            {aiAttachedFiles.map((file) => {
+                              const fileKey = `${file.name}:${file.size}:${file.lastModified}`;
+                              return (
+                                <span
+                                  key={fileKey}
+                                  className="inline-flex max-w-full items-center gap-1 rounded-full bg-blue-50 px-2 py-1 text-[11px] text-blue-700"
+                                >
+                                  <Paperclip className="h-3 w-3 shrink-0" />
+                                  <span className="truncate">{file.name}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveAiAttachment(file)}
+                                    disabled={isAiGenerationLoading}
+                                    className="inline-flex items-center justify-center rounded-full text-blue-700 hover:text-blue-900 disabled:cursor-not-allowed disabled:opacity-50"
+                                    aria-label={`Remove ${file.name}`}
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </button>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-2 shadow-sm shadow-slate-200/50">
+                          <div className="px-1 py-1.5">
+                            <textarea
+                              ref={aiChatInputRef}
+                              value={aiChatInput}
+                              disabled={isAiGenerationLoading}
+                              onChange={(event) => setAiChatInput(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' && !event.shiftKey && !isAiGenerationLoading) {
+                                  event.preventDefault();
+                                  handleSendAiMessage();
+                                }
+                              }}
+                              placeholder="Ask the AI assistant or type 'generate draft'..."
+                              rows={2}
+                              className="min-h-[72px] w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-xs leading-5 text-slate-700 placeholder:text-slate-400 focus:outline-none disabled:cursor-not-allowed disabled:text-slate-500"
+                            />
+                          </div>
+                          <div className="flex items-center justify-between border-t border-slate-200/80 pt-1">
+                            <button
+                              type="button"
+                              onClick={handleAttachAiReference}
+                              disabled={isAiGenerationLoading}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                              aria-label="Attach reference files"
+                              title={WORKSPACE_REFERENCE_HELPER}
+                            >
+                              <Paperclip className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleSendAiMessage}
+                              disabled={isAiGenerationLoading}
+                              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                              aria-label={isAiGenerationLoading ? 'Generating content' : 'Send message'}
+                            >
+                              {isAiGenerationLoading ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <SendHorizontal className="h-4 w-4" />
+                              )}
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   ) : null}

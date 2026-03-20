@@ -158,6 +158,18 @@ const DashboardSkeleton = () => (
   </div>
 );
 
+const sanitizeDashboardRuntimeStepIds = (stepIds: string[] | undefined, validStepIds: Set<string>) =>
+  (stepIds || [])
+    .map((stepId) => String(stepId || '').trim())
+    .filter((stepId) => stepId.length > 0 && validStepIds.has(stepId))
+    .filter((stepId, index, values) => values.indexOf(stepId) === index);
+
+const sanitizeDashboardRuntimeStepId = (stepId: string | null | undefined, validStepIds: Set<string>) => {
+  const normalized = String(stepId || '').trim();
+  if (!normalized || !validStepIds.has(normalized)) return null;
+  return normalized;
+};
+
 const StudentDashboard: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -948,6 +960,28 @@ const StudentDashboard: React.FC = () => {
     setViewWithTransition('plan');
   };
 
+  const handlePlanRuntimeChange = useCallback((runtime: {
+    studentPlanId: string;
+    activeStepId?: string | null;
+    completedStepIds: string[];
+    currentProgress: number;
+    status: string;
+  }) => {
+    const applyRuntime = (planItem: DevelopmentPlan): DevelopmentPlan =>
+      planItem.id !== runtime.studentPlanId
+        ? planItem
+        : {
+            ...planItem,
+            currentProgress: runtime.currentProgress,
+            activeStepId: runtime.activeStepId ?? null,
+            completedStepIds: runtime.completedStepIds,
+            status: runtime.status as DevelopmentPlan['status'],
+          };
+
+    setSubjectPlans((previous) => previous.map(applyRuntime));
+    setActivePlan((previous) => (previous && previous.id === runtime.studentPlanId ? applyRuntime(previous) : previous));
+  }, []);
+
   const openSubjectInMySubjects = (subjectId: string) => {
     setSelectedSubjectId(subjectId);
     setViewWithTransition('subjects');
@@ -1290,13 +1324,45 @@ const StudentDashboard: React.FC = () => {
 
                     const sortedSteps = (plan.plan.steps || []).slice().sort((a, b) => (a.order || 0) - (b.order || 0));
                     const totalSteps = sortedSteps.length;
-                    const safeProgress = Math.max(0, Math.min(100, plan.currentProgress));
-                    const completedSteps = Math.floor((safeProgress / 100) * (totalSteps || 1));
-                    const currentStepIndex = Math.min(completedSteps, Math.max(totalSteps - 1, 0));
-                    const visibleSteps = sortedSteps.slice(0, 4);
+                    const validStepIds = new Set(
+                      sortedSteps.map((step) => String(step.id || '')).filter(Boolean)
+                    );
+                    const persistedCompletedStepIds = sanitizeDashboardRuntimeStepIds(plan.completedStepIds, validStepIds);
+                    const persistedActiveStepId = sanitizeDashboardRuntimeStepId(plan.activeStepId, validStepIds);
+                    const hasPersistedRuntime = persistedCompletedStepIds.length > 0 || Boolean(persistedActiveStepId);
+                    const legacyCompletedSteps = Math.floor(
+                      (Math.max(0, Math.min(100, plan.currentProgress || 0)) / 100) * totalSteps
+                    );
+                    const completedStepIds = hasPersistedRuntime
+                      ? persistedCompletedStepIds
+                      : sortedSteps
+                          .slice(0, legacyCompletedSteps)
+                          .map((step) => String(step.id || ''))
+                          .filter(Boolean);
+                    const completedStepIdSet = new Set(completedStepIds);
+                    const completedSteps = completedStepIds.length;
+                    const safeProgress = totalSteps === 0
+                      ? 0
+                      : Math.max(0, Math.min(100, (completedSteps / totalSteps) * 100));
+                    const currentStepIndex = persistedActiveStepId
+                      ? Math.max(
+                          0,
+                          sortedSteps.findIndex((step) => String(step.id || '') === persistedActiveStepId)
+                        )
+                      : Math.min(completedSteps, Math.max(totalSteps - 1, 0));
+                    const hasStarted = completedSteps > 0 || Boolean(persistedActiveStepId);
+                    const maxVisibleSteps = 4;
+                    const visibleWindowStart = totalSteps <= maxVisibleSteps
+                      ? 0
+                      : Math.min(
+                          Math.max(currentStepIndex - 1, 0),
+                          Math.max(totalSteps - maxVisibleSteps, 0)
+                        );
+                    const visibleSteps = sortedSteps.slice(visibleWindowStart, visibleWindowStart + maxVisibleSteps);
                     const visibleStepCount = visibleSteps.length;
-                    const completedVisibleSteps = Math.min(completedSteps, visibleStepCount);
-                    const progressUnits = (safeProgress / 100) * Math.max(totalSteps, 1);
+                    const completedVisibleSteps = visibleSteps.filter((step) =>
+                      Boolean(step.id && completedStepIdSet.has(String(step.id)))
+                    ).length;
                     const connectorProgress =
                       visibleStepCount <= 1
                         ? 0
@@ -1304,7 +1370,7 @@ const StudentDashboard: React.FC = () => {
                             0,
                             Math.min(
                               100,
-                              ((completedVisibleSteps + (completedVisibleSteps < visibleStepCount && safeProgress > 0 ? 0.5 : 0)) /
+                              ((completedVisibleSteps + (completedVisibleSteps < visibleStepCount && hasStarted ? 0.5 : 0)) /
                                 (visibleStepCount - 1)) *
                                 100
                             )
@@ -1337,15 +1403,18 @@ const StudentDashboard: React.FC = () => {
                               </>
                             )}
                             <div className="space-y-4">
-                              {visibleSteps.map((step, index) => {
-                                const isCompleted = index < completedSteps;
+                              {visibleSteps.map((step, visibleIndex) => {
+                                const index = visibleWindowStart + visibleIndex;
+                                const stepId = step.id ? String(step.id) : null;
+                                const isCompleted = Boolean(stepId && completedStepIdSet.has(stepId));
                                 const isActiveStep =
                                   safeProgress >= 100 ? index === Math.max(totalSteps - 1, 0) : index === currentStepIndex;
-                                const stepProgressPercent = Math.max(
-                                  0,
-                                  Math.min(100, Math.round((progressUnits - index) * 100))
-                                );
-                                const stepActionLabel = safeProgress >= 100 ? 'Review' : safeProgress > 0 ? 'Resume' : 'Start';
+                                const stepStatusLabel = isCompleted
+                                  ? 'Completed'
+                                  : isActiveStep && hasStarted
+                                    ? 'In progress'
+                                    : 'Not started';
+                                const stepActionLabel = safeProgress >= 100 ? 'Review' : hasStarted ? 'Resume' : 'Start';
 
                                 return (
                                   <div key={`${subject.id}-${step.title}-${index}`} className="flex items-start justify-between gap-3 py-0.5">
@@ -1364,7 +1433,7 @@ const StudentDashboard: React.FC = () => {
                                           {step.title}
                                         </button>
                                         <p className="text-xs text-slate-500 mt-0.5 capitalize">
-                                          {stepProgressPercent}% • {step.type}
+                                          {stepStatusLabel} • {step.type}
                                         </p>
                                       </div>
                                     </div>
@@ -1813,6 +1882,7 @@ const StudentDashboard: React.FC = () => {
               displaySubjects.find((subject) => subject.id === activePlan.plan.subjectId)?.name || undefined
             }
             initialStepIndex={planEntryStepIndex ?? undefined}
+            onRuntimeChange={handlePlanRuntimeChange}
           />
         ) : (
           <div className="bg-white rounded-2xl shadow-sm p-8 text-center">
@@ -1837,7 +1907,7 @@ const StudentDashboard: React.FC = () => {
             onOpenTutor={handleOpenTutor}
           />
         );
-      case 'results':
+      case 'results': {
         const reportNeedsAttentionCount = reportCardRows.filter((row) => row.masteryPercent < 50).length;
 
         return (
@@ -1899,6 +1969,7 @@ const StudentDashboard: React.FC = () => {
             </div>
           </section>
         );
+      }
       case 'tutor':
         return (
           <section className="rounded-xl border border-slate-200 bg-white p-8 text-center">

@@ -57,7 +57,9 @@ interface ClassSummary {
 }
 
 const Header: React.FC<HeaderProps> = ({ activeTab: _activeTab, setActiveTab, portalType = 'teacher' }) => {
+  void _activeTab;
   const currentUser = authService.getCurrentUser();
+  const currentUserId = authService.getCurrentUserId();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -94,7 +96,11 @@ const Header: React.FC<HeaderProps> = ({ activeTab: _activeTab, setActiveTab, po
   useEffect(() => {
     const fetchUnreadCount = async () => {
       try {
-        const count = await notificationService.getUnreadCount();
+        if (!currentUserId) {
+          setUnreadCount(0);
+          return;
+        }
+        const count = await notificationService.getUnreadCount(currentUserId);
         setUnreadCount(typeof count === 'number' ? count : 0);
         headerNetworkWarnedRef.current.unread = false;
       } catch (error) {
@@ -106,7 +112,7 @@ const Header: React.FC<HeaderProps> = ({ activeTab: _activeTab, setActiveTab, po
     fetchUnreadCount();
     const interval = setInterval(fetchUnreadCount, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [currentUserId]);
 
   useEffect(() => {
     if (!isTeacherPortal) return;
@@ -457,7 +463,11 @@ const Header: React.FC<HeaderProps> = ({ activeTab: _activeTab, setActiveTab, po
           );
         })}
       </nav>
-      <NotificationCenter isOpen={showNotifications} onClose={() => setShowNotifications(false)} />
+      <NotificationCenter
+        isOpen={showNotifications}
+        onClose={() => setShowNotifications(false)}
+        onUnreadCountChange={setUnreadCount}
+      />
     </header>
   );
 };

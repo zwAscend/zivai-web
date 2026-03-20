@@ -113,6 +113,8 @@ export interface DevelopmentPlan {
   plan: Plan; // The populated Plan template (from StudentPlan.plan reference)
   startDate: Date; // From StudentPlan
   currentProgress: number; // Student's actual progress (from StudentPlan)
+  activeStepId?: string | null;
+  completedStepIds?: string[];
   status: PlanStatus; // From StudentPlan
   current?: boolean; // True when this plan is currently published/assigned to the student
   completionDate?: Date; // Optional, when the plan was completed (from StudentPlan)

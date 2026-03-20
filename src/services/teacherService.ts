@@ -118,6 +118,62 @@ export interface TeacherDashboardSummary {
   activePlans: number;
 }
 
+export interface TeacherPerformanceMisconception {
+  id: string;
+  title: string;
+  summary: string;
+  riskLevel: string;
+  learnerCount: number;
+  averageScore: number;
+  studentIds: string[];
+}
+
+export interface TeacherPerformanceHeatmapCell {
+  studentId: string;
+  firstName: string;
+  lastName: string;
+  email?: string | null;
+  score?: number | null;
+  intensity: number;
+  status: string;
+  performance?: string | null;
+  engagement?: string | null;
+  strength?: string | null;
+  className?: string | null;
+  activePlanName?: string | null;
+  planProgress?: number | null;
+  latestAssessmentName?: string | null;
+  latestAssessmentScore?: number | null;
+  focusArea?: string | null;
+  note?: string | null;
+}
+
+export interface TeacherPerformanceOverview {
+  teacherId: string;
+  subjectId?: string | null;
+  subjectName?: string | null;
+  topicId?: string | null;
+  topicName?: string | null;
+  assessmentId?: string | null;
+  assessmentName?: string | null;
+  currentView: 'subject' | 'topic' | 'assessment' | string;
+  summary: {
+    totalStudents: number;
+    studentsWithData: number;
+    supportCount: number;
+    onTrackCount: number;
+    averageScore: number;
+    filterLabel?: string | null;
+    strongestArea?: string | null;
+    weakestArea?: string | null;
+  };
+  heatmap: {
+    columns: number;
+    cells: TeacherPerformanceHeatmapCell[];
+  };
+  misconceptions: TeacherPerformanceMisconception[];
+}
+
 export interface TeacherAssessmentsOverviewFilters {
   subjectId?: string;
   status?: string;
@@ -135,6 +191,13 @@ export interface TeacherStudentsSummaryFilters {
   q?: string;
   page?: number;
   size?: number;
+}
+
+export interface TeacherPerformanceOverviewFilters {
+  subjectId?: string;
+  topicId?: string;
+  assessmentId?: string;
+  classId?: string;
 }
 
 export const teacherService = {
@@ -218,6 +281,22 @@ export const teacherService = {
     return fetchData<TeacherDashboardSummary>(
       `/teachers/${teacherId}/dashboard${query.toString() ? `?${query.toString()}` : ''}`,
       { cacheTtlMs: 30 * 1000 }
+    );
+  },
+
+  getPerformanceOverview: async (
+    teacherId: string,
+    filters: TeacherPerformanceOverviewFilters = {}
+  ): Promise<TeacherPerformanceOverview> => {
+    const query = new URLSearchParams();
+    if (filters.subjectId) query.set('subjectId', filters.subjectId);
+    if (filters.topicId) query.set('topicId', filters.topicId);
+    if (filters.assessmentId) query.set('assessmentId', filters.assessmentId);
+    if (filters.classId) query.set('classId', filters.classId);
+
+    return fetchData<TeacherPerformanceOverview>(
+      `/teachers/${teacherId}/performance/overview${query.toString() ? `?${query.toString()}` : ''}`,
+      { cacheTtlMs: 15 * 1000 }
     );
   },
 };

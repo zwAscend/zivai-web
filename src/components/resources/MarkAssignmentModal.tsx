@@ -102,7 +102,7 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
       try {
         const parsed = JSON.parse(rawQuestions);
         return Array.isArray(parsed) ? parsed : [];
-      } catch (_error) {
+      } catch {
         return [];
       }
     }
@@ -154,13 +154,14 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
       const droppedFile = e.dataTransfer.files[0];
       const allowedTypes = [
         'application/pdf',
-        'application/msword',
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'text/plain',
+        'text/markdown',
+        'text/csv',
+        'application/json',
         'image/png',
         'image/jpeg',
-        'image/jpg',
-        'image/webp'
+        'image/jpg'
       ];
       
       if (allowedTypes.includes(droppedFile.type)) {
@@ -168,7 +169,7 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
         setError(null);
         setResults(null);
       } else {
-        setError('Please upload a PDF, Word document, text file, or image');
+        setError('Please upload a PDF, DOCX, text, JSON, CSV, markdown, or image file');
       }
     }
   };
@@ -191,11 +192,16 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
       return;
     }
 
+    if (!selectedAssessment) {
+      toast.error('The selected assessment could not be loaded.');
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
     
     try {
-      const result = await markingService.markDocument(file);
+      const result = await markingService.markDocument(file, selectedAssessment, selectedStudentId);
       setResults(result);
       toast.success('Assessment marked successfully');
     } catch (error) {
@@ -373,7 +379,7 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
                     <input
                       id="file-upload"
                       type="file"
-                      accept=".pdf,.doc,.docx,.txt,.png,.jpg,.jpeg,.webp"
+                      accept=".pdf,.docx,.txt,.md,.csv,.json,.png,.jpg,.jpeg"
                       onChange={handleFileChange}
                       disabled={isLoading}
                       className="hidden"
@@ -418,7 +424,7 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
                             Drag & drop or click to browse
                           </p>
                           <p className="text-sm text-gray-400 mt-2">
-                            Supported: PDF, DOC, DOCX, TXT, PNG, JPG, WEBP (max 10MB)
+                            Supported: PDF, DOCX, TXT, MD, CSV, JSON, PNG, JPG (max 10MB)
                           </p>
                         </div>
                       </div>
@@ -494,10 +500,10 @@ export const MarkAssignmentModal: React.FC<MarkAssignmentModalProps> = ({
                   <div className="space-y-2">
                     <div className="text-sm font-semibold text-slate-800">Assessment Questions</div>
                     <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-md p-3 space-y-2 bg-white">
-                      {assessmentQuestions.map((question: any, index) => (
+                      {assessmentQuestions.map((question: Record<string, unknown>, index) => (
                         <div key={`${question.id || index}-question`} className="text-sm text-slate-700">
                           <span className="font-semibold text-slate-900">Q{index + 1}.</span>{' '}
-                          {question.text || `Question ${index + 1}`}
+                          {question.stem || question.text || `Question ${index + 1}`}
                         </div>
                       ))}
                     </div>
