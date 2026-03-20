@@ -20,6 +20,11 @@ import {
 import { ApiError } from '../../services/http';
 import type { SubmissionReviewDetail, SubmissionReviewQuestionDetail } from '../../services/submissionService';
 import type { StudentAssessmentDetail, StudentAssessmentHistoryItem } from '../../services/studentService';
+import {
+  externalAssessmentService,
+  STUDENT_ASSESSMENT_ACCEPT,
+  STUDENT_ASSESSMENT_FILE_HELPER,
+} from '../../services/externalAssessmentService';
 import { toast } from 'sonner';
 import TablePagination from '../ui/TablePagination';
 import { useClientPagination } from '../../hooks/useClientPagination';
@@ -44,7 +49,14 @@ interface AssessmentQuestionItem {
   sequenceIndex?: number;
   points?: number;
   rubricJson?: {
-    options?: string[];
+    options?: unknown;
+    correctAnswers?: unknown;
+    correctAnswer?: unknown;
+    expectedAnswer?: unknown;
+    modelAnswer?: unknown;
+    answer?: unknown;
+    expectedPoints?: unknown;
+    markingGuide?: unknown;
   } | null;
 }
 
@@ -195,6 +207,56 @@ const getStatusIcon = (status: AssignmentStatusKey) => {
 const resolveAssessmentQuestionId = (question: AssessmentQuestionItem) =>
   question.assessmentQuestionId || question.id;
 
+const normalizeStringList = (value: unknown): string[] => {
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item ?? '').trim()).filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(/[|,;\n]+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return [];
+};
+
+const extractQuestionOptions = (question: AssessmentQuestionItem): string[] =>
+  normalizeStringList(question.rubricJson?.options);
+
+const extractExpectedAnswers = (question: AssessmentQuestionItem): string[] => {
+  const rubric = question.rubricJson;
+  if (!rubric) return [];
+  return [
+    ...normalizeStringList(rubric.correctAnswers),
+    ...normalizeStringList(rubric.correctAnswer),
+    ...normalizeStringList(rubric.expectedAnswer),
+    ...normalizeStringList(rubric.modelAnswer),
+    ...normalizeStringList(rubric.answer),
+  ].filter((value, index, collection) => collection.indexOf(value) === index);
+};
+
+const extractExpectedPoints = (question: AssessmentQuestionItem): string[] => {
+  const rubric = question.rubricJson;
+  if (!rubric) return [];
+  const directPoints = normalizeStringList(rubric.expectedPoints);
+  if (directPoints.length > 0) return directPoints;
+  return normalizeStringList(rubric.markingGuide);
+};
+
+const isObjectiveQuestion = (question: AssessmentQuestionItem): boolean => {
+  const normalizedType = String(question.questionTypeCode || '').trim().toLowerCase();
+  if (
+    normalizedType.includes('multiple') ||
+    normalizedType.includes('mcq') ||
+    normalizedType.includes('true_false') ||
+    normalizedType.includes('truefalse') ||
+    normalizedType.includes('boolean')
+  ) {
+    return true;
+  }
+  return extractQuestionOptions(question).length > 0;
+};
+
 const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, selectedSubjectId, onOpenTutor }) => {
   const [entries, setEntries] = useState<AssignmentEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -212,6 +274,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
   const [activeAttemptEntryId, setActiveAttemptEntryId] = useState<string | null>(null);
   const [submissionMode, setSubmissionMode] = useState<SubmissionMode>('questions');
   const [answerDrafts, setAnswerDrafts] = useState<Record<string, string>>({});
+  const [answerFiles, setAnswerFiles] = useState<Record<string, File | null>>({});
   const [textSubmission, setTextSubmission] = useState('');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [submittingEntryId, setSubmittingEntryId] = useState<string | null>(null);
@@ -532,27 +595,121 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
   const reviewedCount = entries.filter((item) => item.status === 'graded').length;
   const reviewedPercent = entries.length > 0 ? Math.round((reviewedCount / entries.length) * 100) : 0;
 
+  const getQuestionStorageKey = (assessmentId: string, questionId: string) => `${assessmentId}:${questionId}`;
+
   const setAnswerDraft = (assessmentId: string, questionId: string, value: string) => {
-    const key = `${assessmentId}:${questionId}`;
+    const key = getQuestionStorageKey(assessmentId, questionId);
     setAnswerDrafts((previous) => ({ ...previous, [key]: value }));
   };
 
   const getAnswerDraft = (assessmentId: string, questionId: string) => {
-    const key = `${assessmentId}:${questionId}`;
+    const key = getQuestionStorageKey(assessmentId, questionId);
     return answerDrafts[key] || '';
+  };
+
+  const setAnswerFile = (assessmentId: string, questionId: string, file: File | null) => {
+    const key = getQuestionStorageKey(assessmentId, questionId);
+    setAnswerFiles((previous) => ({ ...previous, [key]: file }));
+  };
+
+  const getAnswerFile = (assessmentId: string, questionId: string) => {
+    const key = getQuestionStorageKey(assessmentId, questionId);
+    return answerFiles[key] || null;
+  };
+
+  const clearAttemptDraftState = (assessmentId: string) => {
+    setAnswerDrafts((previous) =>
+      Object.fromEntries(Object.entries(previous).filter(([key]) => !key.startsWith(`${assessmentId}:`)))
+    );
+    setAnswerFiles((previous) =>
+      Object.fromEntries(Object.entries(previous).filter(([key]) => !key.startsWith(`${assessmentId}:`)))
+    );
+  };
+
+  const buildQuestionAssessmentRequest = (entry: AssignmentEntry, question: AssessmentQuestionItem, responseText: string) => {
+    const expectedAnswers = extractExpectedAnswers(question);
+    const expectedPoints = extractExpectedPoints(question);
+
+    return {
+      request_context: {
+        question_id: question.questionId,
+        assessment_question_id: question.assessmentQuestionId || question.id,
+        student_id: studentId,
+      },
+      question: {
+        text: question.stem,
+        subject: entry.assessment?.name || entry.assessmentName,
+        topic: entry.assessmentName,
+        question_type: String(question.questionTypeCode || '').trim().toLowerCase() || 'short_answer',
+        max_marks: Number(question.points || 1),
+      },
+      student_answer: {
+        text: responseText || null,
+      },
+      marking_guide: {
+        expected_answer: expectedAnswers[0] || null,
+        expected_points: expectedPoints,
+      },
+      options: {
+        dry_run: false,
+        force: false,
+        allow_holistic_fallback: true,
+      },
+    };
   };
 
   const submitQuestionAnswers = async (entry: AssignmentEntry) => {
     const questions = entry.assessment?.questions || [];
-    const answers = questions
-      .map((question) => {
+    const answers = await Promise.all(
+      questions.map(async (question) => {
         const questionId = resolveAssessmentQuestionId(question);
+        const responseText = getAnswerDraft(entry.assessmentId, questionId).trim();
+        const responseFile = getAnswerFile(entry.assessmentId, questionId);
+        const options = extractQuestionOptions(question);
+        const objective = isObjectiveQuestion(question);
+
+        if (!responseText && !responseFile) {
+          return null;
+        }
+
+        if (!objective) {
+          const assessmentResponse = await externalAssessmentService.assessQuestionResponse({
+            moduleName: entry.assessmentName,
+            responseText,
+            file: responseFile,
+            requestPayload: buildQuestionAssessmentRequest(entry, question, responseText),
+          });
+
+          if (!assessmentResponse.success || !assessmentResponse.data) {
+            throw new Error(
+              assessmentResponse.error
+                || assessmentResponse.message
+                || `Failed to assess response for question ${question.sequenceIndex || questionId}.`
+            );
+          }
+
+          const normalizedAnswerText = assessmentResponse.data.markdown?.trim() || responseText;
+          return {
+            assessmentQuestionId: questionId,
+            studentAnswerText: normalizedAnswerText,
+            studentAnswerBlob: responseFile
+              ? {
+                  uploadedFileName: responseFile.name,
+                  uploadedFileType: responseFile.type || null,
+                }
+              : undefined,
+            externalAssessmentData: assessmentResponse.data,
+            ocrText: assessmentResponse.data.markdown?.trim() || undefined,
+          };
+        }
+
+        const answerText = options.length > 0 ? responseText : responseText;
         return {
           assessmentQuestionId: questionId,
-          studentAnswerText: getAnswerDraft(entry.assessmentId, questionId).trim(),
+          studentAnswerText: answerText,
         };
       })
-      .filter((answer) => Boolean(answer.studentAnswerText));
+    ).then((items) => items.filter((item): item is NonNullable<typeof item> => Boolean(item)));
 
     if (answers.length === 0) {
       toast.error('Please answer at least one question before submitting.');
@@ -569,6 +726,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
         answers,
       });
 
+      clearAttemptDraftState(entry.assessmentId);
       setActiveAttemptEntryId(null);
       await fetchWorkspace({ forceRefresh: true });
     } catch (err: any) {
@@ -584,7 +742,9 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
           .map((question, index) => {
             const questionId = resolveAssessmentQuestionId(question);
             const response = getAnswerDraft(entry.assessmentId, questionId).trim();
-            return `Q${index + 1}: ${question.stem}\\nA: ${response || '[No response]'}`;
+            const attachedFile = getAnswerFile(entry.assessmentId, questionId);
+            const answerLine = response || (attachedFile ? `[Attached file] ${attachedFile.name}` : '[No response]');
+            return `Q${index + 1}: ${question.stem}\\nA: ${answerLine}`;
           })
           .join('\\n\\n');
 
@@ -595,6 +755,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
             submissionType: 'text',
             textContent: fallbackText,
           });
+          clearAttemptDraftState(entry.assessmentId);
           setActiveAttemptEntryId(null);
           await fetchWorkspace({ forceRefresh: true });
         } catch (fallbackError: any) {
@@ -619,12 +780,29 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
 
     setSubmittingEntryId(entry.id);
     try {
+      const externalAssessment =
+        submissionMode === 'file' && selectedFile
+          ? await externalAssessmentService.assessDocument(selectedFile, entry.assessmentName)
+          : await externalAssessmentService.assessText(textSubmission.trim(), entry.assessmentName);
+
+      if (!externalAssessment.success || !externalAssessment.data) {
+        throw new Error(
+          externalAssessment.error
+            || externalAssessment.message
+            || 'Failed to assess this submission before saving it.'
+        );
+      }
+
       await submissionService.submitAssignment({
         assessmentId: entry.assessmentId,
         studentId,
         submissionType: submissionMode === 'file' ? 'file' : 'text',
-        textContent: submissionMode === 'text' ? textSubmission.trim() : undefined,
+        textContent:
+          submissionMode === 'text'
+            ? (externalAssessment.data.markdown?.trim() || textSubmission.trim())
+            : undefined,
         file: submissionMode === 'file' ? selectedFile || undefined : undefined,
+        externalAssessmentData: externalAssessment.data,
         originalFilename: submissionMode === 'file' ? selectedFile?.name : undefined,
         fileType: submissionMode === 'file' ? selectedFile?.type : undefined,
       });
@@ -907,11 +1085,10 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                               .slice()
                               .sort((a, b) => (a.sequenceIndex || 0) - (b.sequenceIndex || 0))
                               .map((question, index) => {
-                                const options = Array.isArray(question.rubricJson?.options)
-                                  ? question.rubricJson?.options || []
-                                  : [];
+                                const options = extractQuestionOptions(question);
                                 const questionId = resolveAssessmentQuestionId(question);
                                 const currentAnswer = getAnswerDraft(entry.assessmentId, questionId);
+                                const currentAnswerFile = getAnswerFile(entry.assessmentId, questionId);
 
                                 return (
                                   <div key={questionId} className="rounded-md border border-slate-200 bg-slate-50 p-4 space-y-3">
@@ -936,13 +1113,40 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                                         ))}
                                       </div>
                                     ) : (
-                                      <textarea
-                                        rows={3}
-                                        value={currentAnswer}
-                                        onChange={(event) => setAnswerDraft(entry.assessmentId, questionId, event.target.value)}
-                                        placeholder="Type your answer"
-                                        className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                      />
+                                      <div className="space-y-3">
+                                        <textarea
+                                          rows={3}
+                                          value={currentAnswer}
+                                          onChange={(event) => setAnswerDraft(entry.assessmentId, questionId, event.target.value)}
+                                          placeholder="Type your answer"
+                                          className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                        />
+                                        <div className="flex flex-wrap items-center gap-2">
+                                          <label className="inline-flex cursor-pointer items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">
+                                            <input
+                                              type="file"
+                                              accept={STUDENT_ASSESSMENT_ACCEPT}
+                                              className="hidden"
+                                              onChange={(event) => {
+                                                const file = event.target.files?.[0] || null;
+                                                setAnswerFile(entry.assessmentId, questionId, file);
+                                                event.currentTarget.value = '';
+                                              }}
+                                            />
+                                            {currentAnswerFile ? `File attached: ${currentAnswerFile.name}` : 'Attach answer file (optional)'}
+                                          </label>
+                                          {currentAnswerFile && (
+                                            <button
+                                              type="button"
+                                              onClick={() => setAnswerFile(entry.assessmentId, questionId, null)}
+                                              className="inline-flex items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100"
+                                            >
+                                              Remove file
+                                            </button>
+                                          )}
+                                        </div>
+                                        <p className="text-xs text-slate-500">{STUDENT_ASSESSMENT_FILE_HELPER}</p>
+                                      </div>
                                     )}
                                   </div>
                                 );
@@ -990,6 +1194,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                             <label className="block">
                               <input
                                 type="file"
+                                accept={STUDENT_ASSESSMENT_ACCEPT}
                                 className="hidden"
                                 onChange={(event) => setSelectedFile(event.target.files?.[0] || null)}
                               />
@@ -998,6 +1203,7 @@ const StudentAssignments: React.FC<StudentAssignmentsProps> = ({ studentId, sele
                                 <span>{selectedFile ? selectedFile.name : 'Choose file to upload'}</span>
                               </div>
                             </label>
+                            <p className="text-xs text-slate-500">{STUDENT_ASSESSMENT_FILE_HELPER}</p>
                             <div className="flex justify-end">
                               <button
                                 type="button"

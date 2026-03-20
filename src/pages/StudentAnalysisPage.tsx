@@ -14,6 +14,10 @@ interface StudentAssessmentRow {
   }[];
 }
 
+interface StudentAssessmentView extends Assessment {
+  assessmentType?: string;
+}
+
 const StudentAnalysisPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -161,7 +165,8 @@ const StudentAnalysisPage: React.FC = () => {
     const query = assessmentQuery.trim().toLowerCase();
     return rows.filter((row) => {
       const nameMatch = !query || (row.assessment.name || '').toLowerCase().includes(query);
-      const typeRaw = ((row.assessment as any).assessmentType || row.assessment.type || '').toLowerCase();
+      const assessment = row.assessment as StudentAssessmentView;
+      const typeRaw = (assessment.assessmentType || assessment.type || '').toLowerCase();
       const typeMatch = selectedType === 'all' || typeRaw === selectedType;
       return nameMatch && typeMatch;
     });
@@ -198,7 +203,7 @@ const StudentAnalysisPage: React.FC = () => {
         recentUploads={[]}
       />
       <main className="flex-1 p-8 overflow-y-auto">
-        <div className="max-w-5xl">
+        <div className="w-full">
           <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
             <div>
               <h1 className="text-2xl font-bold">Student Assessment Analysis</h1>
@@ -313,7 +318,7 @@ const StudentAnalysisPage: React.FC = () => {
                           <div>
                             <div className="text-sm font-semibold text-gray-800">{row.assessment.name}</div>
                             <div className="text-xs text-gray-500">
-                              {(row.assessment as any).assessmentType || row.assessment.type || 'Assessment'}
+                              {(row.assessment as StudentAssessmentView).assessmentType || row.assessment.type || 'Assessment'}
                             </div>
                           </div>
                           <div className="text-sm text-gray-600">

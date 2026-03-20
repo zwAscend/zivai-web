@@ -1,4 +1,7 @@
-// External Assessment API response types
+const STUDENT_ASSESSMENT_ENDPOINT = 'http://localhost:8000/api/v1/agents/student/assessment';
+export const STUDENT_ASSESSMENT_ACCEPT = '.pdf,.docx,.txt,.md,.png,.jpg,.jpeg,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,image/png,image/jpeg';
+export const STUDENT_ASSESSMENT_FILE_HELPER = 'Upload PDF, DOCX, TXT, Markdown, or image work for OCR-assisted feedback.';
+
 interface AssessmentCriteria {
   criterion: string;
   score: number;
@@ -28,124 +31,134 @@ interface AssessmentData {
   marking_scheme_used: boolean;
 }
 
+export interface AssessmentResponseData {
+  module: string;
+  filename?: string;
+  content_type?: string;
+  ocr_type?: string;
+  markdown: string;
+  pages?: number;
+  assessment: AssessmentData;
+  file_id?: string;
+  file_url?: string;
+  view_url?: string;
+}
+
 export interface AssessmentResponse {
   success: boolean;
-  data?: {
-    module: string;
-    filename?: string;
-    content_type?: string;
-    ocr_type?: string;
-    markdown: string;
-    pages?: number;
-    assessment: AssessmentData;
-    file_id?: string;
-    file_url?: string;
-    view_url?: string;
-  };
+  data?: AssessmentResponseData;
   error?: string;
   message?: string;
 }
 
+export interface StudentAssessmentQuestionRequest {
+  request_context?: {
+    question_id?: string;
+    assessment_question_id?: string;
+    student_id?: string;
+    assessment_attempt_id?: string;
+  };
+  question: {
+    text: string;
+    subject?: string | null;
+    topic?: string | null;
+    question_type?: string | null;
+    max_marks: number;
+  };
+  student_answer?: {
+    text?: string | null;
+  };
+  marking_guide?: {
+    rubric_items?: Array<{
+      index: number;
+      description: string;
+      marks: number;
+      keywords?: string[];
+    }>;
+    expected_answer?: string | null;
+    expected_points?: string[];
+  };
+  options?: {
+    dry_run?: boolean;
+    force?: boolean;
+    allow_holistic_fallback?: boolean;
+  };
+}
+
+interface StudentAssessmentRequestOptions {
+  moduleName: string;
+  textContent?: string;
+  file?: File | null;
+  requestPayload?: StudentAssessmentQuestionRequest;
+}
+
+const buildRequestOptions = (formData: FormData): RequestInit => ({
+  method: 'POST',
+  body: formData,
+  redirect: 'follow',
+});
+
+const parseAssessmentResponse = async (response: Response): Promise<AssessmentResponse> => {
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Assessment API error: ${response.status} - ${response.statusText}${errorText ? ` - ${errorText}` : ''}`);
+  }
+
+  const result = await response.json();
+  return {
+    success: true,
+    data: result,
+  };
+};
+
+const assessSubmission = async ({ moduleName, textContent, file, requestPayload }: StudentAssessmentRequestOptions): Promise<AssessmentResponse> => {
+  const formData = new FormData();
+  if (moduleName.trim()) {
+    formData.append('module', moduleName.trim());
+  }
+  if (typeof textContent === 'string' && textContent.trim()) {
+    formData.append('text', textContent.trim());
+  }
+  if (file) {
+    formData.append('file', file, file.name);
+  }
+  if (requestPayload) {
+    formData.append('request', JSON.stringify(requestPayload));
+  }
+
+  try {
+    const response = await fetch(STUDENT_ASSESSMENT_ENDPOINT, buildRequestOptions(formData));
+    return await parseAssessmentResponse(response);
+  } catch (error) {
+    console.error('External Assessment Service Error:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error occurred',
+      message: 'Failed to assess submission using external service',
+    };
+  }
+};
+
 export const externalAssessmentService = {
   assessDocument: async (file: File, moduleName: string): Promise<AssessmentResponse> => {
-    const formData = new FormData();
-    formData.append("file", file, file.name);
-    formData.append("module", moduleName);
-
-    // Log request details for debugging
-    console.log('External API Request Details:', {
-      url: "http://localhost:8000/api/v1/agents/student/assessment",
-      fileName: file.name,
-      fileSize: file.size,
-      fileType: file.type,
-      moduleName: moduleName
-    });
-
-    const requestOptions: RequestInit = {
-      method: "POST",
-      body: formData,
-      redirect: "follow"
-    };
-
-    try {
-      const response = await fetch("http://localhost:8000/api/v1/agents/student/assessment", requestOptions);
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('External API Error Response:', {
-          status: response.status,
-          statusText: response.statusText,
-          body: errorText
-        });
-        
-        throw new Error(`Assessment API error: ${response.status} - ${response.statusText}`);
-      }
-
-      const result = await response.json();
-      console.log('External API Success Response:', result);
-      
-      return {
-        success: true,
-        data: result
-      };
-    } catch (error) {
-      console.error('External Assessment Service Error:', error);
-      
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error occurred',
-        message: 'Failed to assess document using external service'
-      };
-    }
+    return assessSubmission({ file, moduleName });
   },
 
   assessText: async (textContent: string, moduleName: string): Promise<AssessmentResponse> => {
-    const formData = new FormData();
-    formData.append("text", textContent);
-    formData.append("module", moduleName);
+    return assessSubmission({ textContent, moduleName });
+  },
 
-    // Log request details for debugging
-    console.log('External API Text Assessment Request:', {
-      url: "http://localhost:8000/api/v1/agents/student/assessment",
-      textLength: textContent.length,
-      moduleName: moduleName
+  assessQuestionResponse: async (options: {
+    moduleName: string;
+    responseText?: string;
+    file?: File | null;
+    requestPayload: StudentAssessmentQuestionRequest;
+  }): Promise<AssessmentResponse> => {
+    return assessSubmission({
+      moduleName: options.moduleName,
+      textContent: options.responseText,
+      file: options.file,
+      requestPayload: options.requestPayload,
     });
-
-    const requestOptions: RequestInit = {
-      method: "POST",
-      body: formData,
-      redirect: "follow"
-    };
-
-    try {
-      const response = await fetch("http://localhost:8000/api/v1/agents/student/assessment", requestOptions);
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('External API Error Response:', {
-          status: response.status,
-          statusText: response.statusText,
-          body: errorText
-        });
-        
-        throw new Error(`Assessment API error: ${response.status} - ${response.statusText}`);
-      }
-
-      const result = await response.json();
-      console.log('External API Text Assessment Success:', result);
-      
-      return {
-        success: true,
-        data: result
-      };
-    } catch (error) {
-      console.error('External Text Assessment Service Error:', error);
-      
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error occurred',
-        message: 'Failed to assess text using external service'
-      };
-    }
-  }
+  },
 };

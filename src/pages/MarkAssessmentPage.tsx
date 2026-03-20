@@ -67,7 +67,7 @@ const MarkAssessmentPage: React.FC = () => {
         recentUploads={[]}
       />
       <div className="flex-1 p-8 overflow-hidden flex flex-col">
-        <div className="max-w-5xl w-full mx-auto flex-1 min-h-0">
+        <div className="w-full flex-1 min-h-0">
           {isWorkspaceExpanded && <div className="fixed inset-0 bg-black/30 z-40" />}
           <div className={isWorkspaceExpanded ? 'fixed top-4 left-4 right-4 bottom-6 z-50' : 'h-full min-h-0'}>
             <div className={`${isWorkspaceExpanded ? 'bg-white rounded-lg shadow-2xl border border-slate-200 h-full max-h-[calc(100vh-2rem)] overflow-hidden flex flex-col' : 'bg-white rounded-lg shadow h-full overflow-hidden flex flex-col'}`}>

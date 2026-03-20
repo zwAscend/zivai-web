@@ -1,6 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { developmentService, studentService, subjectService } from '../../services/api';
+import { planningService, type GuidedPlanCriticalSkill } from '../../services/planningService';
+import {
+  workspaceAiService,
+  WORKSPACE_REFERENCE_ACCEPT,
+  WORKSPACE_REFERENCE_HELPER,
+  type TeacherPracticeGenerationResponse,
+} from '../../services/workspaceAiService';
 import { DevelopmentPlan, Step, StepType, Student, Subject } from '../../types';
 import { useToast } from '@/components/ui/use-toast';
 import {
@@ -23,6 +30,8 @@ import {
   PanelRightOpen,
   Pencil,
   Plus,
+  Loader2,
+  Paperclip,
   Redo2,
   Search,
   SendHorizontal,
@@ -30,6 +39,7 @@ import {
   Trash2,
   Underline,
   Undo2,
+  X,
 } from 'lucide-react';
 
 interface DevelopmentViewProps {
@@ -43,6 +53,14 @@ interface AiPlanStepDraft {
   title: string;
   type: StepType;
   content: string;
+  link: string;
+  additionalResources: string[];
+}
+
+interface StepAiMessage {
+  id: string;
+  role: 'assistant' | 'teacher';
+  text: string;
 }
 
 type PracticeResponseType = 'short-answer' | 'multiple-choice' | 'true-false';
@@ -357,9 +375,119 @@ const buildAiPlanStepDrafts = (params: {
         `<p><strong>Guidance:</strong> ${guidance || fallbackGuidance}</p>`,
         '<p>Expected outcome: learner demonstrates improved understanding and accuracy on this topic.</p>',
       ].join(''),
+      link: '',
+      additionalResources: [],
     };
   });
   return steps;
+};
+
+const buildStepAiMessage = (role: StepAiMessage['role'], text: string): StepAiMessage => ({
+  id: `${role}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+  role,
+  text,
+});
+
+const buildPracticeDraftFromGeneratedPractice = (
+  result: TeacherPracticeGenerationResponse,
+  fallbackTitle: string
+): PracticeBuilderDraft => ({
+  name: result.title || fallbackTitle,
+  questions:
+    result.questions.map((question, index) => {
+      const normalizedOptions = question.options || [];
+      const responseType: PracticeResponseType =
+        question.type === 'short-answer'
+          ? 'short-answer'
+          : isTrueFalsePracticeQuestion(normalizedOptions)
+            ? 'true-false'
+            : 'multiple-choice';
+      const correctOptions =
+        responseType === 'short-answer'
+          ? []
+          : question.correctAnswers.length
+            ? question.correctAnswers
+            : question.correctAnswer
+              ? [question.correctAnswer]
+              : [];
+      return {
+        id: question.prompt
+          ? `practice-question-${Date.now()}-${index + 1}`
+          : createPracticeQuestion(index + 1).id,
+        prompt: question.prompt,
+        responseType,
+        marks: Math.max(1, question.marks || 1),
+        expectedAnswer:
+          responseType === 'short-answer'
+            ? (question.correctAnswer || question.markingGuide || '')
+            : '',
+        options:
+          responseType === 'short-answer'
+            ? []
+            : responseType === 'true-false'
+              ? ['True', 'False']
+              : normalizedOptions,
+        correctOptions,
+      };
+    }) || [],
+});
+
+const QUESTION_COUNT_WORDS: Record<string, number> = {
+  a: 1,
+  an: 1,
+  another: 1,
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+  eleven: 11,
+  twelve: 12,
+};
+
+const inferRequestedPracticeQuestionCount = (
+  prompt: string,
+  existingCount: number,
+  fallbackCount: number
+) => {
+  const normalizedPrompt = prompt.trim().toLowerCase();
+  if (!normalizedPrompt) {
+    return Math.max(1, existingCount, fallbackCount);
+  }
+
+  const additivePatterns = [
+    /\b(?:add|append|include|create|generate)\s+(?<count>a|an|another|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\d+)\s+(?:more|additional|extra|new)?\s*questions?\b/i,
+    /\b(?<count>a|an|another|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|\d+)\s+(?:more|additional|extra|new)\s+questions?\b/i,
+  ];
+  for (const pattern of additivePatterns) {
+    const match = normalizedPrompt.match(pattern);
+    const rawCount = match?.groups?.count?.toLowerCase() || '';
+    if (!rawCount) continue;
+    const parsedCount = /^\d+$/.test(rawCount) ? Number(rawCount) : QUESTION_COUNT_WORDS[rawCount];
+    if (parsedCount && Number.isFinite(parsedCount)) {
+      return Math.max(1, existingCount + parsedCount, fallbackCount);
+    }
+  }
+
+  return Math.max(1, existingCount, fallbackCount);
+};
+
+const normalizeGeneratedPlanStepType = (type?: string): StepType => {
+  const normalized = String(type || '').trim().toLowerCase();
+  if (normalized === 'assessment' || normalized === 'assignment' || normalized === 'quiz') {
+    return normalized;
+  }
+  return 'document';
+};
+
+const isTrueFalsePracticeQuestion = (options: string[]) => {
+  const normalized = options.map((option) => option.trim().toLowerCase()).filter(Boolean);
+  return normalized.length === 2 && normalized.includes('true') && normalized.includes('false');
 };
 
 const getOverallGrade = (overall?: number): string => {
@@ -369,6 +497,15 @@ const getOverallGrade = (overall?: number): string => {
   if (overall >= 60) return 'C';
   if (overall >= 50) return 'D';
   return 'E';
+};
+
+const getErrorMessage = (error: unknown, fallback: string): string => {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === 'string' && message.trim()) return message;
+  }
+  return fallback;
 };
 
 const describeSkillGap = (current: number | null, target: number | null, gap: number): string => {
@@ -431,9 +568,9 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
   );
   const [isPracticePreviewVisible, setIsPracticePreviewVisible] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
-  const [aiMessages, setAiMessages] = useState<Array<{ role: 'assistant' | 'teacher'; content: string }>>([
-    { role: 'assistant', content: 'I can help draft or refine this step. Ask me for a clearer activity, quiz, or rubric.' },
-  ]);
+  const [aiMessages, setAiMessages] = useState<StepAiMessage[]>([]);
+  const [isStepAiGenerating, setIsStepAiGenerating] = useState(false);
+  const [aiAttachedFiles, setAiAttachedFiles] = useState<File[]>([]);
   const [isStepLinkModalOpen, setIsStepLinkModalOpen] = useState(false);
   const [stepLinkValue, setStepLinkValue] = useState('');
   const [isAiPlanBuilderModalOpen, setIsAiPlanBuilderModalOpen] = useState(false);
@@ -443,9 +580,14 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
   const [aiPlanBuilderStepCount, setAiPlanBuilderStepCount] = useState(3);
   const [aiPlanBuilderApproach, setAiPlanBuilderApproach] = useState<AiPlanApproach>('balanced');
   const [aiPlanBuilderSelectedTopicKeys, setAiPlanBuilderSelectedTopicKeys] = useState<string[]>([]);
+  const [stepWorkspaceBaseline, setStepWorkspaceBaseline] = useState<string | null>(null);
+  const [isStepUnsavedModalOpen, setIsStepUnsavedModalOpen] = useState(false);
   const stepEditorRef = useRef<HTMLDivElement | null>(null);
   const aiPromptInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const aiAttachmentInputRef = useRef<HTMLInputElement | null>(null);
+  const aiMessagesEndRef = useRef<HTMLDivElement | null>(null);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const pendingStepWorkspaceActionRef = useRef<(() => void) | null>(null);
 
   const { toast } = useToast();
 
@@ -467,6 +609,28 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
       'Selected subject';
 
     return { subjectId, subjectName };
+  };
+
+  const buildSubjectAnchoredInstruction = (instruction: string, subjectName: string, focusTopic: string) => {
+    const normalizedSubject = subjectName.trim() || 'the selected subject';
+    const normalizedFocus = focusTopic.trim();
+    const normalizedInstruction = instruction.trim();
+    const parts = [`Work strictly within ${normalizedSubject}.`];
+    if (normalizedFocus && normalizedFocus.toLowerCase() !== normalizedSubject.toLowerCase()) {
+      parts.push(`Focus on ${normalizedFocus}.`);
+    }
+    if (normalizedInstruction) {
+      parts.push(normalizedInstruction);
+    }
+    return parts.join(' ');
+  };
+
+  const normalizeStepFocusTopic = (value: string, fallback: string) => {
+    const cleaned = value
+      .replace(/^(improve|strengthen|develop|build|practice|review|revise|master)\s+/i, '')
+      .replace(/\s+step$/i, '')
+      .trim();
+    return cleaned || fallback.trim();
   };
 
   const middleColClass = isStepWorkspaceMaximized
@@ -515,6 +679,36 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
     () => isPublishedPlan(currentDisplayPlan),
     [currentDisplayPlan]
   );
+
+  const serializeStepWorkspaceDraft = (step: Step, practiceDraft: PracticeBuilderDraft): string =>
+    JSON.stringify({
+      step: {
+        title: step.title || '',
+        type: step.type || 'document',
+        content: step.content || '',
+        link: step.link || '',
+        order: step.order || 1,
+        additionalResources: step.additionalResources || [],
+      },
+      practice: isPracticeStepType(step.type)
+        ? {
+            name: practiceDraft.name || '',
+            questions: practiceDraft.questions.map((question) => ({
+              prompt: question.prompt || '',
+              responseType: question.responseType,
+              marks: Number.isFinite(Number(question.marks)) ? Number(question.marks) : 1,
+              expectedAnswer: question.expectedAnswer || '',
+              options: question.options || [],
+              correctOptions: question.correctOptions || [],
+            })),
+          }
+        : null,
+    });
+
+  const hasUnsavedStepChanges = useMemo(() => {
+    if (!isStepWorkspaceOpen || stepWorkspaceBaseline === null) return false;
+    return serializeStepWorkspaceDraft(stepWorkspaceDraft, practiceWorkspaceDraft) !== stepWorkspaceBaseline;
+  }, [isStepWorkspaceOpen, practiceWorkspaceDraft, stepWorkspaceBaseline, stepWorkspaceDraft]);
 
   const currentPlanStepProgress = useMemo(() => {
     const totalSteps = sortedStepEntries.length;
@@ -730,6 +924,8 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
     setEditingStepIndex(null);
     setIsStepWorkspaceMaximized(false);
     setIsStepAiCollapsed(false);
+    setIsStepUnsavedModalOpen(false);
+    pendingStepWorkspaceActionRef.current = null;
   }, [currentDisplayPlan?.id]);
 
   useEffect(() => {
@@ -749,6 +945,10 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
     aiPromptInputRef.current.style.height = 'auto';
     aiPromptInputRef.current.style.height = `${aiPromptInputRef.current.scrollHeight}px`;
   }, [aiPrompt]);
+
+  useEffect(() => {
+    aiMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [aiMessages, isStepAiGenerating]);
 
   useEffect(() => {
     const loadSubjects = async () => {
@@ -793,9 +993,9 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
             setStudentsSubjectFilter(primarySubjectId);
           }
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
         console.error('Error fetching student or development plans:', err);
-        setError(err.message || 'Failed to load student development data.');
+        setError(getErrorMessage(err, 'Failed to load student development data.'));
       } finally {
         setLoading(false);
       }
@@ -822,28 +1022,11 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
       const plansData = await developmentService.getAllPlansForStudent(newStudentId);
       setAllStudentDevelopmentPlans(plansData);
       setCurrentDisplayPlan(selectPlanForSubject(plansData, subjectId));
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error fetching student or development plans on select:', err);
-      setError(err.message || 'Failed to load data for selected student.');
+      setError(getErrorMessage(err, 'Failed to load data for selected student.'));
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handlePlanCreated = async (studentId: string, newPlan: DevelopmentPlan) => {
-    try {
-      const updatedPlans = await developmentService.getAllPlansForStudent(studentId);
-      setAllStudentDevelopmentPlans(updatedPlans);
-
-      const newPlanItem = updatedPlans.find((plan) =>
-        plan.id === newPlan.id || plan.plan.id === newPlan.plan.id
-      );
-      const { subjectId } = getActiveSubjectContext();
-      setCurrentDisplayPlan(newPlanItem || selectPlanForSubject(updatedPlans, subjectId));
-      toast.success('Development plan created successfully');
-    } catch (err) {
-      console.error('Error handling new plan:', err);
-      toast.error('Failed to load the new plan');
     }
   };
 
@@ -870,7 +1053,7 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
   };
 
   const handleGenerateAiPlanSteps = async () => {
-    if (!currentDisplayPlan) return;
+    if (!currentDisplayPlan || !selectedStudent) return;
 
     const selectedTopics = skillCanvasInsights.criticalSkills.filter((skill) =>
       aiPlanBuilderSelectedTopicKeys.includes(skill.key)
@@ -888,22 +1071,155 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
     });
 
     const normalizedStepCount = Math.max(1, Math.min(10, aiPlanBuilderStepCount || 1));
-    const generatedStepDrafts = buildAiPlanStepDrafts({
-      focusTopics,
-      objective: aiPlanBuilderObjective.trim(),
-      guidance: aiPlanBuilderPrompt.trim(),
-      stepCount: normalizedStepCount,
-      approach: aiPlanBuilderApproach,
-    });
 
     try {
       setIsGeneratingAiPlanSteps(true);
       setIsPersistingPlan(true);
 
+      const { subjectId, subjectName } = getActiveSubjectContext();
+      const guidedCriticalSkills: GuidedPlanCriticalSkill[] = selectedTopics.map((topic, index) => ({
+        attributeId: topic.key,
+        name: topic.name,
+        currentScore: topic.current ?? 0,
+        potentialScore: topic.target ?? topic.current ?? 0,
+        targetScore: topic.target ?? topic.current ?? 0,
+        gap: topic.gap,
+        weight: 1,
+        priority: index + 1,
+        reason: topic.gapSummary,
+      }));
+
+      const objectiveText = aiPlanBuilderObjective.trim();
+      const guidanceText = aiPlanBuilderPrompt.trim();
+
+      const generatedPlan = await planningService.generateGuidedDevelopmentPlan({
+        student: selectedStudent,
+        subjectId,
+        subjectName,
+        criticalSkills: guidedCriticalSkills,
+        stepCount: normalizedStepCount,
+        stepApproach: aiPlanBuilderApproach,
+        objective: objectiveText,
+        guidance: guidanceText,
+        context: 'Focus on actionable steps, varied resources, and clear goals.',
+      });
+
+      const planSkeletonSteps = Array.isArray(generatedPlan.steps) && generatedPlan.steps.length
+        ? generatedPlan.steps.map((step, index) => ({
+            title: step.title || getStepTitleForApproach(aiPlanBuilderApproach, focusTopics[index % focusTopics.length]?.name || 'Core skill', index, normalizeGeneratedPlanStepType(step.type)),
+            type: normalizeGeneratedPlanStepType(step.type),
+            content: step.content || '',
+            link: step.link || '',
+            additionalResources: step.additionalResources || [],
+          }))
+        : buildAiPlanStepDrafts({
+            focusTopics,
+            objective: objectiveText,
+            guidance: guidanceText,
+            stepCount: normalizedStepCount,
+            approach: aiPlanBuilderApproach,
+          });
+
+      const generatedSteps: Array<{
+        title: string;
+        type: StepType;
+        content: string;
+        link: string;
+        additionalResources: string[];
+      }> = [];
+
+      for (const [index, step] of planSkeletonSteps.entries()) {
+        const focusTopicName = focusTopics[index % focusTopics.length]?.name || 'Core skill';
+        const baseTitle =
+          step.title ||
+          getStepTitleForApproach(aiPlanBuilderApproach, focusTopicName, index, normalizeGeneratedPlanStepType(step.type));
+        const normalizedType = normalizeGeneratedPlanStepType(step.type);
+        let nextTitle = baseTitle;
+        let nextContent = step.content || '';
+
+        if (isPracticeStepType(normalizedType)) {
+          try {
+            const practiceResult = await workspaceAiService.generateTeacherPractice({
+              subjectName,
+              topicTitle: focusTopicName,
+              title: baseTitle,
+              objective:
+                objectiveText || `Improve learner mastery in ${focusTopicName} in ${subjectName} through focused guided practice.`,
+              teacherPrompt:
+                buildSubjectAnchoredInstruction(
+                  guidanceText ||
+                    `Create a ${getApproachLabel(aiPlanBuilderApproach).toLowerCase()} practice step for ${focusTopicName}.`,
+                  subjectName,
+                  focusTopicName
+                ),
+              description: [`Subject: ${subjectName}.`, stripHtml(step.content || '').trim()].filter(Boolean).join(' '),
+              practiceType:
+                normalizedType === 'assessment'
+                  ? 'test'
+                  : normalizedType === 'assignment'
+                    ? 'assignment'
+                    : 'quiz',
+              difficulty: 'medium',
+              questionTypeMode: 'mixed',
+              numberOfQuestions: 3,
+              existingQuestions: [],
+              referenceDocuments: [],
+            });
+            const practiceDraft = buildPracticeDraftFromGeneratedPractice(practiceResult, baseTitle);
+            nextTitle = practiceResult.title || baseTitle;
+            nextContent = buildPracticeContentFromDraft(practiceDraft);
+          } catch (practiceError) {
+            console.warn('Failed to build full practice step content for generated plan step:', practiceError);
+            if (!/<li[\s>]/i.test(nextContent)) {
+              nextContent = buildPracticeContentFromDraft({
+                name: baseTitle,
+                questions: [
+                  createPracticeQuestion(1, `Practice the core ideas in ${focusTopicName}.`),
+                  createPracticeQuestion(2, `Apply ${focusTopicName} in a short problem-solving task.`),
+                ],
+              });
+            }
+          }
+        } else if (!nextContent.trim()) {
+          try {
+            const resourceResult = await workspaceAiService.generateTeacherResource({
+              subjectName,
+              topicTitle: focusTopicName,
+              contentType: 'resource',
+              title: baseTitle,
+              objective:
+                objectiveText || `Support the learner with a clear ${subjectName} resource on ${focusTopicName}.`,
+              teacherPrompt:
+                buildSubjectAnchoredInstruction(
+                  guidanceText ||
+                    `Create a concise resource step that supports the learner on ${focusTopicName}.`,
+                  subjectName,
+                  focusTopicName
+                ),
+              existingContent: '',
+              relatedRecords: [],
+              referenceDocuments: [],
+            });
+            nextTitle = resourceResult.title || baseTitle;
+            nextContent = resourceResult.contentHtml || nextContent;
+          } catch (resourceError) {
+            console.warn('Failed to build full resource step content for generated plan step:', resourceError);
+          }
+        }
+
+        generatedSteps.push({
+          title: nextTitle,
+          type: normalizedType,
+          content: nextContent,
+          link: step.link || '',
+          additionalResources: step.additionalResources || [],
+        });
+      }
+
       let updatedPlan = currentDisplayPlan;
       let nextOrder = (updatedPlan.plan.steps?.length || 0) + 1;
 
-      for (const draft of generatedStepDrafts) {
+      for (const draft of generatedSteps) {
         updatedPlan = await developmentService.addStudentPlanStep(updatedPlan.id, {
           title: draft.title,
           type: draft.type,
@@ -918,7 +1234,7 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
       syncUpdatedPlanInState(updatedPlan);
       setIsAiPlanBuilderModalOpen(false);
       toast.success(
-        `Generated ${generatedStepDrafts.length} AI plan step${generatedStepDrafts.length > 1 ? 's' : ''} (${getApproachLabel(aiPlanBuilderApproach)}).`
+        `Generated ${generatedSteps.length} AI plan step${generatedSteps.length > 1 ? 's' : ''} (${getApproachLabel(aiPlanBuilderApproach)}).`
       );
     } catch (err) {
       console.error('Failed to generate AI plan steps:', err);
@@ -964,62 +1280,89 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
     if (!currentDisplayPlan) return;
     if (typeof index === 'number') {
       const step = currentDisplayPlan.plan.steps[index];
-      setEditingStepIndex(index);
-      setStepWorkspaceDraft({
+      const nextStepDraft: Step = {
         ...step,
         type: (step.type || 'document') as Step['type'],
         content: step.content || `<p><strong>${step.title}</strong></p>${step.link ? `<p>${step.link}</p>` : ''}`,
         order: step.order || index + 1,
         link: step.link || '',
         additionalResources: step.additionalResources || [],
-      });
-      if (isPracticeStepType(step.type)) {
-        setPracticeWorkspaceDraft(parsePracticeDraftFromStep(step, step.title || 'Practice step'));
-      } else {
-        setPracticeWorkspaceDraft(createEmptyPracticeDraft(''));
-      }
+      };
+      const nextPracticeDraft = isPracticeStepType(step.type)
+        ? parsePracticeDraftFromStep(step, step.title || 'Practice step')
+        : createEmptyPracticeDraft('');
+      setEditingStepIndex(index);
+      setStepWorkspaceDraft(nextStepDraft);
+      setPracticeWorkspaceDraft(nextPracticeDraft);
+      setStepWorkspaceBaseline(serializeStepWorkspaceDraft(nextStepDraft, nextPracticeDraft));
     } else {
       setEditingStepIndex(null);
       const nextOrder = (currentDisplayPlan.plan.steps?.length || 0) + 1;
       const { subjectName } = getActiveSubjectContext();
       const nextStepDraft = createNewStepDraft(nextOrder, preset, subjectName);
+      const nextPracticeDraft =
+        preset === 'practice'
+          ? parsePracticeDraftFromStep(nextStepDraft, `${subjectName} Practice ${nextOrder}`)
+          : createEmptyPracticeDraft('');
       setStepWorkspaceDraft(nextStepDraft);
-      if (preset === 'practice') {
-        setPracticeWorkspaceDraft(parsePracticeDraftFromStep(nextStepDraft, `${subjectName} Practice ${nextOrder}`));
-      } else {
-        setPracticeWorkspaceDraft(createEmptyPracticeDraft(''));
-      }
+      setPracticeWorkspaceDraft(nextPracticeDraft);
+      setStepWorkspaceBaseline(serializeStepWorkspaceDraft(nextStepDraft, nextPracticeDraft));
     }
     setIsPracticePreviewVisible(false);
+    setAiPrompt('');
+    setAiMessages([]);
+    setAiAttachedFiles([]);
+    setIsStepAiGenerating(false);
     setIsStepWorkspaceOpen(true);
+  };
+
+  const closeStepWorkspaceImmediate = () => {
+    setIsStepWorkspaceOpen(false);
+    setEditingStepIndex(null);
+    setIsStepWorkspaceMaximized(false);
+    setIsPracticePreviewVisible(false);
+    setStepWorkspaceBaseline(null);
+    setIsStepUnsavedModalOpen(false);
+    setAiPrompt('');
+    setAiMessages([]);
+    setAiAttachedFiles([]);
+    setIsStepAiGenerating(false);
+    pendingStepWorkspaceActionRef.current = null;
+  };
+
+  const requestStepWorkspaceTransition = (action: () => void) => {
+    if (isPersistingPlan) return;
+    if (isStepWorkspaceOpen && hasUnsavedStepChanges) {
+      pendingStepWorkspaceActionRef.current = action;
+      setIsStepUnsavedModalOpen(true);
+      return;
+    }
+    action();
   };
 
   const handleWorkspaceStepSelect = (selectedValue: string) => {
     if (selectedValue === '__new') {
       if (editingStepIndex === null) return;
-      openStepWorkspace();
+      requestStepWorkspaceTransition(() => openStepWorkspace());
       return;
     }
     const selectedIndex = Number(selectedValue);
     if (!Number.isNaN(selectedIndex)) {
-      openStepWorkspace(selectedIndex);
+      requestStepWorkspaceTransition(() => openStepWorkspace(selectedIndex));
     }
   };
 
   const toggleNewStepWorkspacePreset = (preset: NewStepPreset) => {
     if (editingStepIndex !== null) return;
-    openStepWorkspace(undefined, preset);
+    requestStepWorkspaceTransition(() => openStepWorkspace(undefined, preset));
   };
 
   const closeStepWorkspace = () => {
-    setIsStepWorkspaceOpen(false);
-    setEditingStepIndex(null);
-    setIsStepWorkspaceMaximized(false);
-    setIsPracticePreviewVisible(false);
+    requestStepWorkspaceTransition(closeStepWorkspaceImmediate);
   };
 
-  const saveStepWorkspace = async () => {
-    if (!currentDisplayPlan) return;
+  const saveStepWorkspace = async (options?: { closeOnSuccess?: boolean }): Promise<boolean> => {
+    if (!currentDisplayPlan) return false;
     const isPracticeDraft = isPracticeStepType(stepWorkspaceDraft.type);
     const normalizedTitle = isPracticeDraft
       ? practiceWorkspaceDraft.name.trim()
@@ -1027,7 +1370,7 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
 
     if (!normalizedTitle) {
       toast.error('Step title is required');
-      return;
+      return false;
     }
 
     const normalizedStep: Step = {
@@ -1067,15 +1410,53 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
               }
             );
       syncUpdatedPlanInState(updatedPlan);
-      setIsStepWorkspaceOpen(false);
-      setEditingStepIndex(null);
+      setStepWorkspaceBaseline(
+        serializeStepWorkspaceDraft(
+          { ...normalizedStep, title: normalizedTitle },
+          isPracticeDraft
+            ? {
+                ...practiceWorkspaceDraft,
+                name: normalizedTitle,
+              }
+            : practiceWorkspaceDraft
+        )
+      );
+      if (options?.closeOnSuccess ?? true) {
+        closeStepWorkspaceImmediate();
+      }
       toast.success(editingStepIndex === null ? 'Step added' : 'Step updated');
+      return true;
     } catch (err) {
       console.error('Failed to save step:', err);
       toast.error('Failed to save step');
+      return false;
     } finally {
       setIsPersistingPlan(false);
     }
+  };
+
+  const closeStepUnsavedModal = () => {
+    if (isPersistingPlan) return;
+    setIsStepUnsavedModalOpen(false);
+    pendingStepWorkspaceActionRef.current = null;
+  };
+
+  const handleDiscardStepChanges = () => {
+    const pendingAction = pendingStepWorkspaceActionRef.current;
+    pendingStepWorkspaceActionRef.current = null;
+    setIsStepUnsavedModalOpen(false);
+    pendingAction?.();
+  };
+
+  const handleSaveStepAndContinue = async () => {
+    const pendingAction = pendingStepWorkspaceActionRef.current;
+    const didSave = await saveStepWorkspace({ closeOnSuccess: false });
+    if (!didSave) {
+      return;
+    }
+    pendingStepWorkspaceActionRef.current = null;
+    setIsStepUnsavedModalOpen(false);
+    pendingAction?.();
   };
 
   const applyStepEditorCommand = (command: string, value?: string) => {
@@ -1134,19 +1515,186 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
     reader.readAsDataURL(file);
   };
 
-  const handleSendAiPrompt = () => {
-    const text = aiPrompt.trim();
-    if (!text) return;
-    setAiMessages((prev) => [
-      ...prev,
-      { role: 'teacher', content: text },
-      { role: 'assistant', content: 'Suggestion added. Review and save this step if it matches your objective.' },
-    ]);
-    setStepWorkspaceDraft((prev) => ({
-      ...prev,
-      content: `${prev.content || ''}<p><strong>AI Suggestion:</strong> ${text}</p>`,
-    }));
-    setAiPrompt('');
+  const handleAttachAiReference = () => {
+    if (isStepAiGenerating) return;
+    aiAttachmentInputRef.current?.click();
+  };
+
+  const handleAiAttachmentChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    if (!files.length) return;
+    setAiAttachedFiles((previous) => {
+      const next = [...previous];
+      files.forEach((file) => {
+        const exists = next.some(
+          (existing) =>
+            existing.name === file.name &&
+            existing.size === file.size &&
+            existing.lastModified === file.lastModified
+        );
+        if (!exists) next.push(file);
+      });
+      return next;
+    });
+    event.target.value = '';
+  };
+
+  const handleRemoveAiAttachment = (file: File) => {
+    setAiAttachedFiles((previous) =>
+      previous.filter(
+        (existing) =>
+          !(
+            existing.name === file.name &&
+            existing.size === file.size &&
+            existing.lastModified === file.lastModified
+          )
+      )
+    );
+  };
+
+  const handleSendAiPrompt = async () => {
+    if (isStepAiGenerating) return;
+    const promptText = aiPrompt.trim();
+    if (!promptText && aiAttachedFiles.length === 0) return;
+
+    const teacherMessage =
+      promptText ||
+      (isPracticeWorkspace
+        ? 'Generate a practice step using the attached references.'
+        : 'Refine this resource step using the attached references.');
+
+    const { subjectName } = getActiveSubjectContext();
+    const stepTopicTitle = normalizeStepFocusTopic(
+      (
+        stepWorkspaceDraft.title.trim() ||
+        skillCanvasInsights.mostCriticalSkill?.name ||
+        currentDisplayPlan?.plan?.name ||
+        subjectName
+      ).trim(),
+      subjectName
+    );
+    const objectiveText =
+      stripHtml(currentDisplayPlan?.plan?.description || '').trim() ||
+      `Improve learner mastery in ${stepTopicTitle} in ${subjectName}.`;
+
+    setAiMessages((previous) => [...previous, buildStepAiMessage('teacher', teacherMessage)]);
+    setIsStepAiGenerating(true);
+
+    try {
+      const referenceDocuments = aiAttachedFiles.length
+        ? await workspaceAiService.processDocumentsWithOCR(aiAttachedFiles)
+        : [];
+
+      if (isPracticeWorkspace) {
+        const populatedQuestions = practiceWorkspaceDraft.questions.filter(
+          (question) => question.prompt.trim().length > 0
+        );
+        const questionTypeMode = (() => {
+          const questionTypes = new Set(
+            populatedQuestions.map((question) => question.responseType)
+          );
+          if (questionTypes.size === 0) return 'mixed' as const;
+          if (questionTypes.size === 1) {
+            const [singleType] = Array.from(questionTypes);
+            return singleType === 'short-answer' ? 'structured' as const : 'multiple_choice' as const;
+          }
+          return 'mixed' as const;
+        })();
+        const requestedQuestionCount = inferRequestedPracticeQuestionCount(
+          teacherMessage,
+          populatedQuestions.length,
+          populatedQuestions.length || Math.max(practiceWorkspaceDraft.questions.length, 3)
+        );
+
+        const result = await workspaceAiService.generateTeacherPractice({
+          subjectName,
+          topicTitle: stepTopicTitle,
+          title: practiceWorkspaceDraft.name || stepWorkspaceDraft.title || `${stepTopicTitle} Practice`,
+          objective: objectiveText,
+          teacherPrompt: buildSubjectAnchoredInstruction(teacherMessage, subjectName, stepTopicTitle),
+          description: [`Subject: ${subjectName}.`, stripHtml(stepWorkspaceDraft.content || '').trim()].filter(Boolean).join(' '),
+          practiceType:
+            stepWorkspaceDraft.type === 'assessment'
+              ? 'test'
+              : stepWorkspaceDraft.type === 'assignment'
+                ? 'assignment'
+                : 'quiz',
+          difficulty: 'medium',
+          questionTypeMode,
+          numberOfQuestions: requestedQuestionCount,
+          existingQuestions: populatedQuestions.map((question) => ({
+              prompt: question.prompt,
+              type:
+                question.responseType === 'short-answer'
+                  ? 'short-answer'
+                  : 'multiple-choice',
+              marks: question.marks,
+              options:
+                question.responseType === 'short-answer'
+                  ? []
+                  : question.responseType === 'true-false'
+                    ? ['True', 'False']
+                    : normalizePracticeQuestionOptions(question.options),
+              correctAnswers:
+                question.responseType === 'short-answer'
+                  ? []
+                  : normalizePracticeCorrectOptions(question.correctOptions),
+              correctAnswer: question.expectedAnswer || '',
+              markingGuide: question.expectedAnswer || '',
+            })),
+          referenceDocuments,
+        });
+
+        const nextDraft = buildPracticeDraftFromGeneratedPractice(
+          result,
+          practiceWorkspaceDraft.name || stepWorkspaceDraft.title || `${stepTopicTitle} Practice`
+        );
+
+        setPracticeWorkspaceDraft(nextDraft);
+        setStepWorkspaceDraft((previous) => ({
+          ...previous,
+          title: result.title || previous.title,
+        }));
+        setAiMessages((previous) => [
+          ...previous,
+          buildStepAiMessage('assistant', `Done. ${result.teacherMessage || 'I updated the practice step on the canvas.'}`),
+        ]);
+      } else {
+        const result = await workspaceAiService.generateTeacherResource({
+          subjectName,
+          topicTitle: stepTopicTitle,
+          contentType: 'resource',
+          title: stepWorkspaceDraft.title || stepTopicTitle,
+          objective: objectiveText,
+          teacherPrompt: buildSubjectAnchoredInstruction(teacherMessage, subjectName, stepTopicTitle),
+          existingContent: stepWorkspaceDraft.content || '',
+          relatedRecords: sortedStepEntries.map(({ step }) => step.title).filter(Boolean).slice(0, 6),
+          referenceDocuments,
+        });
+
+        setStepWorkspaceDraft((previous) => ({
+          ...previous,
+          title: result.title || previous.title,
+          content: result.contentHtml || previous.content,
+        }));
+        setAiMessages((previous) => [
+          ...previous,
+          buildStepAiMessage('assistant', `Done. ${result.teacherMessage || 'I updated the resource step on the canvas.'}`),
+        ]);
+      }
+
+      setAiPrompt('');
+      setAiAttachedFiles([]);
+    } catch (error) {
+      const message = getErrorMessage(error, 'I could not complete that request.');
+      toast.error(message);
+      setAiMessages((previous) => [
+        ...previous,
+        buildStepAiMessage('assistant', `I could not complete that request. ${message}`),
+      ]);
+    } finally {
+      setIsStepAiGenerating(false);
+    }
   };
 
   const handleTogglePlanPublication = async () => {
@@ -1503,7 +2051,9 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                           </button>
                           <button
                             type="button"
-                            onClick={saveStepWorkspace}
+                            onClick={() => {
+                              void saveStepWorkspace();
+                            }}
                             disabled={isPersistingPlan}
                             className="inline-flex items-center gap-1 rounded-md border border-blue-700 bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-300 disabled:text-slate-100"
                           >
@@ -1576,7 +2126,9 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={saveStepWorkspace}
+                                  onClick={() => {
+                                    void saveStepWorkspace();
+                                  }}
                                   disabled={isPersistingPlan || !canSavePracticeWorkspace}
                                   className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
                                 >
@@ -2136,6 +2688,14 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                   </>
                 ) : (
                   <>
+                    <input
+                      ref={aiAttachmentInputRef}
+                      type="file"
+                      className="hidden"
+                      accept={WORKSPACE_REFERENCE_ACCEPT}
+                      multiple
+                      onChange={handleAiAttachmentChange}
+                    />
                     <div className="mb-2 flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <Bot className="h-4 w-4 text-slate-600" />
@@ -2153,34 +2713,100 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                     </div>
                     <div className="flex min-h-0 flex-1 flex-col rounded-md border border-slate-200 bg-white p-2">
                       <div className="mt-2 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
-                        {aiMessages.map((msg, idx) => (
+                        {aiMessages.length === 0 && !isStepAiGenerating && (
+                          <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
+                            Prompts and AI completion summaries will appear here.
+                          </div>
+                        )}
+                        {aiMessages.map((msg) => (
                           <div
-                            key={`${msg.role}-${idx}`}
+                            key={msg.id}
                             className={`rounded-md px-2 py-1.5 text-xs ${
-                              msg.role === 'assistant' ? 'bg-slate-100 text-slate-700' : 'bg-blue-50 text-blue-700'
+                              msg.role === 'assistant' ? 'bg-slate-100 text-slate-700' : 'bg-blue-50 text-blue-800'
                             }`}
                           >
-                            {msg.content}
+                            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-70">
+                              {msg.role === 'assistant' ? 'AI Collaborator' : 'You'}
+                            </p>
+                            <p className="whitespace-pre-wrap">{msg.text}</p>
                           </div>
                         ))}
+                        <div ref={aiMessagesEndRef} />
                       </div>
-                      <div className="mt-2 flex items-end gap-2 border-t border-slate-200 pt-2">
-                        <textarea
-                          ref={aiPromptInputRef}
-                          rows={2}
-                          value={aiPrompt}
-                          onChange={(e) => setAiPrompt(e.target.value)}
-                          placeholder="Ask AI to improve this step..."
-                          className="min-h-[44px] min-w-0 flex-1 resize-none overflow-hidden rounded-md border border-slate-200 px-2 py-1.5 text-xs leading-5"
-                        />
-                        <button
-                          type="button"
-                          onClick={handleSendAiPrompt}
-                          className="inline-flex shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white px-2 py-1.5 text-slate-700 hover:bg-slate-100"
-                          aria-label="Send message"
-                        >
-                          <SendHorizontal className="h-4 w-4" />
-                        </button>
+
+                      <div className="mt-2 space-y-3 border-t border-slate-200 pt-2">
+                        {aiAttachedFiles.length > 0 && (
+                          <div className="flex flex-wrap gap-2">
+                            {aiAttachedFiles.map((file) => {
+                              const fileKey = `${file.name}:${file.size}:${file.lastModified}`;
+                              return (
+                                <span
+                                  key={fileKey}
+                                  className="inline-flex max-w-full items-center gap-1 rounded-full bg-blue-50 px-2 py-1 text-[11px] text-blue-700"
+                                >
+                                  <Paperclip className="h-3 w-3 shrink-0" />
+                                  <span className="truncate">{file.name}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveAiAttachment(file)}
+                                    disabled={isStepAiGenerating}
+                                    className="inline-flex items-center justify-center rounded-full text-blue-700 hover:text-blue-900 disabled:cursor-not-allowed disabled:opacity-50"
+                                    aria-label={`Remove ${file.name}`}
+                                  >
+                                    <X className="h-3 w-3" />
+                                  </button>
+                                </span>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 px-2 shadow-sm shadow-slate-200/50">
+                          <div className="px-1 py-1.5">
+                            <textarea
+                              ref={aiPromptInputRef}
+                              rows={2}
+                              value={aiPrompt}
+                              disabled={isStepAiGenerating}
+                              onChange={(e) => setAiPrompt(e.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter' && !event.shiftKey && !isStepAiGenerating) {
+                                  event.preventDefault();
+                                  void handleSendAiPrompt();
+                                }
+                              }}
+                              placeholder="Ask AI to improve this step..."
+                              className="min-h-[72px] w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-xs leading-5 text-slate-700 placeholder:text-slate-400 focus:outline-none disabled:cursor-not-allowed disabled:text-slate-500"
+                            />
+                          </div>
+                          <div className="flex items-center justify-between border-t border-slate-200/80 pt-1">
+                            <button
+                              type="button"
+                              onClick={handleAttachAiReference}
+                              disabled={isStepAiGenerating}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                              aria-label="Attach reference files"
+                              title={WORKSPACE_REFERENCE_HELPER}
+                            >
+                              <Paperclip className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void handleSendAiPrompt();
+                              }}
+                              disabled={isStepAiGenerating}
+                              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                              aria-label={isStepAiGenerating ? 'Generating step content' : 'Send message'}
+                            >
+                              {isStepAiGenerating ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <SendHorizontal className="h-4 w-4" />
+                              )}
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </>
@@ -2409,16 +3035,16 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
               <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
                 <div>
                   <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-700">Plan Workflow</h2>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {currentPlanPublished
-                      ? `${currentPlanStepProgress.completedSteps}/${currentPlanStepProgress.totalSteps} steps completed by learner`
-                      : 'Draft mode: publish this plan for the learner to follow these steps.'}
-                  </p>
+                  {currentPlanPublished ? (
+                    <p className="mt-1 text-xs text-slate-500">
+                      {currentPlanStepProgress.completedSteps}/{currentPlanStepProgress.totalSteps} steps completed by learner
+                    </p>
+                  ) : null}
                 </div>
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => openStepWorkspace(undefined, 'resource')}
+                    onClick={() => requestStepWorkspaceTransition(() => openStepWorkspace(undefined, 'resource'))}
                     disabled={isPersistingPlan}
                     className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
                   >
@@ -2427,7 +3053,7 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                   </button>
                   <button
                     type="button"
-                    onClick={() => openStepWorkspace(undefined, 'practice')}
+                    onClick={() => requestStepWorkspaceTransition(() => openStepWorkspace(undefined, 'practice'))}
                     disabled={isPersistingPlan}
                     className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100"
                   >
@@ -2442,11 +3068,11 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                       role="button"
                       tabIndex={0}
                       key={`${step.title}-${index}`}
-                      onClick={() => openStepWorkspace(index)}
+                      onClick={() => requestStepWorkspaceTransition(() => openStepWorkspace(index))}
                       onKeyDown={(event) => {
                         if (event.key === 'Enter' || event.key === ' ') {
                           event.preventDefault();
-                          openStepWorkspace(index);
+                          requestStepWorkspaceTransition(() => openStepWorkspace(index));
                         }
                       }}
                       className="w-full cursor-pointer rounded-lg border border-slate-200 bg-slate-50 p-3 text-left transition hover:border-blue-300 hover:bg-blue-50"
@@ -2515,7 +3141,7 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                             onClick={(event) => {
                               event.preventDefault();
                               event.stopPropagation();
-                              openStepWorkspace(index);
+                              requestStepWorkspaceTransition(() => openStepWorkspace(index));
                             }}
                             className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
                             aria-label="Edit step"
@@ -2670,6 +3296,57 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
               className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
             >
               Insert
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    {isStepUnsavedModalOpen && (
+      <div
+        className="fixed inset-0 z-[84] flex items-center justify-center bg-slate-900/40 p-4"
+        onClick={closeStepUnsavedModal}
+      >
+        <div
+          className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-4 shadow-2xl"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <h3 className="text-base font-semibold text-slate-900">Unsaved step changes</h3>
+          <p className="mt-2 text-sm text-slate-600">
+            Save this step before leaving so your latest edits are not lost.
+          </p>
+          <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={closeStepUnsavedModal}
+              disabled={isPersistingPlan}
+              className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Stay here
+            </button>
+            <button
+              type="button"
+              onClick={handleDiscardStepChanges}
+              disabled={isPersistingPlan}
+              className="rounded-md border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Leave without saving
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                void handleSaveStepAndContinue();
+              }}
+              disabled={isPersistingPlan}
+              className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isPersistingPlan ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                'Save step'
+              )}
             </button>
           </div>
         </div>

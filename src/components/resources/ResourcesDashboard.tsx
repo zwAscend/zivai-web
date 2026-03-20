@@ -7,7 +7,6 @@ import {
     Bold,
     BookOpen,
     Bot,
-    CalendarDays,
     Code2,
     ImagePlus,
     Italic,
@@ -25,7 +24,6 @@ import {
     RefreshCw,
     Save,
     Search as SearchIcon,
-    Send,
     Settings2,
     Table,
     Underline,
@@ -43,6 +41,7 @@ import { curriculumService, CurriculumTopic } from '../../services/curriculumSer
 import { resourceService, ResourceItem } from '../../services/resourceService';
 import { schoolService, SchoolItem } from '../../services/schoolService';
 import { fetchData } from '../../services/http';
+import { workspaceAiService } from '../../services/workspaceAiService';
 import {
     RESOURCE_CONTENT_TYPES,
     ResourceContentType,
@@ -72,6 +71,21 @@ interface UploadModalSubject {
     code?: string;
 }
 
+interface TeachingSubjectResponse {
+    id: string;
+    name: string;
+    code?: string;
+}
+
+interface ResourceCountSummary {
+    count?: number;
+    lastUpdated?: string;
+    documents?: number;
+    images?: number;
+    videos?: number;
+    others?: number;
+}
+
 interface CollaboratorThreadEntry {
     id: string;
     role: 'user' | 'assistant';
@@ -81,14 +95,14 @@ interface CollaboratorThreadEntry {
     status?: 'success' | 'error' | 'info';
 }
 
-const escapeHtml = (value: string) => value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-
-const textToHtml = (value: string) => escapeHtml(value).replace(/\n/g, '<br />');
+interface ResourcePreviewState {
+    resourceId: string;
+    title: string;
+    mode: 'html' | 'image' | 'video' | 'iframe';
+    src?: string;
+    contentHtml?: string;
+    helperText?: string;
+}
 
 const normalizeEditorHtmlContent = (value: string) => {
     let normalized = value;
@@ -100,6 +114,20 @@ const normalizeEditorHtmlContent = (value: string) => {
         normalized = decoded;
     }
     return normalized;
+};
+
+const buildResourceFilename = (resource: Pick<ResourceItem, 'name' | 'originalName' | 'mimeType'>) => {
+    const baseName = (resource.originalName || resource.name || 'resource').trim();
+    if (/\.[a-z0-9]{2,8}$/i.test(baseName)) {
+        return baseName;
+    }
+
+    const mimeType = (resource.mimeType || '').toLowerCase();
+    if (mimeType.includes('html')) return `${baseName}.html`;
+    if (mimeType.includes('markdown')) return `${baseName}.md`;
+    if (mimeType.includes('pdf')) return `${baseName}.pdf`;
+    if (mimeType.includes('plain')) return `${baseName}.txt`;
+    return baseName;
 };
 
 const stripHtmlToText = (value: string) => value
@@ -115,6 +143,34 @@ const buildFallbackResourceTitle = (contentType: ResourceContentType) =>
 const isResourceContentType = (value?: string | null): value is ResourceContentType => {
     if (!value) return false;
     return (RESOURCE_CONTENT_TYPES as readonly string[]).includes(value);
+};
+
+const getResourceFileExtension = (resource: Pick<ResourceItem, 'name' | 'originalName' | 'url'>) => {
+    const candidate = resource.originalName || resource.name || resource.url || '';
+    const cleanCandidate = candidate.split('?')[0].split('#')[0];
+    const match = cleanCandidate.match(/\.([a-z0-9]{2,8})$/i);
+    return match ? match[1].toLowerCase() : '';
+};
+
+const getResourcePreviewMode = (resource: Pick<ResourceItem, 'mimeType' | 'name' | 'originalName' | 'url'>): ResourcePreviewState['mode'] => {
+    const mimeType = (resource.mimeType || '').toLowerCase();
+    const extension = getResourceFileExtension(resource);
+
+    if (
+        mimeType.startsWith('image/')
+        || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(extension)
+    ) {
+        return 'image';
+    }
+
+    if (
+        mimeType.startsWith('video/')
+        || ['mp4', 'webm', 'ogg', 'mov'].includes(extension)
+    ) {
+        return 'video';
+    }
+
+    return 'iframe';
 };
 
 // --- Component Starts ---
@@ -153,6 +209,11 @@ const ResourcesDashboard: React.FC = () => {
     const [draftResources, setDraftResources] = useState<ResourceItem[]>([]);
     const [isDraftsLoading, setIsDraftsLoading] = useState(false);
     const [activeDraftResourceId, setActiveDraftResourceId] = useState<string | null>(null);
+    const [lessonPlanSearch, setLessonPlanSearch] = useState('');
+    const [draftSearch, setDraftSearch] = useState('');
+    const [draftSubjectFilter, setDraftSubjectFilter] = useState('all');
+    const [draftGradeFilter, setDraftGradeFilter] = useState('all');
+    const [draftTypeFilter, setDraftTypeFilter] = useState('all');
     const [contentSearch, setContentSearch] = useState('');
     const [contentSubjectFilter, setContentSubjectFilter] = useState('all');
     const [materialSearch, setMaterialSearch] = useState('');
@@ -162,13 +223,13 @@ const ResourcesDashboard: React.FC = () => {
     const [isMentionOpen, setIsMentionOpen] = useState(false);
     const [isConfigOpen, setIsConfigOpen] = useState(false);
     const [isWorkspaceConfigOpen, setIsWorkspaceConfigOpen] = useState(false);
-    const [referenceSearch, setReferenceSearch] = useState('');
     const [aiThread, setAiThread] = useState<CollaboratorThreadEntry[]>([]);
     const [selectionActionOverlay, setSelectionActionOverlay] = useState<{ top: number; left: number; text: string } | null>(null);
     const [selectionActionHint, setSelectionActionHint] = useState<string | null>(null);
     const [persistedResourceId, setPersistedResourceId] = useState<string | null>(null);
     const [isContentLinkModalOpen, setIsContentLinkModalOpen] = useState(false);
     const [contentLinkValue, setContentLinkValue] = useState('');
+    const [resourcePreview, setResourcePreview] = useState<ResourcePreviewState | null>(null);
 
     // Modals State
     const [showUploadModal, setShowUploadModal] = useState(false);
@@ -185,11 +246,11 @@ const ResourcesDashboard: React.FC = () => {
         setLoading(true);
         try {
             const [subjectData, countsData, recentData] = await Promise.all([
-                fetchData<any[]>('/subjects/teaching', { forceRefresh: true }),
-                fetchData<Record<string, any>>('/resources/counts', { forceRefresh: true }),
+                fetchData<TeachingSubjectResponse[]>('/subjects/teaching', { forceRefresh: true }),
+                fetchData<Record<string, ResourceCountSummary>>('/resources/counts', { forceRefresh: true }),
                 fetchData<RecentUpload[]>('/resources/recent?limit=5', { forceRefresh: true }),
             ]);
-            const updatedSubjects = subjectData.map((subject: any) => ({
+            const updatedSubjects = subjectData.map((subject) => ({
                 ...subject,
                 resourceCount: countsData[subject.id]?.count || 0,
                 lastUpdated: countsData[subject.id]?.lastUpdated ? new Date(countsData[subject.id].lastUpdated).toISOString() : '',
@@ -296,6 +357,86 @@ const ResourcesDashboard: React.FC = () => {
         setActiveAction('view-notes');
     };
 
+    const downloadInlineContent = useCallback((resource: Pick<ResourceItem, 'name' | 'originalName' | 'mimeType' | 'contentBody'>) => {
+        const blob = new Blob([resource.contentBody || ''], {
+            type: resource.mimeType || 'text/html;charset=utf-8',
+        });
+        const blobUrl = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = blobUrl;
+        link.download = buildResourceFilename(resource);
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(blobUrl), 0);
+    }, []);
+
+    const resolveDownloadUrl = useCallback(async (resourceId: string) => {
+        const response = await fetchData<{ url?: string }>(`/resources/download/${resourceId}`, {
+            forceRefresh: true,
+        });
+        const url = response?.url;
+        if (!url) {
+            throw new Error('No downloadable file is available for this resource.');
+        }
+        return url;
+    }, []);
+
+    const handleViewResource = useCallback(async (resourceId: string) => {
+        try {
+            const resource = await resourceService.get(resourceId);
+            if (resource.contentBody && resource.contentBody.trim().length > 0) {
+                setResourcePreview({
+                    resourceId: resource.id,
+                    title: resource.name || 'Resource preview',
+                    mode: 'html',
+                    contentHtml: normalizeEditorHtmlContent(resource.contentBody),
+                });
+                return;
+            }
+
+            const downloadUrl = await resolveDownloadUrl(resourceId);
+            const previewMode = getResourcePreviewMode(resource);
+            setResourcePreview({
+                resourceId: resource.id,
+                title: resource.name || resource.originalName || 'Resource preview',
+                mode: previewMode,
+                src: downloadUrl,
+                helperText: previewMode === 'iframe'
+                    ? 'If this file cannot render in the preview panel, use Download.'
+                    : undefined,
+            });
+        } catch (error) {
+            console.error('Failed to preview resource:', error);
+            const message = error instanceof Error ? error.message : 'Failed to open the resource.';
+            toast.error(message);
+        }
+    }, [resolveDownloadUrl]);
+
+    const handleDownloadResource = useCallback(async (resourceId: string) => {
+        try {
+            const resource = await resourceService.get(resourceId);
+            if (resource.contentBody && resource.contentBody.trim().length > 0) {
+                downloadInlineContent(resource);
+                return;
+            }
+
+            const downloadUrl = await resolveDownloadUrl(resourceId);
+            const link = document.createElement('a');
+            link.href = downloadUrl;
+            link.download = resource.originalName || resource.name;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+        } catch (error) {
+            console.error('Failed to download resource:', error);
+            const message = error instanceof Error ? error.message : 'Failed to download the resource.';
+            toast.error(message);
+        }
+    }, [downloadInlineContent, resolveDownloadUrl]);
+
     const handleLessonPlans = () => {
         setSelectedClass(null);
         setActiveAction('lesson-plans');
@@ -359,6 +500,16 @@ const ResourcesDashboard: React.FC = () => {
         return matchesSubject && matchesType && matchesQuery;
     });
 
+    const filteredLessonPlanSubjects = useMemo(() => {
+        const query = lessonPlanSearch.trim().toLowerCase();
+        if (!query) return subjects;
+
+        return subjects.filter((subject) => (
+            subject.name.toLowerCase().includes(query)
+            || subject.code?.toLowerCase().includes(query)
+        ));
+    }, [lessonPlanSearch, subjects]);
+
     const availableReferenceResources = useMemo(() => {
         if (!noteForm.subjectId) return recentUploads.slice(0, 12);
         return recentUploads
@@ -384,11 +535,76 @@ const ResourcesDashboard: React.FC = () => {
         availableReferenceResources.filter((resource) => selectedReferenceResourceIds.includes(resource.id))
     ), [availableReferenceResources, selectedReferenceResourceIds]);
 
-    const filteredReferenceResources = useMemo(() => {
-        const query = referenceSearch.trim().toLowerCase();
-        if (!query) return availableReferenceResources;
-        return availableReferenceResources.filter((resource) => resource.name.toLowerCase().includes(query));
-    }, [availableReferenceResources, referenceSearch]);
+    const resolveDraftGrade = useCallback((draft: ResourceItem) => (
+        (draft.tags || []).find((tag) => /^form\s+\d+/i.test(tag)) || ''
+    ), []);
+
+    const resolveDraftSubjectName = useCallback((draft: ResourceItem) => {
+        const subjectValue = (draft as ResourceItem & {
+            subject?: string | { id?: string; name?: string };
+        }).subject;
+
+        if (subjectValue && typeof subjectValue === 'object') {
+            if (typeof subjectValue.name === 'string' && subjectValue.name.trim().length > 0) {
+                return subjectValue.name;
+            }
+            if (typeof subjectValue.id === 'string') {
+                return subjects.find((subject) => subject.id === subjectValue.id)?.name || 'No subject';
+            }
+        }
+
+        if (typeof subjectValue === 'string') {
+            return subjects.find((subject) => subject.id === subjectValue)?.name || 'No subject';
+        }
+
+        return 'No subject';
+    }, [subjects]);
+
+    const availableDraftGrades = useMemo(() => (
+        Array.from(new Set(
+            draftResources
+                .map((draft) => resolveDraftGrade(draft))
+                .filter((grade): grade is string => Boolean(grade))
+        )).sort((left, right) => left.localeCompare(right, undefined, { numeric: true }))
+    ), [draftResources, resolveDraftGrade]);
+
+    const availableDraftTypes = useMemo(() => (
+        Array.from(new Set(
+            draftResources
+                .map((draft) => draft.contentType)
+                .filter((type): type is string => Boolean(type))
+        ))
+    ), [draftResources]);
+
+    const filteredDraftResources = useMemo(() => {
+        const query = draftSearch.trim().toLowerCase();
+
+        return draftResources.filter((draft) => {
+            const draftName = (draft.name || '').toLowerCase();
+            const subjectName = resolveDraftSubjectName(draft).toLowerCase();
+            const grade = resolveDraftGrade(draft);
+            const draftType = draft.contentType || '';
+
+            const matchesSearch = !query || draftName.includes(query) || subjectName.includes(query);
+            const matchesSubject = draftSubjectFilter === 'all'
+                || (typeof (draft as ResourceItem & { subject?: unknown }).subject === 'string'
+                    && (draft as ResourceItem & { subject?: string }).subject === draftSubjectFilter)
+                || (typeof (draft as ResourceItem & { subject?: unknown }).subject === 'object'
+                    && (draft as ResourceItem & { subject?: { id?: string } }).subject?.id === draftSubjectFilter);
+            const matchesGrade = draftGradeFilter === 'all' || grade === draftGradeFilter;
+            const matchesType = draftTypeFilter === 'all' || draftType === draftTypeFilter;
+
+            return matchesSearch && matchesSubject && matchesGrade && matchesType;
+        });
+    }, [
+        draftResources,
+        draftSearch,
+        draftSubjectFilter,
+        draftGradeFilter,
+        draftTypeFilter,
+        resolveDraftGrade,
+        resolveDraftSubjectName,
+    ]);
 
     const uploadSubjects = useMemo<UploadModalSubject[]>(() => (
         subjects.map(({ id, name, code }) => ({ id, name, code }))
@@ -453,6 +669,19 @@ const ResourcesDashboard: React.FC = () => {
             window.removeEventListener('keydown', onEscape);
         };
     }, [isWorkspaceConfigOpen]);
+
+    useEffect(() => {
+        if (!resourcePreview) return;
+
+        const onEscape = (event: KeyboardEvent) => {
+            if (event.key === 'Escape') {
+                setResourcePreview(null);
+            }
+        };
+
+        window.addEventListener('keydown', onEscape);
+        return () => window.removeEventListener('keydown', onEscape);
+    }, [resourcePreview]);
 
     useEffect(() => {
         if (isAiPanelCollapsed) {
@@ -731,7 +960,7 @@ const ResourcesDashboard: React.FC = () => {
         }));
     };
 
-    const handleGenerateOnCanvas = () => {
+    const handleGenerateOnCanvas = async () => {
         if (!noteForm.title.trim()) {
             toast.error('Please add a title for the content.');
             return;
@@ -757,14 +986,46 @@ const ResourcesDashboard: React.FC = () => {
         setMentionQuery('');
         setIsMentionOpen(false);
         setIsContentGenerating(true);
-        setTimeout(() => {
-            const referencesBlock = selectedReferenceNames.length > 0
-                ? `\n\n## Referenced material\n${selectedReferenceNames.map((name) => `- ${name}`).join('\n')}`
-                : '';
-            const generatedDraft = `# ${noteForm.title}\n\n${promptText}\n\n## Suggested outline\n- Learning objective\n- Key concept explanation\n- Worked example\n- Retrieval check questions\n- Reflection prompt${referencesBlock}`;
+        try {
+            const resourceReferenceResults = await Promise.allSettled(
+                selectedReferenceResources.map(async (resource) => {
+                    const detail = await resourceService.get(resource.id);
+                    const bodyText = stripHtmlToText(detail.contentBody || '');
+                    const markdown = bodyText || `Resource title: ${detail.name || resource.name}`;
+                    return {
+                        documentName: detail.name || resource.name,
+                        markdown,
+                    };
+                })
+            );
+
+            const resourceReferenceDocuments = resourceReferenceResults
+                .filter((result): result is PromiseFulfilledResult<{ documentName: string; markdown: string }> => result.status === 'fulfilled')
+                .map((result) => result.value)
+                .filter((document) => document.markdown.trim().length > 0);
+
+            const attachmentReferenceDocuments = contentFiles.length > 0
+                ? await workspaceAiService.processDocumentsWithOCR(contentFiles)
+                : [];
+
+            const selectedTopic = curriculumTopics.find((topic) => topic.id === noteForm.topicId);
+            const generatedDraft = await workspaceAiService.generateTeacherResource({
+                subjectName: selectedSubjectName,
+                topicTitle: selectedTopic?.name || noteForm.title.trim(),
+                gradeLevel: noteForm.grade,
+                contentType: 'resource',
+                title: noteForm.title.trim(),
+                objective: selectedTopic?.objectives || selectedTopic?.description || '',
+                teacherPrompt: promptText,
+                existingContent: noteForm.content,
+                relatedRecords: selectedReferenceNames,
+                referenceDocuments: [...resourceReferenceDocuments, ...attachmentReferenceDocuments],
+            });
+
             setNoteForm((prev) => ({
                 ...prev,
-                content: `${prev.content ? `${prev.content}<br /><br />` : ''}${textToHtml(generatedDraft)}`,
+                title: generatedDraft.title || prev.title,
+                content: generatedDraft.contentHtml,
             }));
             setAiThread((prev) => ([
                 ...prev,
@@ -773,18 +1034,34 @@ const ResourcesDashboard: React.FC = () => {
                     role: 'assistant',
                     type: 'summary',
                     status: 'success',
-                    text: 'Done. I generated a draft and inserted it into the content canvas.',
+                    text: `Done. ${generatedDraft.teacherMessage || 'I generated the resource and updated the content canvas.'}`,
                     details: [
-                        `Title: ${noteForm.title}`,
+                        `Title: ${generatedDraft.title || noteForm.title}`,
                         `Content type: ${getResourceContentTypeLabel(contentType)}`,
-                        selectedReferenceNames.length > 0 ? `References attached: ${selectedReferenceNames.length}` : '',
-                        contentFiles.length > 0 ? `Context files used: ${contentFiles.length}` : '',
+                        resourceReferenceDocuments.length > 0 ? `Library references used: ${resourceReferenceDocuments.length}` : '',
+                        attachmentReferenceDocuments.length > 0 ? `Attachment references used: ${attachmentReferenceDocuments.length}` : '',
                     ].filter(Boolean),
                 },
             ]));
-            setIsContentGenerating(false);
             toast.success('AI draft added to canvas. Review and edit freely.');
-        }, 700);
+        } catch (error) {
+            console.error('Failed to generate resource with AI:', error);
+            const message = error instanceof Error ? error.message : 'AI generation failed';
+            setAiThread((prev) => ([
+                ...prev,
+                {
+                    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                    role: 'assistant',
+                    type: 'summary',
+                    status: 'error',
+                    text: 'I could not update the content canvas from that request.',
+                    details: [message],
+                },
+            ]));
+            toast.error(message);
+        } finally {
+            setIsContentGenerating(false);
+        }
     };
 
     const persistResource = async (mode: 'draft' | 'publish' | 'schedule') => {
@@ -1056,7 +1333,6 @@ const ResourcesDashboard: React.FC = () => {
                 onDrafts={handleDrafts}
                 onMaterial={handleMaterialTab}
                 activeAction={activeAction}
-                recentUploads={recentUploads}
             />
             <main className={`flex-1 p-8 ${activeAction === 'generate-notes' ? 'overflow-hidden flex flex-col' : 'overflow-y-auto'}`}>
                 {activeAction === 'view-notes' && (
@@ -1127,8 +1403,20 @@ const ResourcesDashboard: React.FC = () => {
                                                                 <td className="px-4 py-3 text-sm text-slate-700 capitalize">{item.type || 'other'}</td>
                                                                 <td className="px-4 py-3 text-sm">
                                                                     <div className="flex items-center gap-3">
-                                                                        <button className="text-blue-600 hover:text-blue-700">View</button>
-                                                                        <button className="text-slate-600 hover:text-slate-700">Download</button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => void handleViewResource(item.id)}
+                                                                            className="text-blue-600 hover:text-blue-700"
+                                                                        >
+                                                                            View
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => void handleDownloadResource(item.id)}
+                                                                            className="text-slate-600 hover:text-slate-700"
+                                                                        >
+                                                                            Download
+                                                                        </button>
                                                                     </div>
                                                                 </td>
                                                             </tr>
@@ -1375,7 +1663,7 @@ const ResourcesDashboard: React.FC = () => {
                                             <button type="button" onClick={() => applyContentEditorCommand('justifyFull')} className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100" aria-label="Justify" title="Justify">
                                                 <AlignJustify className="h-3.5 w-3.5" />
                                             </button>
-                                            <button type="button" onClick={() => applyContentEditorCommand('insertHTML', '<table border=\"1\" style=\"width:100%;border-collapse:collapse;\"><tr><td>&nbsp;</td><td>&nbsp;</td></tr><tr><td>&nbsp;</td><td>&nbsp;</td></tr></table><p></p>')} className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100" aria-label="Insert table" title="Insert table">
+                                            <button type="button" onClick={() => applyContentEditorCommand('insertHTML', '<table border="1" style="width:100%;border-collapse:collapse;"><tr><td>&nbsp;</td><td>&nbsp;</td></tr><tr><td>&nbsp;</td><td>&nbsp;</td></tr></table><p></p>')} className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100" aria-label="Insert table" title="Insert table">
                                                 <Table className="h-3.5 w-3.5" />
                                             </button>
                                         </div>
@@ -1493,7 +1781,7 @@ const ResourcesDashboard: React.FC = () => {
                                                     <div className="mt-2 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
                                                         {aiThread.length === 0 && !isContentGenerating && (
                                                             <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
-                                                                Prompts and AI completion summaries will appear here.
+                                                                Ask for a draft, revision, or variant. Your messages and the AI response will appear here.
                                                             </div>
                                                         )}
                                                         {aiThread.map((entry) => (
@@ -1508,9 +1796,9 @@ const ResourcesDashboard: React.FC = () => {
                                                                         !entry.status && 'border-slate-200 bg-white text-slate-700'
                                                                     )}
                                                             >
-                                                                {entry.role === 'assistant' && entry.type === 'summary' && (
-                                                                    <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide opacity-80">Completion summary</div>
-                                                                )}
+                                                                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide opacity-80">
+                                                                    {entry.role === 'user' ? 'You' : 'AI Collaborator'}
+                                                                </div>
                                                                 <p className="whitespace-pre-wrap">{entry.text}</p>
                                                                 {entry.details && entry.details.length > 0 && (
                                                                     <div className="mt-2 space-y-1 text-xs">
@@ -1532,22 +1820,54 @@ const ResourcesDashboard: React.FC = () => {
                                                     </div>
                                                     <div className="mt-2 space-y-3">
                                                         <div className="relative">
-                                                            <textarea
-                                                                ref={collaboratorPromptRef}
-                                                                className="min-h-[120px] w-full resize-none rounded-md border border-slate-200 px-3 py-2 pr-16 pb-12 text-sm"
-                                                                placeholder="Prompt AI here. Use @ to attach library references."
-                                                                value={noteForm.instructions}
-                                                                onChange={(e) => {
-                                                                    handleCollaboratorPromptChange(e.target.value, e.target.selectionStart ?? e.target.value.length);
-                                                                    requestAnimationFrame(resizeCollaboratorTextarea);
-                                                                }}
-                                                                onKeyDown={(e) => {
-                                                                    if (e.key === 'Enter' && isMentionOpen && mentionSuggestions.length > 0) {
-                                                                        e.preventDefault();
-                                                                        insertReferenceMention(mentionSuggestions[0]);
-                                                                    }
-                                                                }}
-                                                            />
+                                                            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-2 shadow-sm shadow-slate-200/50">
+                                                                <div className="px-1 py-1.5">
+                                                                    <textarea
+                                                                        ref={collaboratorPromptRef}
+                                                                        className="min-h-[88px] w-full resize-none border-0 bg-transparent p-0 text-sm leading-6 text-slate-700 placeholder:text-slate-400 focus:outline-none disabled:cursor-not-allowed disabled:text-slate-500"
+                                                                        placeholder="Ask the AI collaborator to draft or refine this resource. Use @ to attach library references."
+                                                                        value={noteForm.instructions}
+                                                                        rows={3}
+                                                                        disabled={isContentGenerating}
+                                                                        onChange={(e) => {
+                                                                            handleCollaboratorPromptChange(e.target.value, e.target.selectionStart ?? e.target.value.length);
+                                                                            requestAnimationFrame(resizeCollaboratorTextarea);
+                                                                        }}
+                                                                        onKeyDown={(e) => {
+                                                                            if (e.key === 'Enter' && isMentionOpen && mentionSuggestions.length > 0) {
+                                                                                e.preventDefault();
+                                                                                insertReferenceMention(mentionSuggestions[0]);
+                                                                            }
+                                                                        }}
+                                                                    />
+                                                                </div>
+                                                                <div className="flex items-center justify-between border-t border-slate-200/80 pt-1">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => contextFileInputRef.current?.click()}
+                                                                        disabled={isContentGenerating}
+                                                                        className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                                                                        aria-label="Attach context"
+                                                                        title="Attach context"
+                                                                    >
+                                                                        <Paperclip className="h-4 w-4" />
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={handleGenerateOnCanvas}
+                                                                        disabled={isContentGenerating}
+                                                                        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                                                        aria-label={isContentGenerating ? 'Generating resource draft' : 'Generate on canvas'}
+                                                                        title={isContentGenerating ? 'Generating resource draft' : 'Generate on canvas'}
+                                                                    >
+                                                                        {isContentGenerating ? (
+                                                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                                                        ) : (
+                                                                            <ArrowUp className="h-4 w-4" />
+                                                                        )}
+                                                                    </button>
+                                                                </div>
+                                                            </div>
                                                             {isMentionOpen && mentionSuggestions.length > 0 && (
                                                                 <div className="absolute left-0 right-0 bottom-full mb-1 z-20 max-h-44 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">
                                                                     {mentionSuggestions.map((resource) => (
@@ -1562,29 +1882,13 @@ const ResourcesDashboard: React.FC = () => {
                                                                     ))}
                                                                 </div>
                                                             )}
-                                                            <button
-                                                                type="button"
-                                                                onClick={handleGenerateOnCanvas}
-                                                                disabled={isContentGenerating}
-                                                                className="absolute right-2 bottom-2 inline-flex h-9 min-w-9 items-center justify-center rounded-full bg-blue-600 px-3 text-white hover:bg-blue-700 disabled:opacity-60"
-                                                                aria-label={isContentGenerating ? 'AI is thinking' : 'Generate on canvas'}
-                                                            >
-                                                                {isContentGenerating ? (
-                                                                    <span className="inline-flex items-center gap-1">
-                                                                        <span className="h-1.5 w-1.5 rounded-full bg-white animate-bounce [animation-delay:-0.2s]" />
-                                                                        <span className="h-1.5 w-1.5 rounded-full bg-white animate-bounce [animation-delay:-0.1s]" />
-                                                                        <span className="h-1.5 w-1.5 rounded-full bg-white animate-bounce" />
-                                                                    </span>
-                                                                ) : (
-                                                                    <ArrowUp className="h-4 w-4" />
-                                                                )}
-                                                            </button>
                                                         </div>
                                                         <input
                                                             ref={contextFileInputRef}
                                                             type="file"
                                                             className="hidden"
                                                             multiple
+                                                            accept=".pdf,.docx,.txt,.md,.csv,.json,.png,.jpg,.jpeg,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,text/csv,application/json,image/png,image/jpeg"
                                                             onChange={(event) => {
                                                                 const nextFiles = event.target.files ? Array.from(event.target.files) : [];
                                                                 if (!nextFiles.length) return;
@@ -1603,69 +1907,6 @@ const ResourcesDashboard: React.FC = () => {
                                                                 event.target.value = '';
                                                             }}
                                                         />
-                                                        <div className="flex items-center justify-between gap-2">
-                                                            <div className="flex items-center gap-2">
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => contextFileInputRef.current?.click()}
-                                                                    className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 hover:text-blue-700"
-                                                                >
-                                                                    <Paperclip className="h-3.5 w-3.5" />
-                                                                    Attach context
-                                                                </button>
-                                                                <div className="relative z-[70]">
-                                                                    <button
-                                                                        ref={configButtonRef}
-                                                                        type="button"
-                                                                        onClick={() => setIsConfigOpen((prev) => !prev)}
-                                                                        className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 hover:text-blue-700"
-                                                                    >
-                                                                        <Settings2 className="h-3.5 w-3.5" />
-                                                                        Configure
-                                                                    </button>
-                                                                    {isConfigOpen && (
-                                                                        <div
-                                                                            ref={configMenuRef}
-                                                                            className="absolute left-0 top-full mt-2 z-[80] w-[320px] max-w-[80vw] rounded-lg border border-slate-200 bg-white p-3 shadow-xl space-y-3"
-                                                                        >
-                                                                            <label className="text-xs text-slate-600">Reference Material In Library (Optional)</label>
-                                                                            <input
-                                                                                value={referenceSearch}
-                                                                                onChange={(e) => setReferenceSearch(e.target.value)}
-                                                                                className="w-full rounded-md border border-slate-200 px-2 py-1 text-xs"
-                                                                                placeholder="Search..."
-                                                                            />
-                                                                            {availableReferenceResources.length === 0 ? (
-                                                                                <p className="text-xs text-slate-500">No uploaded material available for this subject yet.</p>
-                                                                            ) : filteredReferenceResources.length === 0 ? (
-                                                                                <p className="text-xs text-slate-500">No matching material.</p>
-                                                                            ) : (
-                                                                                <div className="max-h-44 space-y-2 overflow-y-auto rounded-md border border-slate-200 bg-white p-2">
-                                                                                    {filteredReferenceResources.map((resource) => (
-                                                                                        <label key={resource.id} className="flex items-start gap-2 text-xs text-slate-700">
-                                                                                            <input
-                                                                                                type="checkbox"
-                                                                                                checked={selectedReferenceResourceIds.includes(resource.id)}
-                                                                                                onChange={(event) => {
-                                                                                                    setSelectedReferenceResourceIds((prev) => (
-                                                                                                        event.target.checked
-                                                                                                            ? [...prev, resource.id]
-                                                                                                            : prev.filter((id) => id !== resource.id)
-                                                                                                    ));
-                                                                                                }}
-                                                                                                className="mt-0.5"
-                                                                                            />
-                                                                                            <span>{resource.name}</span>
-                                                                                        </label>
-                                                                                    ))}
-                                                                                </div>
-                                                                            )}
-                                                                        </div>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                            <span className="text-[11px] text-slate-500">Type @ to attach reference</span>
-                                                        </div>
                                                         {selectedReferenceResources.length > 0 && (
                                                             <div className="flex flex-wrap gap-2">
                                                                 {selectedReferenceResources.map((resource) => (
@@ -1712,218 +1953,149 @@ const ResourcesDashboard: React.FC = () => {
                 )}
                 {activeAction === 'lesson-plans' && (
                     <div className="space-y-6">
-                        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-                            <div className="grid gap-0 lg:grid-cols-[minmax(0,1.6fr)_360px]">
-                                <div className="bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.18),_transparent_40%),linear-gradient(135deg,#0f172a_0%,#1d4ed8_52%,#eff6ff_100%)] px-6 py-7 text-white sm:px-8">
-                                    <div className="flex flex-wrap items-start justify-between gap-4">
-                                        <div className="max-w-2xl space-y-4">
-                                            <span className="inline-flex items-center rounded-full border border-white/20 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-blue-100">
-                                                Lesson Planning Hub
-                                            </span>
-                                            <div className="space-y-2">
-                                                <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-                                                    Build lesson plans by subject, then move directly into delivery.
-                                                </h1>
-                                                <p className="max-w-xl text-sm leading-6 text-blue-100/90">
-                                                    Keep every subject on one planning board, review what still needs a lesson sequence, and open a plan without digging through multiple screens.
-                                                </p>
-                                            </div>
-                                            <div className="grid max-w-2xl grid-cols-1 gap-3 sm:grid-cols-3">
-                                                <div className="rounded-2xl border border-white/15 bg-white/10 p-4 backdrop-blur-sm">
-                                                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-100">Tracked subjects</p>
-                                                    <p className="mt-2 text-3xl font-semibold text-white">{subjects.length}</p>
-                                                    <p className="mt-1 text-xs text-blue-100/85">Subjects available for planning</p>
-                                                </div>
-                                                <div className="rounded-2xl border border-white/15 bg-white/10 p-4 backdrop-blur-sm">
-                                                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-100">Ready to plan</p>
-                                                    <p className="mt-2 text-3xl font-semibold text-white">{Math.max(subjects.length - 1, 0)}</p>
-                                                    <p className="mt-1 text-xs text-blue-100/85">Can be sequenced this week</p>
-                                                </div>
-                                                <div className="rounded-2xl border border-white/15 bg-white/10 p-4 backdrop-blur-sm">
-                                                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-100">Recent resources</p>
-                                                    <p className="mt-2 text-3xl font-semibold text-white">{recentUploads.length}</p>
-                                                    <p className="mt-1 text-xs text-blue-100/85">Materials already in the workspace</p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="flex w-full flex-wrap gap-2 lg:w-auto lg:flex-col lg:items-stretch">
-                                            <button
-                                                type="button"
-                                                onClick={handleCreateLessonPlan}
-                                                className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 transition hover:bg-blue-50"
-                                            >
-                                                <BookOpen size={18} />
-                                                Create Lesson Plan
-                                            </button>
-                                            {subjects[0] && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleViewLessonPlan(subjects[0])}
-                                                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/15"
-                                                >
-                                                    View Latest Subject
-                                                </button>
-                                            )}
-                                        </div>
-                                    </div>
+                        <section className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+                            <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                                <div>
+                                    <h1 className="text-2xl font-bold text-slate-900">Lesson Plans</h1>
+                                    <p className="mt-1 text-sm text-slate-500">
+                                        Choose a subject and open its lesson plan workspace.
+                                    </p>
                                 </div>
-
-                                <div className="border-t border-slate-200 bg-slate-50 p-6 lg:border-l lg:border-t-0">
-                                    <div className="space-y-4">
-                                        <div>
-                                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Planning flow</p>
-                                            <h2 className="mt-2 text-lg font-semibold text-slate-900">Keep planning disciplined.</h2>
-                                        </div>
-                                        <div className="space-y-3">
-                                            <div className="rounded-xl border border-slate-200 bg-white p-4">
-                                                <div className="flex items-start gap-3">
-                                                    <div className="mt-0.5 rounded-lg bg-amber-100 p-2 text-amber-700">
-                                                        <CalendarDays size={18} />
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-sm font-semibold text-slate-900">Map lessons to the academic calendar</p>
-                                                        <p className="mt-1 text-sm leading-6 text-slate-600">
-                                                            Set the sequence first so each plan aligns with term pacing, assessments, and revision windows.
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div className="rounded-xl border border-slate-200 bg-white p-4">
-                                                <div className="flex items-start gap-3">
-                                                    <div className="mt-0.5 rounded-lg bg-emerald-100 p-2 text-emerald-700">
-                                                        <Send size={18} />
-                                                    </div>
-                                                    <div>
-                                                        <p className="text-sm font-semibold text-slate-900">Share lesson direction clearly</p>
-                                                        <p className="mt-1 text-sm leading-6 text-slate-600">
-                                                            Once a plan is ready, reuse it to brief students, attach resources, and push the outline into delivery.
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div className="rounded-xl border border-dashed border-slate-300 bg-white p-4">
-                                                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Recommended</p>
-                                                <p className="mt-2 text-sm text-slate-700">
-                                                    Start with your highest-priority subject, complete the lesson sequence, then open the resource workspace from the same plan.
-                                                </p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
+                                <button
+                                    type="button"
+                                    onClick={handleCreateLessonPlan}
+                                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
+                                >
+                                    <BookOpen size={18} />
+                                    Create Lesson Plan
+                                </button>
                             </div>
                         </section>
 
-                        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.55fr)_minmax(300px,0.95fr)]">
-                            <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
-                                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-6 py-4">
-                                    <div>
-                                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Lesson board</p>
-                                        <h3 className="mt-1 text-lg font-semibold text-slate-900">Subjects waiting for planning attention</h3>
-                                    </div>
-                                    <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600">
-                                        {subjects.length} subjects
-                                    </span>
-                                </div>
-
-                                <div className="p-4 sm:p-6">
-                                    {subjects.length === 0 ? (
-                                        <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-6 py-12 text-center">
-                                            <p className="text-sm font-medium text-slate-700">No subjects are available for lesson planning yet.</p>
-                                            <p className="mt-2 text-sm text-slate-500">
-                                                Add subjects first, then return here to create lesson plans and sequence them properly.
-                                            </p>
-                                        </div>
-                                    ) : (
-                                        <div className="space-y-3">
-                                            {subjects.slice(0, 6).map((subject, index) => (
-                                                <div
-                                                    key={subject.id}
-                                                    className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4 transition hover:border-blue-300 hover:bg-blue-50/50"
-                                                >
-                                                    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                                                        <div className="flex min-w-0 items-start gap-4">
-                                                            <div className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-900 text-sm font-semibold text-white">
-                                                                {String(index + 1).padStart(2, '0')}
-                                                            </div>
-                                                            <div className="min-w-0">
-                                                                <div className="flex flex-wrap items-center gap-2">
-                                                                    <p className="text-base font-semibold text-slate-900">{subject.name}</p>
-                                                                    {subject.code && (
-                                                                        <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-medium text-slate-600">
-                                                                            {subject.code}
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                                <p className="mt-1 text-sm text-slate-600">
-                                                                    Next session: To be scheduled
-                                                                </p>
-                                                                <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-                                                                    <span className="rounded-full bg-white px-2.5 py-1">Resources: {subject.resourceCount}</span>
-                                                                    <span className="rounded-full bg-white px-2.5 py-1">Documents: {subject.documents}</span>
-                                                                    <span className="rounded-full bg-white px-2.5 py-1">Updated: {subject.lastUpdated}</span>
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                        <div className="flex shrink-0 flex-wrap items-center gap-2">
-                                                            <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
-                                                                Needs scheduling
-                                                            </span>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => handleViewLessonPlan(subject)}
-                                                                className="inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-blue-300 hover:text-blue-700"
-                                                            >
-                                                                Open plan
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                            </section>
-
-                            <aside className="space-y-6">
-                                <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">This week</p>
-                                    <div className="mt-4 space-y-4">
-                                        <div className="rounded-xl bg-slate-50 p-4">
-                                            <p className="text-sm font-semibold text-slate-900">Primary planning target</p>
-                                            <p className="mt-1 text-sm text-slate-600">
-                                                {subjects[0]?.name ?? 'No subject selected yet'}
-                                            </p>
-                                        </div>
-                                        <div className="rounded-xl bg-slate-50 p-4">
-                                            <p className="text-sm font-semibold text-slate-900">Lesson handoff</p>
-                                            <p className="mt-1 text-sm text-slate-600">
-                                                Use the completed plan to publish notes and prepare the matching resource pack.
-                                            </p>
-                                        </div>
-                                    </div>
-                                </section>
-
-                                <section className="rounded-2xl border border-slate-200 bg-slate-950 p-6 text-slate-100 shadow-sm">
-                                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-200">Execution note</p>
-                                    <h3 className="mt-2 text-lg font-semibold">A plan should end in delivery, not just storage.</h3>
-                                    <p className="mt-3 text-sm leading-6 text-slate-300">
-                                        Keep the sequence lean: define the lesson objective, add the activity flow, then connect the supporting materials already in resources.
+                        <section className="rounded-xl border border-slate-200 bg-white shadow-sm">
+                            <div className="flex flex-col gap-4 border-b border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between">
+                                <div>
+                                    <p className="text-sm font-semibold text-slate-900">Subjects</p>
+                                    <p className="mt-1 text-xs text-slate-500">
+                                        {subjects.length} subject{subjects.length === 1 ? '' : 's'} available for planning
                                     </p>
-                                    <button
-                                        type="button"
-                                        onClick={handleCreateLessonPlan}
-                                        className="mt-5 inline-flex items-center justify-center rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-900 transition hover:bg-slate-100"
-                                    >
-                                        Start a new plan
-                                    </button>
-                                </section>
-                            </aside>
-                        </div>
+                                </div>
+                                <div className="relative w-full sm:w-72">
+                                    <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                    <input
+                                        type="text"
+                                        value={lessonPlanSearch}
+                                        onChange={(event) => setLessonPlanSearch(event.target.value)}
+                                        placeholder="Search subjects..."
+                                        className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="divide-y divide-slate-200">
+                                {subjects.length === 0 ? (
+                                    <div className="px-6 py-12 text-center">
+                                        <p className="text-sm font-medium text-slate-700">No subjects are available for lesson planning yet.</p>
+                                        <p className="mt-2 text-sm text-slate-500">
+                                            Add subjects first, then return here to create lesson plans.
+                                        </p>
+                                    </div>
+                                ) : filteredLessonPlanSubjects.length === 0 ? (
+                                    <div className="px-6 py-12 text-center">
+                                        <p className="text-sm font-medium text-slate-700">No subjects match your search.</p>
+                                    </div>
+                                ) : (
+                                    filteredLessonPlanSubjects.map((subject) => (
+                                        <div key={subject.id} className="flex flex-col gap-4 px-4 py-4 sm:px-6 lg:flex-row lg:items-center lg:justify-between">
+                                            <div className="min-w-0">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <p className="text-base font-semibold text-slate-900">{subject.name}</p>
+                                                    {subject.code && (
+                                                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                                                            {subject.code}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                                                    <span className="rounded-full bg-slate-100 px-2.5 py-1">Resources: {subject.resourceCount}</span>
+                                                    <span className="rounded-full bg-slate-100 px-2.5 py-1">Documents: {subject.documents}</span>
+                                                    <span className="rounded-full bg-slate-100 px-2.5 py-1">
+                                                        {subject.lastUpdated ? `Updated: ${new Date(subject.lastUpdated).toLocaleDateString()}` : 'No recent update'}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleViewLessonPlan(subject)}
+                                                className="inline-flex shrink-0 items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:border-blue-300 hover:text-blue-700"
+                                            >
+                                                Open Plan
+                                            </button>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </section>
                     </div>
                 )}
 
                 {activeAction === 'drafts' && (
                     <div className="space-y-6">
+                        <div className="bg-white border border-slate-200 rounded-lg p-4 flex flex-col gap-4 xl:flex-row xl:items-center">
+                            <div className="relative flex-1">
+                                <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                                <input
+                                    type="text"
+                                    value={draftSearch}
+                                    onChange={(event) => setDraftSearch(event.target.value)}
+                                    placeholder="Search drafts by title or subject..."
+                                    className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-10 pr-4 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                            </div>
+                            <div className="flex flex-wrap items-center gap-3">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs text-slate-500">Subject</span>
+                                    <select
+                                        className="rounded-md border border-slate-200 px-3 py-2 text-sm"
+                                        value={draftSubjectFilter}
+                                        onChange={(event) => setDraftSubjectFilter(event.target.value)}
+                                    >
+                                        <option value="all">All subjects</option>
+                                        {subjects.map((subject) => (
+                                            <option key={subject.id} value={subject.id}>{subject.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs text-slate-500">Grade</span>
+                                    <select
+                                        className="rounded-md border border-slate-200 px-3 py-2 text-sm"
+                                        value={draftGradeFilter}
+                                        onChange={(event) => setDraftGradeFilter(event.target.value)}
+                                    >
+                                        <option value="all">All grades</option>
+                                        {availableDraftGrades.map((grade) => (
+                                            <option key={grade} value={grade}>{grade}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs text-slate-500">Type</span>
+                                    <select
+                                        className="rounded-md border border-slate-200 px-3 py-2 text-sm"
+                                        value={draftTypeFilter}
+                                        onChange={(event) => setDraftTypeFilter(event.target.value)}
+                                    >
+                                        <option value="all">All types</option>
+                                        {availableDraftTypes.map((type) => (
+                                            <option key={type} value={type}>
+                                                {isResourceContentType(type) ? getResourceContentTypeLabel(type) : type}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
                         <div className="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
                             <div className="overflow-x-auto">
                                 <table className="w-full">
@@ -1949,11 +2121,17 @@ const ResourcesDashboard: React.FC = () => {
                                                     No drafts yet. Create content and save it as drafts.
                                                 </td>
                                             </tr>
+                                        ) : filteredDraftResources.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={5} className="px-4 py-8 text-center text-sm text-slate-500">
+                                                    No drafts match the selected filters.
+                                                </td>
+                                            </tr>
                                         ) : (
-                                            draftResources.map((draft) => {
+                                            filteredDraftResources.map((draft) => {
                                                 const isRowBusy = activeDraftResourceId === draft.id;
-                                                const gradeTag = (draft.tags || []).find((tag) => /^form\s+\d+/i.test(tag));
-                                                const subjectName = subjects.find((subject) => subject.id === draft.subject)?.name || 'No subject';
+                                                const gradeTag = resolveDraftGrade(draft);
+                                                const subjectName = resolveDraftSubjectName(draft);
 
                                                 return (
                                                     <tr key={draft.id} className="border-t border-slate-200">
@@ -2005,7 +2183,6 @@ const ResourcesDashboard: React.FC = () => {
                         <header className="flex items-center justify-between">
                             <div>
                                 <h1 className="text-2xl font-bold">Material</h1>
-                                <p className="text-sm text-slate-500">Manage uploaded teaching material.</p>
                             </div>
                             <button
                                 onClick={() => setShowUploadModal(true)}
@@ -2085,8 +2262,20 @@ const ResourcesDashboard: React.FC = () => {
                                                     <td className="px-4 py-3 text-sm text-slate-700 capitalize">{item.type || 'other'}</td>
                                                     <td className="px-4 py-3 text-sm">
                                                         <div className="flex items-center gap-3">
-                                                            <button className="text-blue-600 hover:text-blue-700">View</button>
-                                                            <button className="text-slate-600 hover:text-slate-700">Download</button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => void handleViewResource(item.id)}
+                                                                className="text-blue-600 hover:text-blue-700"
+                                                            >
+                                                                View
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => void handleDownloadResource(item.id)}
+                                                                className="text-slate-600 hover:text-slate-700"
+                                                            >
+                                                                Download
+                                                            </button>
                                                         </div>
                                                     </td>
                                                 </tr>
@@ -2111,6 +2300,85 @@ const ResourcesDashboard: React.FC = () => {
                     setSelectedSubjectForUpload(matchedSubject);
                 }}
             />
+            {resourcePreview && (
+                <div
+                    className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/40 p-4"
+                    onClick={() => setResourcePreview(null)}
+                >
+                    <div
+                        className="flex h-[min(88vh,820px)] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+                        onClick={(event) => event.stopPropagation()}
+                    >
+                        <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+                            <div className="min-w-0">
+                                <p className="truncate text-base font-semibold text-slate-900">{resourcePreview.title}</p>
+                                <p className="text-xs text-slate-500">Previewing this resource inside the app.</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => void handleDownloadResource(resourcePreview.resourceId)}
+                                    className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
+                                >
+                                    Download
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setResourcePreview(null)}
+                                    className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-2 text-slate-700 hover:bg-slate-100"
+                                    aria-label="Close preview"
+                                >
+                                    <X className="h-4 w-4" />
+                                </button>
+                            </div>
+                        </div>
+                        <div className="min-h-0 flex-1 overflow-hidden bg-slate-50">
+                            {resourcePreview.mode === 'html' && (
+                                <div className="h-full overflow-y-auto px-6 py-5">
+                                    <div
+                                        className="mx-auto max-w-4xl rounded-xl border border-slate-200 bg-white p-6 text-[15px] leading-7 text-slate-800 shadow-sm [&_blockquote]:my-4 [&_blockquote]:border-l-4 [&_blockquote]:border-slate-300 [&_blockquote]:pl-4 [&_blockquote]:text-slate-600 [&_h1]:mb-4 [&_h1]:text-3xl [&_h1]:font-bold [&_h2]:mb-3 [&_h2]:mt-6 [&_h2]:text-2xl [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:text-xl [&_h3]:font-semibold [&_img]:my-4 [&_img]:h-auto [&_img]:max-w-full [&_li]:mb-1 [&_ol]:my-4 [&_ol]:list-decimal [&_ol]:pl-6 [&_p]:mb-4 [&_pre]:my-4 [&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:bg-slate-900 [&_pre]:p-4 [&_pre]:text-sm [&_pre]:text-slate-100 [&_table]:my-4 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-slate-300 [&_td]:px-3 [&_td]:py-2 [&_th]:border [&_th]:border-slate-300 [&_th]:bg-slate-100 [&_th]:px-3 [&_th]:py-2 [&_ul]:my-4 [&_ul]:list-disc [&_ul]:pl-6"
+                                        dangerouslySetInnerHTML={{
+                                            __html: resourcePreview.contentHtml || '<p>No content available.</p>',
+                                        }}
+                                    />
+                                </div>
+                            )}
+                            {resourcePreview.mode === 'image' && resourcePreview.src && (
+                                <div className="flex h-full items-center justify-center overflow-auto p-6">
+                                    <img
+                                        src={resourcePreview.src}
+                                        alt={resourcePreview.title}
+                                        className="max-h-full max-w-full rounded-xl border border-slate-200 bg-white object-contain shadow-sm"
+                                    />
+                                </div>
+                            )}
+                            {resourcePreview.mode === 'video' && resourcePreview.src && (
+                                <div className="flex h-full items-center justify-center p-6">
+                                    <video
+                                        src={resourcePreview.src}
+                                        controls
+                                        className="max-h-full w-full max-w-4xl rounded-xl border border-slate-200 bg-black shadow-sm"
+                                    />
+                                </div>
+                            )}
+                            {resourcePreview.mode === 'iframe' && resourcePreview.src && (
+                                <div className="flex h-full flex-col">
+                                    {resourcePreview.helperText && (
+                                        <div className="border-b border-slate-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">
+                                            {resourcePreview.helperText}
+                                        </div>
+                                    )}
+                                    <iframe
+                                        title={resourcePreview.title}
+                                        src={resourcePreview.src}
+                                        className="h-full w-full bg-white"
+                                    />
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
             {isContentLinkModalOpen && (
                 <div
                     className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/35 p-4"

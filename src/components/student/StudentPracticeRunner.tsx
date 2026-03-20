@@ -1,5 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { AlertCircle, CheckCircle2, Circle, CircleDot, XCircle } from 'lucide-react';
+import {
+  STUDENT_ASSESSMENT_ACCEPT,
+  STUDENT_ASSESSMENT_FILE_HELPER,
+} from '../../services/externalAssessmentService';
 
 export type PracticeQuestionType = 'input' | 'single' | 'multiple';
 
@@ -368,7 +372,7 @@ const StudentPracticeRunner: React.FC<StudentPracticeRunnerProps> = ({
                   <label className="inline-flex cursor-pointer items-center rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100">
                     <input
                       type="file"
-                      accept="image/*"
+                      accept={STUDENT_ASSESSMENT_ACCEPT}
                       className="hidden"
                       onChange={(event) => {
                         const file = event.target.files?.[0] || null;
@@ -376,7 +380,7 @@ const StudentPracticeRunner: React.FC<StudentPracticeRunnerProps> = ({
                         event.currentTarget.value = '';
                       }}
                     />
-                    {currentUploadedFile ? `Image attached: ${currentUploadedFile.name}` : 'Upload answer image (optional)'}
+                    {currentUploadedFile ? `File attached: ${currentUploadedFile.name}` : 'Attach answer file (optional)'}
                   </label>
                   {currentUploadedFile && (
                     <button
@@ -384,12 +388,12 @@ const StudentPracticeRunner: React.FC<StudentPracticeRunnerProps> = ({
                       onClick={() => setUploadedFilesByQuestion((previous) => ({ ...previous, [currentQuestion.id]: null }))}
                       className="inline-flex items-center rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100"
                     >
-                      Remove image
+                      Remove file
                     </button>
                   )}
                 </div>
                 <div className="mt-2 flex items-center justify-between gap-2 text-xs text-slate-500">
-                  <span>Type your answer and/or upload a photo of written work.</span>
+                  <span>{STUDENT_ASSESSMENT_FILE_HELPER}</span>
                   <span>{currentTextAnswer.trim().length} chars</span>
                 </div>
               </div>

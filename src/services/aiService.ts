@@ -9,6 +9,7 @@ interface AttributeInput {
 
 interface GenerateQuestionsParams {
   subjectId: string;
+  subjectName?: string;
   attributes: Array<string | AttributeInput>;
   documentId?: string;
   questionCount?: number;
@@ -17,6 +18,10 @@ interface GenerateQuestionsParams {
   context?: string;
   tags?: string[];
   uploadedFiles?: File[];
+  referenceDocuments?: Array<{
+    documentName: string;
+    markdown: string;
+  }>;
 }
 
 interface RegenerateQuestionsParams {
@@ -37,6 +42,7 @@ interface OCRDocument {
 
 interface AssessmentGenerationRequest {
   context: string;
+  subjectName?: string;
   difficulty: 'easy' | 'medium' | 'hard';
   questionTypes: 'multiple_choice' | 'structured' | 'mixed';
   numberOfQuestions: number;
@@ -137,34 +143,65 @@ export const aiService = {
       }
       
       // Process uploaded documents if any
-      let referenceDocuments: Array<{ documentName: string; markdown: string }> = [];
+      let referenceDocuments: Array<{ documentName: string; markdown: string }> = Array.isArray(params.referenceDocuments)
+        ? params.referenceDocuments
+            .filter((doc) => typeof doc?.documentName === 'string' && typeof doc?.markdown === 'string')
+            .map((doc) => ({
+              documentName: doc.documentName,
+              markdown: doc.markdown,
+            }))
+        : [];
       if (params.uploadedFiles && params.uploadedFiles.length > 0) {
         console.log('Processing uploaded files:', params.uploadedFiles.map(f => f.name));
         try {
           const ocrResults = await aiService.processDocumentsWithOCR(params.uploadedFiles);
-          referenceDocuments = ocrResults.map(doc => ({
-            documentName: doc.documentName,
-            markdown: doc.markdown
-          }));
+          referenceDocuments = [
+            ...referenceDocuments,
+            ...ocrResults.map(doc => ({
+              documentName: doc.documentName,
+              markdown: doc.markdown
+            })),
+          ];
           console.log('OCR processed documents:', referenceDocuments.length);
         } catch (ocrError) {
           console.error('OCR processing failed:', ocrError);
           // Continue without reference documents if OCR fails
         }
       }
+
+      const uniqueReferenceDocuments = referenceDocuments.filter((doc, index, documents) => {
+        const key = `${doc.documentName}:${doc.markdown}`;
+        return documents.findIndex((candidate) => `${candidate.documentName}:${candidate.markdown}` === key) === index;
+      });
+
+      const normalizedQuestionTypes = Array.isArray(params.questionTypes)
+        ? params.questionTypes.map((value) => String(value || '').toLowerCase())
+        : [];
+      const hasObjectiveQuestions = normalizedQuestionTypes.some((value) =>
+        ['multiple_choice', 'mcq', 'true_false'].includes(value)
+      );
+      const hasStructuredQuestions = normalizedQuestionTypes.some((value) =>
+        ['structured', 'short_answer', 'essay'].includes(value)
+      );
+      const questionTypesMode: 'multiple_choice' | 'structured' | 'mixed' = hasObjectiveQuestions && hasStructuredQuestions
+        ? 'mixed'
+        : hasStructuredQuestions
+          ? 'structured'
+          : 'multiple_choice';
       
       // Prepare the request body for the assessment generation API
       const requestBody: AssessmentGenerationRequest = {
-        context: params.context || 'Focus on practical implementation questions. Include code examples where appropriate. Avoid theoretical definitions.',
+        context: params.context || 'Generate classroom-ready assessment questions for ZIMSEC O Level high-school learners. Keep the wording practical, clear, and age-appropriate. Do not generate tertiary-level content.',
+        subjectName: params.subjectName,
         difficulty: params.difficulty || 'medium',
-        questionTypes: (params.questionTypes && params.questionTypes.length > 0 ? params.questionTypes[0] : 'multiple_choice') as 'multiple_choice' | 'structured' | 'mixed',
+        questionTypes: questionTypesMode,
         numberOfQuestions: params.questionCount || 5,
         attributes: Object.keys(attributesObject).length > 0 ? attributesObject : {
           subject: "General Subject",
           topic: attributeNames.join(', ') || "General Topic"
         },
-        referenceDocuments,
-        tags: params.tags || attributeNames || []
+        referenceDocuments: uniqueReferenceDocuments,
+        tags: params.tags || [params.subjectName || '', ...attributeNames].filter(Boolean)
       };
       
       console.log('Assessment generation request:', requestBody);

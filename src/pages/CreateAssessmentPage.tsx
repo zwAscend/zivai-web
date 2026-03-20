@@ -1,6 +1,5 @@
 import React, { useMemo, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import Sidebar from '../components/resources/Sidebar';
 import { API_URL, fetchData } from '../services/http';
@@ -10,6 +9,7 @@ import { assessmentEnrollmentService } from '../services/assessmentEnrollmentSer
 import { subjectService } from '../services/subjectService';
 import { schoolService, SchoolItem } from '../services/schoolService';
 import { aiService } from '../services/aiService';
+import { resourceService } from '../services/resourceService';
 import { Subject, SubjectAttribute } from '../types';
 import { ArrowUp, Bot, GripVertical, Maximize2, Minimize2, PanelRightClose, PanelRightOpen, Paperclip, Settings2, X } from 'lucide-react';
 
@@ -106,7 +106,6 @@ const CreateAssessmentPage: React.FC = () => {
   const [isResizingAiPanel, setIsResizingAiPanel] = useState(false);
   const [isDesktop, setIsDesktop] = useState(() => (typeof window !== 'undefined' ? window.innerWidth >= 1280 : true));
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
-  const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [isAssessmentDetailsOpen, setIsAssessmentDetailsOpen] = useState(false);
   const [attributeSearch, setAttributeSearch] = useState('');
   const [availableReferenceResources, setAvailableReferenceResources] = useState<ReferenceResource[]>([]);
@@ -119,9 +118,6 @@ const CreateAssessmentPage: React.FC = () => {
   const promptRef = useRef<HTMLTextAreaElement | null>(null);
   const threadEndRef = useRef<HTMLDivElement | null>(null);
   const assessmentFileInputRef = useRef<HTMLInputElement | null>(null);
-  const configButtonRef = useRef<HTMLButtonElement | null>(null);
-  const configMenuRef = useRef<HTMLDivElement | null>(null);
-  const [configMenuPosition, setConfigMenuPosition] = useState<{ top: number; left: number } | null>(null);
 
   const [manualForm, setManualForm] = useState({
     schoolId: '',
@@ -265,59 +261,6 @@ const CreateAssessmentPage: React.FC = () => {
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
   }, []);
-
-  const positionConfigMenu = () => {
-    const anchor = configButtonRef.current;
-    if (!anchor) return;
-    const rect = anchor.getBoundingClientRect();
-    const panelWidth = 320;
-    const gap = 8;
-    const minMargin = 12;
-    const left = Math.max(minMargin, Math.min(rect.right - panelWidth, window.innerWidth - panelWidth - minMargin));
-    const top = rect.bottom + gap;
-    setConfigMenuPosition({ top, left });
-  };
-
-  useEffect(() => {
-    if (!isConfigOpen) return;
-
-    positionConfigMenu();
-
-    const onPointerDown = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (configMenuRef.current?.contains(target)) return;
-      if (configButtonRef.current?.contains(target)) return;
-      setIsConfigOpen(false);
-    };
-
-    const onEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setIsConfigOpen(false);
-      }
-    };
-
-    const onViewportChange = () => {
-      positionConfigMenu();
-    };
-
-    window.addEventListener('mousedown', onPointerDown);
-    window.addEventListener('keydown', onEscape);
-    window.addEventListener('resize', onViewportChange);
-    window.addEventListener('scroll', onViewportChange, true);
-
-    return () => {
-      window.removeEventListener('mousedown', onPointerDown);
-      window.removeEventListener('keydown', onEscape);
-      window.removeEventListener('resize', onViewportChange);
-      window.removeEventListener('scroll', onViewportChange, true);
-    };
-  }, [isConfigOpen]);
-
-  useEffect(() => {
-    if (isAiPanelCollapsed) {
-      setIsConfigOpen(false);
-    }
-  }, [isAiPanelCollapsed]);
 
   useEffect(() => {
     if (isAiPanelCollapsed) return;
@@ -554,19 +497,36 @@ const CreateAssessmentPage: React.FC = () => {
 
     try {
       setIsGenerating(true);
-      const referenceLine = selectedReferenceResources.length > 0
-        ? `\nReference material in library: ${selectedReferenceResources.map((resource) => resource.name).join(', ')}.`
-        : '';
-      const attachedFileLine = assessmentFile
-        ? `\nAttached assessment file: ${assessmentFile.name}.`
-        : '';
+      const referenceResourceResults = await Promise.allSettled(
+        selectedReferenceResources.map(async (resource) => {
+          const detail = await resourceService.get(resource.id);
+          const markdown = String(detail.contentBody || '')
+            .replace(/<br\s*\/?>/gi, ' ')
+            .replace(/<[^>]*>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim() || `Resource title: ${detail.name || resource.name}`;
+          return {
+            documentName: detail.name || resource.name,
+            markdown,
+          };
+        })
+      );
+
+      const referenceDocuments = referenceResourceResults
+        .filter((result): result is PromiseFulfilledResult<{ documentName: string; markdown: string }> => result.status === 'fulfilled')
+        .map((result) => result.value)
+        .filter((document) => document.markdown.trim().length > 0);
+
       const generated = await aiService.generateQuestions({
         subjectId: manualForm.subjectId,
+        subjectName: subjects.find((subject) => subject.id === manualForm.subjectId)?.name,
         attributes: aiForm.selectedAttributeIds,
         questionCount: aiForm.questionCount,
         difficulty: aiForm.difficulty,
         questionTypes: ['multiple_choice', 'true_false', 'short_answer'],
-        context: `${promptText}${referenceLine}${attachedFileLine}`,
+        context: promptText,
+        referenceDocuments,
+        uploadedFiles: assessmentFile ? [assessmentFile] : [],
       });
 
       if (!generated?.length) {
@@ -635,8 +595,9 @@ const CreateAssessmentPage: React.FC = () => {
         },
       ]));
       toast.success(`Added ${mapped.length} AI-generated question(s) to canvas.`);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to generate questions with AI:', error);
+      const message = error instanceof Error ? error.message : 'AI generation failed';
       setAiThread((prev) => ([
         ...prev,
         {
@@ -645,10 +606,10 @@ const CreateAssessmentPage: React.FC = () => {
           type: 'summary',
           status: 'error',
           text: 'Generation failed before I could update the canvas.',
-          details: [error?.message || 'AI generation failed'],
+          details: [message],
         },
       ]));
-      toast.error(error?.message || 'AI generation failed');
+      toast.error(message);
     } finally {
       setIsGenerating(false);
     }
@@ -895,81 +856,152 @@ const CreateAssessmentPage: React.FC = () => {
 
                       {isAssessmentDetailsOpen && (
                         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-                            <div className="md:col-span-2 xl:col-span-2">
-                              <label className="text-xs text-slate-500">Assessment Name</label>
-                              <input
-                                value={manualForm.name}
-                                onChange={(e) => setManualForm((prev) => ({ ...prev, name: e.target.value }))}
-                                className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
-                                placeholder="Enter assessment name"
-                              />
-                            </div>
+                          <div className="space-y-5">
                             <div>
-                              <label className="text-xs text-slate-500">Subject</label>
-                              <select
-                                value={manualForm.subjectId}
-                                onChange={(e) => setManualForm((prev) => ({ ...prev, subjectId: e.target.value }))}
-                                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
-                              >
-                                {subjects.map((subject) => (
-                                  <option key={subject.id} value={subject.id}>{subject.name}</option>
-                                ))}
-                              </select>
+                              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Assessment setup</p>
+                              <div className="mt-3 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+                                <div className="md:col-span-2 xl:col-span-2">
+                                  <label className="text-xs text-slate-500">Assessment Name</label>
+                                  <input
+                                    value={manualForm.name}
+                                    onChange={(e) => setManualForm((prev) => ({ ...prev, name: e.target.value }))}
+                                    className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+                                    placeholder="Enter assessment name"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-xs text-slate-500">Subject</label>
+                                  <select
+                                    value={manualForm.subjectId}
+                                    onChange={(e) => setManualForm((prev) => ({ ...prev, subjectId: e.target.value }))}
+                                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                                  >
+                                    {subjects.map((subject) => (
+                                      <option key={subject.id} value={subject.id}>{subject.name}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="text-xs text-slate-500">Assessment Type</label>
+                                  <select
+                                    value={manualForm.assessmentType}
+                                    onChange={(e) => setManualForm((prev) => ({ ...prev, assessmentType: e.target.value }))}
+                                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                                  >
+                                    <option value="quiz">Quiz</option>
+                                    <option value="assignment">Assignment</option>
+                                    <option value="test">Test</option>
+                                    <option value="project">Project</option>
+                                    <option value="exam">Exam</option>
+                                  </select>
+                                </div>
+                                <div className="md:col-span-2 xl:col-span-4">
+                                  <label className="text-xs text-slate-500">Description</label>
+                                  <textarea
+                                    value={manualForm.description}
+                                    onChange={(e) => setManualForm((prev) => ({ ...prev, description: e.target.value }))}
+                                    className="mt-1 min-h-[100px] w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+                                    placeholder="Define the outcome and scope for learners"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-xs text-slate-500">Max Score</label>
+                                  <input type="number" min="1" value={manualForm.maxScore} onChange={(e) => setManualForm((prev) => ({ ...prev, maxScore: Number(e.target.value) }))} className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm" />
+                                </div>
+                                <div>
+                                  <label className="text-xs text-slate-500">Weight %</label>
+                                  <input type="number" min="0" value={manualForm.weightPct} onChange={(e) => setManualForm((prev) => ({ ...prev, weightPct: Number(e.target.value) }))} className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm" />
+                                </div>
+                                <div>
+                                  <label className="text-xs text-slate-500">Time Limit (min)</label>
+                                  <input type="number" min="0" value={manualForm.timeLimitMin} onChange={(e) => setManualForm((prev) => ({ ...prev, timeLimitMin: Number(e.target.value) }))} className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm" />
+                                </div>
+                                <div>
+                                  <label className="text-xs text-slate-500">Attempts Allowed</label>
+                                  <input type="number" min="1" value={manualForm.attemptsAllowed} onChange={(e) => setManualForm((prev) => ({ ...prev, attemptsAllowed: Number(e.target.value) }))} className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm" />
+                                </div>
+                                <div>
+                                  <label className="text-xs text-slate-500">Status</label>
+                                  <select value={manualForm.status} onChange={(e) => setManualForm((prev) => ({ ...prev, status: e.target.value }))} className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
+                                    <option value="draft">Draft</option>
+                                    <option value="published">Published</option>
+                                    <option value="archived">Archived</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="text-xs text-slate-500">Visibility</label>
+                                  <select value={manualForm.visibility} onChange={(e) => setManualForm((prev) => ({ ...prev, visibility: e.target.value }))} className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
+                                    <option value="private">Private</option>
+                                    <option value="public">Public</option>
+                                  </select>
+                                </div>
+                              </div>
                             </div>
-                            <div>
-                              <label className="text-xs text-slate-500">Assessment Type</label>
-                              <select
-                                value={manualForm.assessmentType}
-                                onChange={(e) => setManualForm((prev) => ({ ...prev, assessmentType: e.target.value }))}
-                                className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
-                              >
-                                <option value="quiz">Quiz</option>
-                                <option value="assignment">Assignment</option>
-                                <option value="test">Test</option>
-                                <option value="project">Project</option>
-                                <option value="exam">Exam</option>
-                              </select>
-                            </div>
-                            <div className="md:col-span-2 xl:col-span-4">
-                              <label className="text-xs text-slate-500">Description</label>
-                              <textarea
-                                value={manualForm.description}
-                                onChange={(e) => setManualForm((prev) => ({ ...prev, description: e.target.value }))}
-                                className="mt-1 min-h-[100px] w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
-                                placeholder="Define the outcome and scope for learners"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-xs text-slate-500">Max Score</label>
-                              <input type="number" min="1" value={manualForm.maxScore} onChange={(e) => setManualForm((prev) => ({ ...prev, maxScore: Number(e.target.value) }))} className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm" />
-                            </div>
-                            <div>
-                              <label className="text-xs text-slate-500">Weight %</label>
-                              <input type="number" min="0" value={manualForm.weightPct} onChange={(e) => setManualForm((prev) => ({ ...prev, weightPct: Number(e.target.value) }))} className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm" />
-                            </div>
-                            <div>
-                              <label className="text-xs text-slate-500">Time Limit (min)</label>
-                              <input type="number" min="0" value={manualForm.timeLimitMin} onChange={(e) => setManualForm((prev) => ({ ...prev, timeLimitMin: Number(e.target.value) }))} className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm" />
-                            </div>
-                            <div>
-                              <label className="text-xs text-slate-500">Attempts Allowed</label>
-                              <input type="number" min="1" value={manualForm.attemptsAllowed} onChange={(e) => setManualForm((prev) => ({ ...prev, attemptsAllowed: Number(e.target.value) }))} className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm" />
-                            </div>
-                            <div>
-                              <label className="text-xs text-slate-500">Status</label>
-                              <select value={manualForm.status} onChange={(e) => setManualForm((prev) => ({ ...prev, status: e.target.value }))} className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
-                                <option value="draft">Draft</option>
-                                <option value="published">Published</option>
-                                <option value="archived">Archived</option>
-                              </select>
-                            </div>
-                            <div>
-                              <label className="text-xs text-slate-500">Visibility</label>
-                              <select value={manualForm.visibility} onChange={(e) => setManualForm((prev) => ({ ...prev, visibility: e.target.value }))} className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
-                                <option value="private">Private</option>
-                                <option value="public">Public</option>
-                              </select>
+
+                            <div className="rounded-lg border border-slate-200 bg-white p-4">
+                              <div className="mb-3">
+                                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">AI draft settings</p>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  These settings control how AI drafts the questions onto the canvas.
+                                </p>
+                              </div>
+                              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                                <div>
+                                  <label className="text-xs text-slate-500">Question count</label>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    max="20"
+                                    value={aiForm.questionCount}
+                                    onChange={(e) => setAiForm((prev) => ({ ...prev, questionCount: Number(e.target.value) }))}
+                                    className="mt-1 w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-xs text-slate-500">Difficulty</label>
+                                  <select
+                                    value={aiForm.difficulty}
+                                    onChange={(e) => setAiForm((prev) => ({ ...prev, difficulty: e.target.value as 'easy' | 'medium' | 'hard' }))}
+                                    className="mt-1 w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+                                  >
+                                    <option value="easy">Easy</option>
+                                    <option value="medium">Medium</option>
+                                    <option value="hard">Hard</option>
+                                  </select>
+                                </div>
+                              </div>
+
+                              <div className="mt-4 space-y-2">
+                                <div className="flex items-center justify-between gap-2">
+                                  <label className="text-xs text-slate-500">Curriculum attributes</label>
+                                  <input
+                                    value={attributeSearch}
+                                    onChange={(e) => setAttributeSearch(e.target.value)}
+                                    className="w-36 rounded-md border border-slate-200 px-2 py-1 text-xs"
+                                    placeholder="Search..."
+                                  />
+                                </div>
+                                <div className="max-h-48 overflow-y-auto rounded-md border border-slate-200 bg-white p-2 space-y-2">
+                                  {filteredAttributes.length === 0 ? (
+                                    <p className="p-1 text-xs text-slate-500">No matching attributes.</p>
+                                  ) : filteredAttributes.map((attr) => (
+                                    <label key={attr.id} className="flex items-start gap-2 text-xs text-slate-700">
+                                      <input
+                                        type="checkbox"
+                                        checked={aiForm.selectedAttributeIds.includes(attr.id)}
+                                        onChange={(e) => setAiForm((prev) => ({
+                                          ...prev,
+                                          selectedAttributeIds: e.target.checked
+                                            ? [...prev.selectedAttributeIds, attr.id]
+                                            : prev.selectedAttributeIds.filter((id) => id !== attr.id),
+                                        }))}
+                                        className="mt-0.5"
+                                      />
+                                      <span>{attr.name}</span>
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -1191,7 +1223,7 @@ const CreateAssessmentPage: React.FC = () => {
                         <div className="mt-2 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
                           {aiThread.length === 0 && !isGenerating && (
                             <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
-                              Prompts and AI completion summaries will appear here.
+                              Ask for a draft, revision, or variant. Your messages and the AI response will appear here.
                             </div>
                           )}
                           {aiThread.map((entry) => (
@@ -1205,9 +1237,9 @@ const CreateAssessmentPage: React.FC = () => {
                                     ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
                                     : 'border-slate-200 bg-white text-slate-700'}` }
                             >
-                              {entry.role === 'assistant' && entry.type === 'summary' && (
-                                <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide opacity-80">Completion summary</div>
-                              )}
+                              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide opacity-80">
+                                {entry.role === 'user' ? 'You' : 'AI Collaborator'}
+                              </div>
                               <p className="whitespace-pre-wrap">{entry.text}</p>
                               {entry.details && entry.details.length > 0 && (
                                 <div className="mt-2 space-y-1 text-xs">
@@ -1229,91 +1261,74 @@ const CreateAssessmentPage: React.FC = () => {
                         </div>
                         <div className="mt-2 space-y-3">
                           <div className="relative">
-                          <textarea
-                            ref={promptRef}
-                            value={aiForm.prompt}
-                            onChange={(e) => handlePromptChange(e.target.value, e.target.selectionStart ?? e.target.value.length)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter' && isMentionOpen && mentionSuggestions.length > 0) {
-                                e.preventDefault();
-                                insertReferenceMention(mentionSuggestions[0]);
-                              }
-                            }}
-                            className="min-h-[120px] w-full resize-none rounded-md border border-slate-200 px-3 py-2 pb-12 pr-16 text-sm"
-                            placeholder="Prompt AI here. Use @ to attach library references."
-                          />
-                          {isMentionOpen && mentionSuggestions.length > 0 && (
-                            <div className="absolute left-0 right-0 mt-1 z-20 border border-slate-200 bg-white rounded-md shadow-lg max-h-44 overflow-y-auto">
-                              {mentionSuggestions.map((resource) => (
+                            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-2 shadow-sm shadow-slate-200/50">
+                              <div className="px-1 py-1.5">
+                                <textarea
+                                  ref={promptRef}
+                                  value={aiForm.prompt}
+                                  onChange={(e) => handlePromptChange(e.target.value, e.target.selectionStart ?? e.target.value.length)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && isMentionOpen && mentionSuggestions.length > 0) {
+                                      e.preventDefault();
+                                      insertReferenceMention(mentionSuggestions[0]);
+                                    }
+                                  }}
+                                  disabled={isGenerating}
+                                  rows={3}
+                                  className="min-h-[88px] w-full resize-none border-0 bg-transparent p-0 text-sm leading-6 text-slate-700 placeholder:text-slate-400 focus:outline-none disabled:cursor-not-allowed disabled:text-slate-500"
+                                  placeholder="Ask the AI collaborator to draft or refine this assessment. Use @ to attach library references."
+                                />
+                              </div>
+                              <div className="flex items-center justify-between border-t border-slate-200/80 pt-1">
                                 <button
-                                  key={resource.id}
                                   type="button"
-                                  onClick={() => insertReferenceMention(resource)}
-                                  className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                                  onClick={() => assessmentFileInputRef.current?.click()}
+                                  disabled={isGenerating}
+                                  className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                                  aria-label="Attach context"
+                                  title="Attach context"
                                 >
-                                  @{resource.name}
+                                  <Paperclip className="h-4 w-4" />
                                 </button>
-                              ))}
+                                <button
+                                  type="button"
+                                  onClick={handleAIGenerate}
+                                  disabled={isGenerating}
+                                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                  aria-label={isGenerating ? 'Generating assessment draft' : 'Generate on canvas'}
+                                  title={isGenerating ? 'Generating assessment draft' : 'Generate on canvas'}
+                                >
+                                  {isGenerating ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <ArrowUp className="w-4 h-4" />
+                                  )}
+                                </button>
+                              </div>
                             </div>
-                          )}
-                          <button
-                            type="button"
-                            onClick={handleAIGenerate}
-                            disabled={isGenerating}
-                            className="absolute right-2 bottom-2 inline-flex h-9 min-w-9 items-center justify-center rounded-full bg-blue-600 px-3 text-white hover:bg-blue-700 disabled:opacity-60"
-                            aria-label={isGenerating ? 'AI is thinking' : 'Generate on canvas'}
-                          >
-                            {isGenerating ? (
-                              <span className="inline-flex items-center gap-1">
-                                <span className="h-1.5 w-1.5 rounded-full bg-white animate-bounce [animation-delay:-0.2s]" />
-                                <span className="h-1.5 w-1.5 rounded-full bg-white animate-bounce [animation-delay:-0.1s]" />
-                                <span className="h-1.5 w-1.5 rounded-full bg-white animate-bounce" />
-                              </span>
-                            ) : (
-                              <ArrowUp className="w-4 h-4" />
+                            {isMentionOpen && mentionSuggestions.length > 0 && (
+                              <div className="absolute left-0 right-0 bottom-full mb-2 z-20 max-h-44 overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg">
+                                {mentionSuggestions.map((resource) => (
+                                  <button
+                                    key={resource.id}
+                                    type="button"
+                                    onClick={() => insertReferenceMention(resource)}
+                                    className="w-full px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                                  >
+                                    @{resource.name}
+                                  </button>
+                                ))}
+                              </div>
                             )}
-                          </button>
-                        </div>
+                          </div>
 
                           <input
                             ref={assessmentFileInputRef}
                             type="file"
                             className="hidden"
                             onChange={(e) => setAssessmentFile(e.target.files?.[0] || null)}
-                            accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"
+                            accept=".pdf,.docx,.txt,.md,.csv,.json,.png,.jpg,.jpeg"
                           />
-
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => assessmentFileInputRef.current?.click()}
-                                className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 hover:text-blue-700"
-                              >
-                                <Paperclip className="h-3.5 w-3.5" />
-                                Attach context
-                              </button>
-                              <div className="relative z-[70]">
-                                <button
-                                  ref={configButtonRef}
-                                  type="button"
-                                  onClick={() => {
-                                    if (isConfigOpen) {
-                                      setIsConfigOpen(false);
-                                      return;
-                                    }
-                                    positionConfigMenu();
-                                    setIsConfigOpen(true);
-                                  }}
-                                  className="inline-flex items-center gap-2 text-xs font-semibold text-slate-600 hover:text-blue-700"
-                                >
-                                  <Settings2 className="h-3.5 w-3.5" />
-                                  Configure
-                                </button>
-                              </div>
-                            </div>
-                            <span className="text-[11px] text-slate-500">Type @ to attach reference</span>
-                          </div>
 
                           {assessmentFile && (
                             <div className="flex flex-wrap gap-2">
@@ -1434,71 +1449,6 @@ const CreateAssessmentPage: React.FC = () => {
         </div>
       )}
 
-      {isConfigOpen && configMenuPosition && typeof document !== 'undefined' && createPortal(
-        <div
-          ref={configMenuRef}
-          className="fixed z-[220] w-[320px] max-w-[80vw] border border-slate-200 rounded-lg bg-white shadow-xl p-3 space-y-3"
-          style={{ top: configMenuPosition.top, left: configMenuPosition.left }}
-        >
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs text-slate-500">Question count</label>
-              <input
-                type="number"
-                min="1"
-                max="20"
-                value={aiForm.questionCount}
-                onChange={(e) => setAiForm((prev) => ({ ...prev, questionCount: Number(e.target.value) }))}
-                className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm"
-              />
-            </div>
-            <div>
-              <label className="text-xs text-slate-500">Difficulty</label>
-              <select
-                value={aiForm.difficulty}
-                onChange={(e) => setAiForm((prev) => ({ ...prev, difficulty: e.target.value as 'easy' | 'medium' | 'hard' }))}
-                className="w-full border border-slate-200 rounded-md px-3 py-2 text-sm"
-              >
-                <option value="easy">Easy</option>
-                <option value="medium">Medium</option>
-                <option value="hard">Hard</option>
-              </select>
-            </div>
-          </div>
-          <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2">
-              <label className="text-xs text-slate-500">Curriculum attributes</label>
-              <input
-                value={attributeSearch}
-                onChange={(e) => setAttributeSearch(e.target.value)}
-                className="w-36 border border-slate-200 rounded-md px-2 py-1 text-xs"
-                placeholder="Search..."
-              />
-            </div>
-            <div className="max-h-44 overflow-y-auto border border-slate-200 rounded-md bg-white p-2 space-y-2">
-              {filteredAttributes.length === 0 ? (
-                <p className="text-xs text-slate-500 p-1">No matching attributes.</p>
-              ) : filteredAttributes.map((attr) => (
-                <label key={attr.id} className="flex items-start gap-2 text-xs text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={aiForm.selectedAttributeIds.includes(attr.id)}
-                    onChange={(e) => setAiForm((prev) => ({
-                      ...prev,
-                      selectedAttributeIds: e.target.checked
-                        ? [...prev.selectedAttributeIds, attr.id]
-                        : prev.selectedAttributeIds.filter((id) => id !== attr.id),
-                    }))}
-                    className="mt-0.5"
-                  />
-                  <span>{attr.name}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
     </div>
   );
 };

@@ -184,6 +184,7 @@ const StudentTutor: React.FC<StudentTutorProps> = ({
           coachingMode: coachMode,
           noDirectSolutions: true,
           expectation: 'Guide with probing questions, hints, and reflective prompts.',
+          planTitle: planForSubject?.plan?.name || null,
           taskGoal: taskGoal.trim() || null,
           selectedPlanStep: selectedStepTitle || null,
           reasoningCanvas: reasoningCanvas.trim() || null,
