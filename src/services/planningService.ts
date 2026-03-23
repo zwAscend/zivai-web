@@ -1,8 +1,9 @@
 import { fetchData } from './api';
+import { buildAiAgentsUrl, ensureAiBackendReady } from './aiBackend';
 import { DevelopmentPlan, Plan, Student, SubjectAttribute, StudentAttributes } from '../types';
 
 // The base URL for the agent service
-const AGENT_API_URL = 'http://localhost:8000/api/v1/agents/teacher/plan-generation';
+const AGENT_API_URL = buildAiAgentsUrl('/teacher/plan-generation');
 
 interface GeneratePlanParams {
   student: Student;
@@ -53,6 +54,7 @@ export const planningService = {
 
       // Prepare the data payload for the API
       const payload = this.preparePayload(student, subjectName, subjectId, attributes, studentAttributes, targetScores);
+      await ensureAiBackendReady();
 
       // Make the POST request to the agent API using standard fetch
       const response = await fetch(AGENT_API_URL, {
@@ -77,6 +79,7 @@ export const planningService = {
   },
 
   async generateGuidedDevelopmentPlan(params: GenerateGuidedPlanParams): Promise<Omit<Plan, 'id'>> {
+    await ensureAiBackendReady();
     const response = await fetch(AGENT_API_URL, {
       method: 'POST',
       headers: {

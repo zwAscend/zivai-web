@@ -1,4 +1,6 @@
-const STUDENT_ASSESSMENT_ENDPOINT = 'http://localhost:8000/api/v1/agents/student/assessment';
+import { buildAiAgentsUrl, ensureAiBackendReady } from './aiBackend';
+
+const STUDENT_ASSESSMENT_ENDPOINT = buildAiAgentsUrl('/student/assessment');
 export const STUDENT_ASSESSMENT_ACCEPT = '.pdf,.docx,.txt,.md,.png,.jpg,.jpeg,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown,image/png,image/jpeg';
 export const STUDENT_ASSESSMENT_FILE_HELPER = 'Upload PDF, DOCX, TXT, Markdown, or image work for OCR-assisted feedback.';
 
@@ -112,6 +114,7 @@ const parseAssessmentResponse = async (response: Response): Promise<AssessmentRe
 };
 
 const assessSubmission = async ({ moduleName, textContent, file, requestPayload }: StudentAssessmentRequestOptions): Promise<AssessmentResponse> => {
+  await ensureAiBackendReady();
   const formData = new FormData();
   if (moduleName.trim()) {
     formData.append('module', moduleName.trim());

@@ -1,3 +1,5 @@
+import { buildAiAgentsUrl, ensureAiBackendReady } from './aiBackend';
+
 export interface WorkspaceReferenceDocument {
   documentName: string;
   markdown: string;
@@ -80,7 +82,7 @@ export const WORKSPACE_REFERENCE_ACCEPT =
 export const WORKSPACE_REFERENCE_HELPER =
   'Attach PDF, DOCX, TXT, Markdown, CSV, JSON, or image references when needed.';
 
-const AI_API_BASE = 'http://localhost:8000/api/v1/agents';
+const AI_API_BASE = buildAiAgentsUrl('/');
 const OCR_ENDPOINT = `${AI_API_BASE}/ocr/general`;
 const RESOURCE_GENERATION_ENDPOINT = `${AI_API_BASE}/teacher/resource-generation`;
 const PRACTICE_GENERATION_ENDPOINT = `${AI_API_BASE}/teacher/practice-generation`;
@@ -91,6 +93,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 export const workspaceAiService = {
   processDocumentsWithOCR: async (files: File[]): Promise<WorkspaceReferenceDocument[]> => {
     if (!files.length) return [];
+    await ensureAiBackendReady();
 
     const formData = new FormData();
     files.forEach((file) => {
@@ -128,6 +131,7 @@ export const workspaceAiService = {
   generateTeacherResource: async (
     payload: TeacherResourceGenerationRequest
   ): Promise<TeacherResourceGenerationResponse> => {
+    await ensureAiBackendReady();
     const response = await fetch(RESOURCE_GENERATION_ENDPOINT, {
       method: 'POST',
       headers: {
@@ -159,6 +163,7 @@ export const workspaceAiService = {
   generateTeacherPractice: async (
     payload: TeacherPracticeGenerationRequest
   ): Promise<TeacherPracticeGenerationResponse> => {
+    await ensureAiBackendReady();
     const response = await fetch(PRACTICE_GENERATION_ENDPOINT, {
       method: 'POST',
       headers: {
