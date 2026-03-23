@@ -1009,7 +1009,7 @@ const CreateAssessmentPage: React.FC = () => {
 
                       {manualQuestions.length === 0 ? (
                         <div className="rounded-lg border border-dashed border-gray-300 p-6 text-sm text-gray-500">
-                          No questions yet. Add a question or ask AI collaborator to draft on the canvas.
+                          No questions yet. Add a question or ask Kuziva to draft on the canvas.
                         </div>
                       ) : (
                         <div className="space-y-4">
@@ -1178,7 +1178,7 @@ const CreateAssessmentPage: React.FC = () => {
                       setIsResizingAiPanel(true);
                     }}
                     className="hidden xl:flex w-2 shrink-0 cursor-col-resize items-center justify-center border-l border-r border-slate-100 bg-slate-50 transition-colors hover:bg-blue-50"
-                    aria-label="Resize AI collaborator panel"
+                    aria-label="Resize Kuziva panel"
                   >
                     <GripVertical className="h-8 w-3 text-slate-400" />
                   </button>
@@ -1195,7 +1195,7 @@ const CreateAssessmentPage: React.FC = () => {
                         type="button"
                         onClick={() => setIsAiPanelCollapsed(false)}
                         className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
-                        aria-label="Expand AI collaborator panel"
+                        aria-label="Expand Kuziva panel"
                         title="Expand"
                       >
                         <PanelRightOpen className="h-4 w-4" />
@@ -1205,14 +1205,14 @@ const CreateAssessmentPage: React.FC = () => {
                     <>
                       <div className="mb-3 flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <p className="text-sm font-semibold text-slate-900">AI Collaborator</p>
+                          <p className="text-sm font-semibold text-slate-900">Kuziva</p>
                           <Bot className="h-4 w-4 text-slate-600" />
                         </div>
                         <button
                           type="button"
                           onClick={() => setIsAiPanelCollapsed(true)}
                           className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
-                          aria-label="Collapse AI collaborator"
+                          aria-label="Collapse Kuziva panel"
                           title="Collapse"
                         >
                           <PanelRightClose className="h-4 w-4" />
@@ -1238,7 +1238,7 @@ const CreateAssessmentPage: React.FC = () => {
                                     : 'border-slate-200 bg-white text-slate-700'}` }
                             >
                               <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide opacity-80">
-                                {entry.role === 'user' ? 'You' : 'AI Collaborator'}
+                                {entry.role === 'user' ? 'You' : 'Kuziva'}
                               </div>
                               <p className="whitespace-pre-wrap">{entry.text}</p>
                               {entry.details && entry.details.length > 0 && (
@@ -1276,7 +1276,7 @@ const CreateAssessmentPage: React.FC = () => {
                                   disabled={isGenerating}
                                   rows={3}
                                   className="min-h-[88px] w-full resize-none border-0 bg-transparent p-0 text-sm leading-6 text-slate-700 placeholder:text-slate-400 focus:outline-none disabled:cursor-not-allowed disabled:text-slate-500"
-                                  placeholder="Ask the AI collaborator to draft or refine this assessment. Use @ to attach library references."
+                                  placeholder="Ask Kuziva to draft or refine this assessment. Use @ to attach library references."
                                 />
                               </div>
                               <div className="flex items-center justify-between border-t border-slate-200/80 pt-1">

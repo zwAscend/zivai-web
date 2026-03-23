@@ -137,7 +137,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     >
       <div className={clsx("p-4 border-b border-slate-200 flex items-center", isCollapsed ? "justify-center" : "justify-between")}>
         {!isCollapsed && <h2 className="text-lg font-bold text-slate-800">Actions</h2>}
-        <button onClick={() => setIsCollapsed(!isCollapsed)} className="p-1 rounded-md hover:bg-slate-100">
+        <button type="button" onClick={() => setIsCollapsed(!isCollapsed)} className="p-1 rounded-md hover:bg-slate-100">
           <Menu className="h-5 w-5 text-slate-600" />
         </button>
       </div>
@@ -149,6 +149,7 @@ const Sidebar: React.FC<SidebarProps> = ({
             return (
             <li key={id}>
               <button
+                type="button"
                 onClick={onClick}
                 disabled={isDisabled}
                 className={clsx(

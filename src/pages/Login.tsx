@@ -65,7 +65,7 @@ const Login = () => {
                       <Sparkles className="h-5 w-5" />
                     </div>
                     <div>
-                      <p className="text-sm font-semibold text-slate-800">AI Tutor</p>
+                      <p className="text-sm font-semibold text-slate-800">Kuziva</p>
                       <p className="text-xs text-slate-500">Explain, practice, reflect.</p>
                     </div>
                   </div>

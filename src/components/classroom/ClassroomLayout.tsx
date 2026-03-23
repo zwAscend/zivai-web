@@ -10,6 +10,7 @@ interface ClassroomLayoutProps {
   onClassroomMySubjects?: () => void;
   onClassroomSubject?: () => void;
   onClassroomStatus?: () => void;
+  contentScrollable?: boolean;
 }
 
 const ClassroomLayout: React.FC<ClassroomLayoutProps> = ({
@@ -20,6 +21,7 @@ const ClassroomLayout: React.FC<ClassroomLayoutProps> = ({
   onClassroomMySubjects,
   onClassroomSubject,
   onClassroomStatus,
+  contentScrollable = true,
 }) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -43,7 +45,7 @@ const ClassroomLayout: React.FC<ClassroomLayoutProps> = ({
         onStudentsProfile={() => navigate('/students/profile')}
         recentUploads={[]}
       />
-      <main className="flex-1 min-h-0 overflow-y-auto p-6">
+      <main className={`flex-1 min-h-0 p-6 ${contentScrollable ? 'overflow-y-auto' : 'overflow-hidden'}`}>
         {children}
       </main>
     </div>
