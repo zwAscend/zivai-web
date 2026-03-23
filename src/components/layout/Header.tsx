@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { Home, LayoutGrid, Mail, Calendar, LogOut, ChevronDown, Bell, Shield, Users, BookOpen, GraduationCap, Cpu, TrendingUp, Target, FileText } from 'lucide-react';
 import { PieChart, Pie, Cell } from 'recharts';
-import { authService, notificationService, studentService, subjectService } from '../../services/api';
+import { authService, notificationService, studentService, subjectService, userService } from '../../services/api';
 import { ApiError } from '../../services/http';
 import { useAuth } from '../../context/AuthContext';
 import NotificationCenter from '../teacher/NotificationCenter';
@@ -58,22 +58,25 @@ interface ClassSummary {
 
 const Header: React.FC<HeaderProps> = ({ activeTab: _activeTab, setActiveTab, portalType = 'teacher' }) => {
   void _activeTab;
-  const currentUser = authService.getCurrentUser();
   const currentUserId = authService.getCurrentUserId();
-  const navigate = useNavigate();
   const location = useLocation();
 
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [currentUser, setCurrentUser] = useState(() => authService.getCurrentUser());
   const { selectedSubject, setSelectedSubject } = useAuth();
   const [isSubjectMenuOpen, setIsSubjectMenuOpen] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [classSummary, setClassSummary] = useState<ClassSummary>({ totalStudents: 0, categories: [] });
   const subjectMenuRef = useRef<HTMLDivElement | null>(null);
-  const headerNetworkWarnedRef = useRef<{ unread: boolean; subjects: boolean; students: boolean }>({
-    unread: false,
-    subjects: false,
-    students: false,
+  const headerNetworkWarnedRef = useRef<{
+    unread: string | null;
+    subjects: string | null;
+    students: string | null;
+  }>({
+    unread: null,
+    subjects: null,
+    students: null,
   });
 
   const isTeacherPortal = portalType === 'teacher';
@@ -83,15 +86,43 @@ const Header: React.FC<HeaderProps> = ({ activeTab: _activeTab, setActiveTab, po
       : [{ name: 'No data', count: 1, minScore: 0, color: '#1d4ed8' }];
 
   const logFetchError = (bucket: 'unread' | 'subjects' | 'students', label: string, error: unknown) => {
-    if (error instanceof ApiError && error.status === 0) {
-      if (!headerNetworkWarnedRef.current[bucket]) {
-        console.warn(`${label}: API unreachable. Retrying in background.`, error);
-        headerNetworkWarnedRef.current[bucket] = true;
+    if (error instanceof ApiError) {
+      const fingerprint = `${error.status}:${error.message}`;
+      if (headerNetworkWarnedRef.current[bucket] === fingerprint) {
+        return;
       }
+      headerNetworkWarnedRef.current[bucket] = fingerprint;
+      if (error.status === 0) {
+        console.warn(`${label}: API unreachable. Retrying in background.`, error);
+        return;
+      }
+      console.error(label, error);
       return;
     }
+    if (headerNetworkWarnedRef.current[bucket] === 'unknown') {
+      return;
+    }
+    headerNetworkWarnedRef.current[bucket] = 'unknown';
     console.error(label, error);
   };
+
+  useEffect(() => {
+    const refreshCurrentUser = async () => {
+      try {
+        if (!currentUserId) {
+          setCurrentUser(null);
+          return;
+        }
+        const latestUser = await userService.getUserById(currentUserId);
+        setCurrentUser(latestUser);
+        localStorage.setItem('user', JSON.stringify(latestUser));
+      } catch (error) {
+        logFetchError('subjects', 'Error refreshing current user:', error);
+      }
+    };
+
+    void refreshCurrentUser();
+  }, [currentUserId]);
 
   useEffect(() => {
     const fetchUnreadCount = async () => {
@@ -102,7 +133,7 @@ const Header: React.FC<HeaderProps> = ({ activeTab: _activeTab, setActiveTab, po
         }
         const count = await notificationService.getUnreadCount(currentUserId);
         setUnreadCount(typeof count === 'number' ? count : 0);
-        headerNetworkWarnedRef.current.unread = false;
+        headerNetworkWarnedRef.current.unread = null;
       } catch (error) {
         setUnreadCount(0);
         logFetchError('unread', 'Error fetching unread count:', error);
@@ -122,7 +153,7 @@ const Header: React.FC<HeaderProps> = ({ activeTab: _activeTab, setActiveTab, po
         const data = await subjectService.getTeachingSubjects();
         const items = Array.isArray(data) ? data as Subject[] : [];
         setSubjects(items);
-        headerNetworkWarnedRef.current.subjects = false;
+        headerNetworkWarnedRef.current.subjects = null;
         if (!selectedSubject && items.length > 0) {
           const computerScience = items.find((subject) => {
             const code = (subject.code || '').toLowerCase();
@@ -148,7 +179,7 @@ const Header: React.FC<HeaderProps> = ({ activeTab: _activeTab, setActiveTab, po
         const studentsData = await studentService.getStudents(subjectId);
         const summary = calculateGradeDistribution(studentsData || []);
         setClassSummary(summary);
-        headerNetworkWarnedRef.current.students = false;
+        headerNetworkWarnedRef.current.students = null;
       } catch (error) {
         setClassSummary({ totalStudents: 0, categories: [] });
         logFetchError('students', 'Error fetching students:', error);
@@ -418,10 +449,11 @@ const Header: React.FC<HeaderProps> = ({ activeTab: _activeTab, setActiveTab, po
         </div>
 
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowNotifications(true)}
-            className="relative flex items-center gap-2 bg-[#ececed] text-gray-700 px-4 py-2 rounded-md shadow-md hover:bg-gray-100 transition"
-          >
+            <button
+              type="button"
+              onClick={() => setShowNotifications(true)}
+              className="relative flex items-center gap-2 bg-[#ececed] text-gray-700 px-4 py-2 rounded-md shadow-md hover:bg-gray-100 transition"
+            >
             <Bell size={16} />
             {unreadCount > 0 && (
               <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">
@@ -431,6 +463,7 @@ const Header: React.FC<HeaderProps> = ({ activeTab: _activeTab, setActiveTab, po
           </button>
 
           <button
+            type="button"
             onClick={() => {
               authService.logout();
               window.location.href = '/login';
@@ -447,11 +480,11 @@ const Header: React.FC<HeaderProps> = ({ activeTab: _activeTab, setActiveTab, po
         {navLinks.map((link) => {
           const active = isLinkActive(link.path);
           return (
-            <button
+            <NavLink
               key={link.path}
+              to={link.path}
               onClick={() => {
                 setActiveTab(link.key);
-                navigate(link.path);
               }}
               className={`flex flex-1 min-w-[120px] items-center justify-center py-2 px-4 ${
                 active ? 'bg-blue-500 text-white' : 'bg-white text-gray-700 hover:bg-gray-100 border border-gray-200'
@@ -459,7 +492,7 @@ const Header: React.FC<HeaderProps> = ({ activeTab: _activeTab, setActiveTab, po
             >
               <span className="mr-2">{getIcon(link.icon)}</span>
               <span>{link.name}</span>
-            </button>
+            </NavLink>
           );
         })}
       </nav>

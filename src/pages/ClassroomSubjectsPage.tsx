@@ -2228,7 +2228,7 @@ const ClassroomSubjectsPage: React.FC = () => {
     }
 
     setAiChatInput(`Help me improve this selected section: "${excerpt}"`);
-    setToastMessage('Selection sent to AI assistant chat.');
+    setToastMessage('Selection sent to Kuziva chat.');
   };
 
   const executeEditorCommand = (command: string, value?: string) => {
@@ -2541,7 +2541,7 @@ const ClassroomSubjectsPage: React.FC = () => {
     if (isAiGenerationLoading) return;
     if (!selectedTopic) return;
     if (workspaceTab !== 'resource') {
-      setToastMessage('AI collaborator resource generation is currently enabled for the resource workspace.');
+      setToastMessage('Kuziva resource generation is currently enabled for the resource workspace.');
       return;
     }
 
@@ -2699,7 +2699,7 @@ const ClassroomSubjectsPage: React.FC = () => {
     if (isAiGenerationLoading) return;
     if (!selectedTopic) return;
     if (workspaceTab !== 'assessment') {
-      setToastMessage('AI collaborator practice generation is currently enabled for the practice workspace.');
+      setToastMessage('Kuziva practice generation is currently enabled for the practice workspace.');
       return;
     }
 
@@ -3468,6 +3468,7 @@ const ClassroomSubjectsPage: React.FC = () => {
       showStudentProfileTab={false}
       classroomWorkspaceNav
       activeClassroomAction={workspaceNavView === 'my-subjects' ? 'classroom-my-subjects' : 'classroom-subject'}
+      contentScrollable={!isTopicWorkspaceOpen}
       onClassroomMySubjects={() => {
         requestWorkspaceTransition(() => {
           setWorkspaceNavView('my-subjects');
@@ -3476,7 +3477,7 @@ const ClassroomSubjectsPage: React.FC = () => {
       }}
       onClassroomSubject={() => setWorkspaceNavView('subject')}
     >
-      <div className="space-y-5">
+      <div className={isTopicWorkspaceOpen ? 'flex h-full min-h-0 flex-col' : 'space-y-5'}>
         {hasVisibleWorkspaceFeedback && workspaceOperationFeedback && (
           <div
             className={`fixed left-1/2 top-20 z-[70] w-[min(560px,calc(100vw-2rem))] -translate-x-1/2 rounded-lg border px-3 py-2 shadow-xl ${
@@ -4097,7 +4098,7 @@ const ClassroomSubjectsPage: React.FC = () => {
               onClick={(event) => event.stopPropagation()}
             >
               <div className="mb-3 flex items-center justify-between">
-                <p className="text-sm font-semibold text-slate-900">AI Collaborator Settings</p>
+                <p className="text-sm font-semibold text-slate-900">Kuziva Settings</p>
                 <button
                   type="button"
                   onClick={() => setIsAiConfigOpen(false)}
@@ -4411,7 +4412,7 @@ const ClassroomSubjectsPage: React.FC = () => {
         )}
 
         {isTopicWorkspaceOpen && selectedTopic && (
-          <div className="rounded-lg border border-slate-200 bg-white shadow-sm">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
             <div className="flex flex-col gap-2 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <p className="text-xs text-slate-500">{selectedTopic.unit} • {selectedTopic.form}</p>
@@ -4432,20 +4433,20 @@ const ClassroomSubjectsPage: React.FC = () => {
               className={`${
                 isStudioExpanded
                   ? 'fixed inset-4 z-50 rounded-lg border border-slate-200 bg-white shadow-2xl overflow-hidden'
-                  : ''
+                  : 'min-h-0 flex-1'
               }`}
             >
-              <div className={isStudioExpanded ? 'h-full overflow-y-auto' : ''}>
+              <div className={isStudioExpanded ? 'h-full overflow-hidden' : 'h-full min-h-0'}>
                 <div
                   className={
                     isStudioExpanded
-                      ? 'grid grid-cols-1'
-                      : `grid grid-cols-1 ${isTopicContentCollapsed ? 'lg:grid-cols-[72px_1fr]' : 'lg:grid-cols-[280px_1fr]'}`
+                      ? 'grid h-full min-h-0 grid-cols-1'
+                      : `grid h-full min-h-0 grid-cols-1 ${isTopicContentCollapsed ? 'lg:grid-cols-[72px_1fr]' : 'lg:grid-cols-[280px_1fr]'}`
                   }
                 >
               {!isStudioExpanded && (
                 <aside
-                  className={`border-b border-slate-200 bg-slate-50 transition-all duration-200 lg:border-b-0 lg:border-r ${
+                  className={`flex min-h-0 flex-col overflow-hidden border-b border-slate-200 bg-slate-50 transition-all duration-200 lg:border-b-0 lg:border-r ${
                     isTopicContentCollapsed ? 'p-2' : 'p-3'
                   }`}
                 >
@@ -4591,11 +4592,11 @@ const ClassroomSubjectsPage: React.FC = () => {
               )}
 
               <div
-                className={`grid grid-cols-1 gap-4 p-4 ${
+                className={`grid min-h-0 grid-cols-1 gap-4 p-4 ${
                   isAiCollaboratorExpanded
                     ? 'xl:grid-cols-[minmax(0,1fr)_340px]'
                     : 'xl:grid-cols-[minmax(0,1fr)_56px]'
-                }`}
+                } xl:h-full xl:grid-rows-[auto_minmax(0,1fr)]`}
               >
                 {workspaceTab === 'assessment' ? (
                   <div className="col-span-full min-h-0 overflow-hidden">
@@ -4708,7 +4709,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                                 <div className="relative min-h-[220px]">
                                   {assessmentQuestions.length === 0 ? (
                                     <div className="rounded-lg border border-dashed border-gray-300 p-6 text-sm text-gray-500">
-                                      No practice questions yet. Add a question or ask AI collaborator to draft on the canvas.
+                                      No practice questions yet. Add a question or ask Kuziva to draft on the canvas.
                                     </div>
                                   ) : (
                                     <div className="space-y-3">
@@ -4874,7 +4875,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                             <button
                               type="button"
                               className="hidden w-2 shrink-0 cursor-col-resize items-center justify-center border-l border-r border-slate-100 bg-slate-50 transition-colors hover:bg-blue-50 xl:flex"
-                              aria-label="Resize AI collaborator panel"
+                              aria-label="Resize Kuziva panel"
                             >
                               <GripVertical className="h-8 w-3 text-slate-400" />
                             </button>
@@ -4903,7 +4904,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                               >
                                 {isAiCollaboratorExpanded ? (
                                   <div className="flex items-center gap-2">
-                                    <p className="text-sm font-semibold text-slate-900">AI Collaborator</p>
+                                    <p className="text-sm font-semibold text-slate-900">Kuziva</p>
                                     <Bot className="h-4 w-4 text-slate-600" />
                                   </div>
                                 ) : (
@@ -4919,7 +4920,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                                     })
                                   }
                                   className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
-                                  aria-label={isAiCollaboratorExpanded ? 'Collapse AI collaborator' : 'Expand AI collaborator'}
+                                  aria-label={isAiCollaboratorExpanded ? 'Collapse Kuziva panel' : 'Expand Kuziva panel'}
                                   title={isAiCollaboratorExpanded ? 'Collapse' : 'Expand'}
                                 >
                                   {isAiCollaboratorExpanded ? (
@@ -4935,7 +4936,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                                   <div className="mt-2 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
                                     {aiMessages.length === 0 && !isAiGenerationLoading && (
                                       <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
-                                        Prompts and AI completion summaries will appear here.
+                                        Prompts and Kuziva summaries will appear here.
                                       </div>
                                     )}
                                     {aiMessages.map((message) => {
@@ -4949,7 +4950,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                                           }`}
                                         >
                                           <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                                            {message.role === 'assistant' ? 'AI Collaborator' : 'You'}
+                                            {message.role === 'assistant' ? 'Kuziva' : 'You'}
                                           </p>
                                           <p className="whitespace-pre-wrap">{message.text}</p>
                                         </div>
@@ -4997,7 +4998,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                                               handleSendAiMessage();
                                             }
                                           }}
-                                          placeholder="Ask the AI assistant or type 'generate practice'..."
+                                          placeholder="Ask Kuziva or type 'generate practice'..."
                                           rows={2}
                                           className="min-h-[72px] w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-xs leading-5 text-slate-700 placeholder:text-slate-400 focus:outline-none disabled:cursor-not-allowed disabled:text-slate-500"
                                         />
@@ -5176,12 +5177,12 @@ const ClassroomSubjectsPage: React.FC = () => {
                                               <button
                                                 type="button"
                                                 onMouseDown={preserveEditorSelectionOnMouseDown}
-                                                onMouseEnter={() => setSelectionActionHint('Ask AI collaborator')}
+                                                onMouseEnter={() => setSelectionActionHint('Ask Kuziva')}
                                                 onMouseLeave={() => setSelectionActionHint(null)}
                                                 onClick={() => handleSelectionAction('chat')}
                                                 className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
-                                                aria-label="Ask AI collaborator about highlighted text"
-                                                title="Ask AI"
+                                                aria-label="Ask Kuziva about highlighted text"
+                                                title="Ask Kuziva"
                                               >
                                                 <MessageSquare className="h-4 w-4" />
                                               </button>
@@ -5204,7 +5205,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                             <button
                               type="button"
                               className="hidden w-2 shrink-0 cursor-col-resize items-center justify-center border-l border-r border-slate-100 bg-slate-50 transition-colors hover:bg-blue-50 xl:flex"
-                              aria-label="Resize AI collaborator panel"
+                              aria-label="Resize Kuziva panel"
                             >
                               <GripVertical className="h-8 w-3 text-slate-400" />
                             </button>
@@ -5230,7 +5231,7 @@ const ClassroomSubjectsPage: React.FC = () => {
 
                                   <div className="mb-3 flex items-center justify-between">
                                     <div className="flex items-center gap-2">
-                                      <p className="text-sm font-semibold text-slate-900">AI Collaborator</p>
+                                      <p className="text-sm font-semibold text-slate-900">Kuziva</p>
                                       <Bot className="h-4 w-4 text-slate-600" />
                                     </div>
                                     <button
@@ -5243,7 +5244,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                                         })
                                       }
                                       className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
-                                      aria-label="Collapse AI collaborator"
+                                      aria-label="Collapse Kuziva panel"
                                       title="Collapse"
                                     >
                                       <PanelRightClose className="h-4 w-4" />
@@ -5253,7 +5254,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                                   <div className="mt-2 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
                                     {aiMessages.length === 0 && !isAiGenerationLoading && (
                                       <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
-                                        Prompts and AI completion summaries will appear here.
+                                        Prompts and Kuziva summaries will appear here.
                                       </div>
                                     )}
                                     {aiMessages.map((message) => (
@@ -5266,7 +5267,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                                         }`}
                                       >
                                         <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                                          {message.role === 'assistant' ? 'AI Collaborator' : 'You'}
+                                          {message.role === 'assistant' ? 'Kuziva' : 'You'}
                                         </p>
                                         <p className="whitespace-pre-wrap">{message.text}</p>
                                       </div>
@@ -5359,7 +5360,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                                     type="button"
                                     onClick={() => setIsAiCollaboratorExpanded(true)}
                                     className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
-                                    aria-label="Expand AI collaborator panel"
+                                    aria-label="Expand Kuziva panel"
                                   >
                                     <PanelRightOpen className="h-4 w-4" />
                                   </button>
@@ -5439,7 +5440,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                   </button>
                 </div>
 
-                <div className="rounded-lg border border-slate-200 bg-white">
+                <div className="flex min-h-0 flex-col overflow-y-auto rounded-lg border border-slate-200 bg-white xl:h-full">
                   <input
                     ref={editorImageInputRef}
                     type="file"
@@ -5656,12 +5657,12 @@ const ClassroomSubjectsPage: React.FC = () => {
                               <button
                                 type="button"
                                 onMouseDown={preserveEditorSelectionOnMouseDown}
-                                onMouseEnter={() => setSelectionActionHint('Ask AI collaborator')}
+                                onMouseEnter={() => setSelectionActionHint('Ask Kuziva')}
                                 onMouseLeave={() => setSelectionActionHint(null)}
                                 onClick={() => handleSelectionAction('chat')}
                                 className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
-                                aria-label="Ask AI collaborator about highlighted text"
-                                title="Ask AI"
+                                aria-label="Ask Kuziva about highlighted text"
+                                title="Ask Kuziva"
                               >
                                 <MessageSquare className="h-4 w-4" />
                               </button>
@@ -5681,7 +5682,7 @@ const ClassroomSubjectsPage: React.FC = () => {
 
                 <aside
                   className={`rounded-lg border border-slate-200 bg-slate-50 ${
-                    isAiCollaboratorExpanded ? 'flex h-full flex-col p-3' : 'p-1.5'
+                    isAiCollaboratorExpanded ? 'flex h-full min-h-0 flex-col p-3' : 'h-full p-1.5'
                   }`}
                 >
                   <div
@@ -5693,7 +5694,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                   >
                     {isAiCollaboratorExpanded ? (
                       <div className="flex items-center gap-2">
-                        <p className="text-sm font-semibold text-slate-900">AI Collaborator</p>
+                        <p className="text-sm font-semibold text-slate-900">Kuziva</p>
                         <Bot className="h-4 w-4 text-slate-600" />
                       </div>
                     ) : (
@@ -5709,7 +5710,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                         })
                       }
                       className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
-                      aria-label={isAiCollaboratorExpanded ? 'Collapse AI collaborator' : 'Expand AI collaborator'}
+                      aria-label={isAiCollaboratorExpanded ? 'Collapse Kuziva panel' : 'Expand Kuziva panel'}
                       title={isAiCollaboratorExpanded ? 'Collapse' : 'Expand'}
                     >
                       {isAiCollaboratorExpanded ? (
@@ -5734,7 +5735,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                       <div className="mt-2 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
                         {aiMessages.length === 0 && !isAiGenerationLoading && (
                           <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
-                            Prompts and AI completion summaries will appear here.
+                            Prompts and Kuziva summaries will appear here.
                           </div>
                         )}
                         {aiMessages.map((message) => (
@@ -5747,7 +5748,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                             }`}
                           >
                             <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                              {message.role === 'assistant' ? 'AI Collaborator' : 'You'}
+                              {message.role === 'assistant' ? 'Kuziva' : 'You'}
                             </p>
                             <p className="whitespace-pre-wrap">{message.text}</p>
                           </div>
@@ -5793,7 +5794,7 @@ const ClassroomSubjectsPage: React.FC = () => {
                                   handleSendAiMessage();
                                 }
                               }}
-                              placeholder="Ask the AI assistant or type 'generate draft'..."
+                              placeholder="Ask Kuziva or type 'generate draft'..."
                               rows={2}
                               className="min-h-[72px] w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-xs leading-5 text-slate-700 placeholder:text-slate-400 focus:outline-none disabled:cursor-not-allowed disabled:text-slate-500"
                             />

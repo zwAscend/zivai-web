@@ -834,7 +834,7 @@ const ResourcesDashboard: React.FC = () => {
             ...prev,
             instructions: `Help me improve this selected section:\n"${excerpt}"`,
         }));
-        toast.success('Highlighted text sent to the AI collaborator.');
+        toast.success('Highlighted text sent to Kuziva.');
     };
 
     useEffect(() => {
@@ -1724,12 +1724,12 @@ const ResourcesDashboard: React.FC = () => {
                                                                 <button
                                                                     type="button"
                                                                     onMouseDown={preserveResourceSelectionOnMouseDown}
-                                                                    onMouseEnter={() => setSelectionActionHint('Ask AI collaborator')}
+                                                                    onMouseEnter={() => setSelectionActionHint('Ask Kuziva')}
                                                                     onMouseLeave={() => setSelectionActionHint(null)}
                                                                     onClick={() => handleResourceSelectionAction('chat')}
                                                                     className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
-                                                                    aria-label="Ask AI collaborator about highlighted text"
-                                                                    title="Ask AI"
+                                                                    aria-label="Ask Kuziva about highlighted text"
+                                                                    title="Ask Kuziva"
                                                                 >
                                                                     <MessageSquare className="h-4 w-4" />
                                                                 </button>
@@ -1754,7 +1754,7 @@ const ResourcesDashboard: React.FC = () => {
                                                     type="button"
                                                     onClick={() => setIsAiPanelCollapsed(false)}
                                                     className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
-                                                    aria-label="Expand AI collaborator"
+                                                    aria-label="Expand Kuziva panel"
                                                     title="Expand"
                                                 >
                                                     <PanelRightOpen className="h-4 w-4" />
@@ -1764,14 +1764,14 @@ const ResourcesDashboard: React.FC = () => {
                                             <>
                                                 <div className="mb-3 flex items-center justify-between">
                                                     <div className="flex items-center gap-2">
-                                                        <p className="text-sm font-semibold text-slate-900">AI Collaborator</p>
+                                                        <p className="text-sm font-semibold text-slate-900">Kuziva</p>
                                                         <Bot className="h-4 w-4 text-slate-600" />
                                                     </div>
                                                     <button
                                                         type="button"
                                                         onClick={() => setIsAiPanelCollapsed(true)}
                                                         className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
-                                                        aria-label="Collapse AI collaborator"
+                                                        aria-label="Collapse Kuziva panel"
                                                         title="Collapse"
                                                     >
                                                         <PanelRightClose className="h-4 w-4" />
@@ -1797,7 +1797,7 @@ const ResourcesDashboard: React.FC = () => {
                                                                     )}
                                                             >
                                                                 <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide opacity-80">
-                                                                    {entry.role === 'user' ? 'You' : 'AI Collaborator'}
+                                                                    {entry.role === 'user' ? 'You' : 'Kuziva'}
                                                                 </div>
                                                                 <p className="whitespace-pre-wrap">{entry.text}</p>
                                                                 {entry.details && entry.details.length > 0 && (
@@ -1825,7 +1825,7 @@ const ResourcesDashboard: React.FC = () => {
                                                                     <textarea
                                                                         ref={collaboratorPromptRef}
                                                                         className="min-h-[88px] w-full resize-none border-0 bg-transparent p-0 text-sm leading-6 text-slate-700 placeholder:text-slate-400 focus:outline-none disabled:cursor-not-allowed disabled:text-slate-500"
-                                                                        placeholder="Ask the AI collaborator to draft or refine this resource. Use @ to attach library references."
+                                                                        placeholder="Ask Kuziva to draft or refine this resource. Use @ to attach library references."
                                                                         value={noteForm.instructions}
                                                                         rows={3}
                                                                         disabled={isContentGenerating}

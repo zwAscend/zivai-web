@@ -2660,7 +2660,7 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                 <button
                   type="button"
                   className="hidden w-2 shrink-0 cursor-col-resize items-center justify-center border-l border-r border-slate-100 bg-slate-50 transition-colors hover:bg-blue-50 xl:flex"
-                  aria-label="Resize AI collaborator panel"
+                  aria-label="Resize Kuziva panel"
                 >
                   <GripVertical className="h-8 w-3 text-slate-400" />
                 </button>
@@ -2680,7 +2680,7 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                       type="button"
                       onClick={() => setIsStepAiCollapsed(false)}
                       className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
-                      aria-label="Expand AI collaborator panel"
+                      aria-label="Expand Kuziva panel"
                       title="Expand"
                     >
                       <PanelRightOpen className="h-4 w-4" />
@@ -2699,13 +2699,13 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                     <div className="mb-2 flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <Bot className="h-4 w-4 text-slate-600" />
-                        <p className="text-sm font-semibold text-slate-900">AI Collaborator</p>
+                        <p className="text-sm font-semibold text-slate-900">Kuziva</p>
                       </div>
                       <button
                         type="button"
                         onClick={() => setIsStepAiCollapsed(true)}
                         className="inline-flex items-center justify-center rounded-md border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-100"
-                        aria-label="Collapse AI collaborator panel"
+                        aria-label="Collapse Kuziva panel"
                         title="Collapse"
                       >
                         <PanelRightClose className="h-4 w-4" />
@@ -2715,7 +2715,7 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                       <div className="mt-2 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
                         {aiMessages.length === 0 && !isStepAiGenerating && (
                           <div className="rounded-md border border-dashed border-slate-200 bg-slate-50 p-3 text-xs text-slate-500">
-                            Prompts and AI completion summaries will appear here.
+                            Prompts and Kuziva summaries will appear here.
                           </div>
                         )}
                         {aiMessages.map((msg) => (
@@ -2726,7 +2726,7 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                             }`}
                           >
                             <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                              {msg.role === 'assistant' ? 'AI Collaborator' : 'You'}
+                              {msg.role === 'assistant' ? 'Kuziva' : 'You'}
                             </p>
                             <p className="whitespace-pre-wrap">{msg.text}</p>
                           </div>
@@ -2775,7 +2775,7 @@ const DevelopmentView: React.FC<DevelopmentViewProps> = ({ studentId: propStuden
                                   void handleSendAiPrompt();
                                 }
                               }}
-                              placeholder="Ask AI to improve this step..."
+                              placeholder="Ask Kuziva to improve this step..."
                               className="min-h-[72px] w-full resize-none overflow-hidden border-0 bg-transparent p-0 text-xs leading-5 text-slate-700 placeholder:text-slate-400 focus:outline-none disabled:cursor-not-allowed disabled:text-slate-500"
                             />
                           </div>

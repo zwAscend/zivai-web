@@ -3145,7 +3145,7 @@ const StudentSubjectsView: React.FC<StudentSubjectsViewProps> = ({ studentId, se
                         <p className={`mb-1 text-[11px] font-semibold ${
                           message.sender === 'student' ? 'text-blue-100' : 'text-slate-500'
                         }`}>
-                          {message.sender === 'student' ? 'You' : 'AI Tutor'}
+                          {message.sender === 'student' ? 'You' : 'Kuziva'}
                         </p>
                         {message.text}
                       </div>

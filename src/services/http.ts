@@ -170,7 +170,7 @@ function sanitizeApiErrorMessage(status: number, rawMessage: string): string {
 }
 
 // Helper function for fetch requests with GET caching + request de-duplication.
-export async function fetchData<T = any>(endpoint: string, options: FetchOptions = {}): Promise<T> {
+export async function fetchData<T = unknown>(endpoint: string, options: FetchOptions = {}): Promise<T> {
   const token = getActiveAuthToken();
   const method = (options.method || 'GET').toUpperCase();
   const isGet = method === 'GET';
@@ -178,7 +178,10 @@ export async function fetchData<T = any>(endpoint: string, options: FetchOptions
   const cacheTtlMs = options.cacheTtlMs ?? DEFAULT_GET_CACHE_TTL_MS;
   const useCache = isGet && !options.skipCache && options.cache !== 'no-store';
   const shouldForceRefresh = !!options.forceRefresh;
-  const { skipCache, cacheTtlMs: _cacheTtlMs, forceRefresh, ...requestOptions } = options;
+  const requestOptions: RequestInit = { ...options };
+  delete (requestOptions as FetchOptions).skipCache;
+  delete (requestOptions as FetchOptions).cacheTtlMs;
+  delete (requestOptions as FetchOptions).forceRefresh;
 
   if (useCache && !shouldForceRefresh) {
     const cached = responseCache.get(cacheKey);
@@ -213,7 +216,8 @@ export async function fetchData<T = any>(endpoint: string, options: FetchOptions
     let lastNetworkError: unknown = null;
     let requestUrl = requestUrls[0];
 
-    for (const candidateUrl of requestUrls) {
+    for (let index = 0; index < requestUrls.length; index += 1) {
+      const candidateUrl = requestUrls[index];
       requestUrl = candidateUrl;
       try {
         response = await fetch(candidateUrl, {
@@ -224,6 +228,10 @@ export async function fetchData<T = any>(endpoint: string, options: FetchOptions
             ...requestOptions.headers,
           },
         });
+        const hasFallbackCandidate = index < requestUrls.length - 1;
+        if (import.meta.env.DEV && response.status >= 500 && hasFallbackCandidate) {
+          continue;
+        }
         break;
       } catch (error) {
         lastNetworkError = error;

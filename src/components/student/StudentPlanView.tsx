@@ -210,6 +210,7 @@ const getStepIcon = (type: string) => {
       return <FileText className="w-4 h-4" />;
     case 'assignment':
       return <Edit className="w-4 h-4" />;
+    case 'assessment':
     case 'quiz':
       return <BookOpen className="w-4 h-4" />;
     default:
@@ -232,6 +233,7 @@ const getStepTagColor = (type: string) => {
       return 'bg-blue-100 text-blue-700';
     case 'assignment':
       return 'bg-purple-100 text-purple-700';
+    case 'assessment':
     case 'quiz':
       return 'bg-yellow-100 text-yellow-700';
     case 'discussion':
@@ -241,10 +243,12 @@ const getStepTagColor = (type: string) => {
   }
 };
 
-const isPracticeStep = (type: string) => type === 'assignment' || type === 'quiz';
+const isPracticeStep = (type: string) =>
+  type === 'assignment' || type === 'quiz' || type === 'assessment';
 
 const getNextStepLabel = (type: string) => {
   switch (type) {
+    case 'assessment':
     case 'quiz':
       return 'quiz';
     case 'document':
@@ -1205,7 +1209,7 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({
                       <p className={`mb-1 text-[11px] font-semibold ${
                         message.sender === 'student' ? 'text-blue-100' : 'text-slate-500'
                       }`}>
-                        {message.sender === 'student' ? 'You' : 'AI Tutor'}
+                        {message.sender === 'student' ? 'You' : 'Kuziva'}
                       </p>
                       {message.text}
                     </div>
@@ -1290,7 +1294,7 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({
                   disabled={!selectedStepId}
                   className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
                 >
-                  {nextStep ? `Up next: ${getNextStepLabel(nextStep.type)}` : 'Mark plan complete'}
+                  {nextStep ? `Up next: ${getNextStepLabel(nextStep.type)}` : 'Complete Plan'}
                 </button>
               </div>
             </footer>
@@ -1313,7 +1317,7 @@ const StudentPlanView: React.FC<StudentPlanViewProps> = ({
                 disabled={!selectedStepId}
                 className="inline-flex items-center rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed"
               >
-                {nextStep ? `Up next: ${getNextStepLabel(nextStep.type)}` : 'Mark plan complete'}
+                {nextStep ? `Up next: ${getNextStepLabel(nextStep.type)}` : 'Complete Plan'}
               </button>
             </div>
           </div>

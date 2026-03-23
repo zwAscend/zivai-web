@@ -59,7 +59,7 @@ const StudentMasteryGaps: React.FC<StudentMasteryGapsProps> = ({
                     onClick={() => onOpenTutor(`Help me understand ${skill.name} and practice it.`)}
                     className="mt-4 text-xs text-blue-600 hover:text-blue-700"
                   >
-                    Ask AI Tutor for guidance
+                    Ask Kuziva for guidance
                   </button>
                 )}
               </div>
