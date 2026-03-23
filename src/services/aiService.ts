@@ -1,4 +1,5 @@
 import { fetchData } from './api';
+import { buildAiAgentsUrl, ensureAiBackendReady } from './aiBackend';
 import { Assessment, SubjectAttribute, Question } from '../types';
 
 interface AttributeInput {
@@ -55,7 +56,7 @@ interface AssessmentGenerationRequest {
 }
 
 // API endpoints for the new assessment generation service
-const ASSESSMENT_API_BASE = 'http://localhost:8000/api/v1/agents';
+const ASSESSMENT_API_BASE = buildAiAgentsUrl('/');
 const OCR_ENDPOINT = `${ASSESSMENT_API_BASE}/ocr/general`;
 const ASSESSMENT_GENERATION_ENDPOINT = `${ASSESSMENT_API_BASE}/teacher/assessment-generation`;
 
@@ -66,6 +67,7 @@ export const aiService = {
    */
   processDocumentsWithOCR: async (files: File[]): Promise<OCRDocument[]> => {
     try {
+      await ensureAiBackendReady();
       const ocrResults: OCRDocument[] = [];
       
       for (const file of files) {
@@ -97,6 +99,7 @@ export const aiService = {
    */
   generateQuestions: async (params: GenerateQuestionsParams): Promise<Question[]> => {
     try {
+      await ensureAiBackendReady();
       console.log('Generating questions with new API, params:', params);
       
       // Check if params.attributes is an array of strings (IDs) or objects with name property

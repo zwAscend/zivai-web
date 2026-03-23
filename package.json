@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "verify:ai-contract": "python3 ../scripts/verify_zivai_ai_contract.py"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.0.0",

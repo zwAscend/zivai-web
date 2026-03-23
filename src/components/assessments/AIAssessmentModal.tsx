@@ -42,7 +42,7 @@ export function AIAssessmentModal({
   isOpen, 
   onClose, 
   subjectId, 
-  onAssessmentCreated: _onAssessmentCreated,
+  onAssessmentCreated,
   assessmentToEdit,
   inline = false,
   forceExpanded,
@@ -50,6 +50,8 @@ export function AIAssessmentModal({
   onSwitchToManual,
   showModeSwitch
 }: AIAssessmentModalProps) {
+  void onAssessmentCreated;
+
   // State management
   const [isLoading, setIsLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -104,13 +106,25 @@ export function AIAssessmentModal({
     }
   }, [forceExpanded]);
 
+  const downloadQuestionPack = (content: string, filename: string) => {
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+  };
+
   const fetchSubjects = async () => {
     try {
       setIsLoading(true);
       const response = await subjectService.getTeachingSubjects();
 
       if (response && Array.isArray(response)) {
-        const subjectsWithIds = response.map((subject: any) => ({
+        const subjectsWithIds: Subject[] = response.map((subject: Subject) => ({
           ...subject,
           id: subject.id,
           code: subject.code || '',
@@ -120,7 +134,7 @@ export function AIAssessmentModal({
         setSubjects(subjectsWithIds);
 
         if (assessmentToEdit) {
-          const currentSubject = subjectsWithIds.find((c: any) => c.id === subjectId);
+          const currentSubject = subjectsWithIds.find((candidate) => candidate.id === subjectId);
           if (currentSubject) {
             setSelectedSubject(currentSubject);
             setStep('details');
@@ -129,7 +143,7 @@ export function AIAssessmentModal({
         }
 
         if (subjectId) {
-          const currentSubject = subjectsWithIds.find((c: any) => c.id === subjectId);
+          const currentSubject = subjectsWithIds.find((candidate) => candidate.id === subjectId);
           if (currentSubject) {
             setSelectedSubject(currentSubject);
           }
@@ -334,31 +348,26 @@ export function AIAssessmentModal({
         return `${number}. ${q.text}\n${options}\n   Answer: ${correctLetter}\n   Explanation: ${q.explanation || 'N/A'}\n`;
       }).join('\n');
 
-      const payload = {
-        text: questionText.trim(),
-        filename: formData.name?.replace(/\s+/g, '_').toLowerCase() || 'assessment_questions'
-      };
+      const normalizedFilename = formData.name?.replace(/\s+/g, '_').toLowerCase() || 'assessment_questions';
+      const questionPack = [
+        `Assessment: ${formData.name || 'Untitled Assessment'}`,
+        `Subject: ${selectedSubject?.name || 'Unknown Subject'}`,
+        `Difficulty: ${formData.difficulty}`,
+        `Question Count: ${questions.length}`,
+        '',
+        questionText.trim(),
+      ].join('\n');
 
-      const pdfResponse = await fetch('http://127.0.0.1:8000/api/generate-pdf/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload)
-      });
+      downloadQuestionPack(questionPack, `${normalizedFilename}.txt`);
 
-      if (!pdfResponse.ok) {
-        const errorText = await pdfResponse.text();
-        throw new Error(`PDF generation failed: ${errorText}`);
-      }
-
-      toast.success('Assessment created and PDF generated successfully!');
+      toast.success('Question pack downloaded successfully.');
       resetForm();
       onClose();
 
-    } catch (error: any) {
-      console.error('Error generating PDF:', error);
-      toast.error(`Failed to generate PDF: ${error.message}`);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      console.error('Error downloading question pack:', error);
+      toast.error(`Failed to download question pack: ${message}`);
     } finally {
       setIsSubmitting(false);
     }

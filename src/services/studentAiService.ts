@@ -1,3 +1,5 @@
+import { buildAiAgentsUrl, ensureAiBackendReady } from './aiBackend';
+
 export interface StudentAiReferenceDocument {
   documentName: string;
   markdown: string;
@@ -72,7 +74,7 @@ export interface StudentChallengeGenerationResponse {
   questions: StudentChallengeQuestion[];
 }
 
-const STUDENT_AI_BASE = 'http://localhost:8000/api/v1/agents/student';
+const STUDENT_AI_BASE = buildAiAgentsUrl('/student');
 const STUDENT_TUTOR_ENDPOINT = `${STUDENT_AI_BASE}/tutor`;
 const STUDENT_CHALLENGE_ENDPOINT = `${STUDENT_AI_BASE}/challenge-generation`;
 
@@ -110,6 +112,7 @@ const buildError = async (response: Response, prefix: string): Promise<Error> =>
 
 export const studentAiService = {
   askTutor: async (payload: StudentTutorRequest): Promise<StudentTutorResponse> => {
+    await ensureAiBackendReady();
     const response = await fetch(STUDENT_TUTOR_ENDPOINT, {
       method: 'POST',
       headers: {
@@ -143,6 +146,7 @@ export const studentAiService = {
   generateChallenge: async (
     payload: StudentChallengeGenerationRequest
   ): Promise<StudentChallengeGenerationResponse> => {
+    await ensureAiBackendReady();
     const response = await fetch(STUDENT_CHALLENGE_ENDPOINT, {
       method: 'POST',
       headers: {

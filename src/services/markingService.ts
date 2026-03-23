@@ -1,4 +1,5 @@
 import { Assessment } from '../types';
+import { buildAiApiUrl, ensureAiBackendReady } from './aiBackend';
 
 export interface MarkingResult {
   marks: number;
@@ -26,7 +27,7 @@ type OcrDocument = {
   markdown: string;
 };
 
-const AI_API_BASE = 'http://localhost:8000/api/v1';
+const AI_API_BASE = buildAiApiUrl('/');
 const OCR_ENDPOINT = `${AI_API_BASE}/agents/ocr/general`;
 const GRADE_ASSESSMENT_ENDPOINT = `${AI_API_BASE}/grade/assessment`;
 
@@ -97,6 +98,7 @@ const readTextLikeFile = async (file: File): Promise<OcrDocument[]> => {
 };
 
 const extractSubmissionText = async (file: File): Promise<OcrDocument[]> => {
+  await ensureAiBackendReady();
   if (
     file.type === 'text/plain'
     || file.type === 'text/markdown'
@@ -181,6 +183,7 @@ const mapObjectiveSelectionToText = (answerText: string, question: AssessmentQue
 
 export const markingService = {
   async markDocument(file: File, assessment: Assessment, studentId?: string): Promise<MarkingResult> {
+    await ensureAiBackendReady();
     const questions = parseAssessmentQuestions(assessment);
     if (questions.length === 0) {
       throw new Error('The selected assessment has no question structure to mark against.');
